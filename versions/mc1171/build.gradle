@@ -1,0 +1,44 @@
+// S1mp1e Client — 1.16.5 line (Fabric).
+// The glass render layer (4 GLSL-120 programs + immediate-mode GlassRenderer)
+// is the SAME code as the 1.8.9/1.12.2 lines — 1.16.5 still has the fixed-
+// function pipeline (glBegin/glEnd, gl_ModelViewProjectionMatrix, gl_Color).
+// Only the plumbing changes: Forge coremod/events -> Fabric mixins + entrypoint,
+// and MC API names go yarn (Minecraft->MinecraftClient, ResourceLocation->
+// Identifier, mc.displayWidth->mc.getWindow().getWidth()).
+//
+// Toolchain: JDK8 target via --release 8, Gradle 8.10 + Loom 1.7 on JDK21.
+plugins {
+    id 'fabric-loom' version '1.7.4'
+}
+
+version = project.mod_version
+group = project.maven_group
+base { archivesName = project.archives_base_name }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") { expand "version": project.version }
+}
+
+// 1.16.5 runs on Java 8; emit Java-8 bytecode.
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 16
+    it.options.encoding = 'UTF-8'
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_16
+    targetCompatibility = JavaVersion.VERSION_16
+}
+

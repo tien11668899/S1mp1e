@@ -1,0 +1,41 @@
+// Root build script — shared repositories only. All real work is in the
+// subprojects (kernel, adapter-api) and the per-MC-version subprojects under
+// versions/ which run their own separate builds via their own wrappers.
+subprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'maven-publish'
+
+    group = 'com.s1mp1e'
+    version = '0.1.0'
+
+    repositories {
+        mavenCentral()
+    }
+
+    // JDK 8 bytecode target — kernel and adapter-api must load in every MC
+    // version, oldest being 1.8.9 on Java 8.
+    java {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+        withSourcesJar()
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+
+    // Allow a plain `public static void main` smoke class as a "test" so we can
+    // run kernel end-to-end without pulling in JUnit for a proof-of-life check.
+    tasks.withType(Test).configureEach {
+        // no JUnit yet — don't fail the build when no tests are discovered
+        setProperty('failOnNoDiscoveredTests', false)
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+            }
+        }
+    }
+}

@@ -1,0 +1,148 @@
+package dev.s1mp1e.glass.render;
+
+import net.minecraft.client.MinecraftClient;
+import com.mojang.blaze3d.platform.GlStateManager;
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
+
+/**
+ * Replaces vanilla's tiled dirt background on world-less screens with the title
+ * screen's own frame, blurred — the 1.8.9 equivalent of 26.2's native menu blur.
+ *
+ * <p>The source is the panorama ALONE — captured from an ASM hook the instant
+ * {@code GuiMainMenu.renderSkybox} returns, before the logo, splash and buttons
+ * are drawn. Grabbing the finished title frame instead would blur the title
+ * artwork and ghost the buttons into the backdrop. Once you leave the main menu
+ * nothing re-captures, so the panorama simply stays frozen behind the menus.
+ */
+public final class MenuBackdrop {
+
+    /** Blur strength in physical px, and how far the result is darkened. */
+    private static final float RADIUS = 14f;
+    private static final float DIM    = 0.35f;
+
+    private static int texture = 0;
+    private static int texW = 0, texH = 0;
+    private static boolean hasFrame = false;
+
+    /** ~30 captures a second is far more than a slow panorama pan needs. */
+    private static final long CAPTURE_GAP_NS = 33_000_000L;
+    private static long lastCaptureNanos = 0L;
+
+    private MenuBackdrop() {}
+
+    /** True once a title-screen frame has been captured. */
+    public static boolean ready() {
+        return hasFrame && texture != 0
+            && GlassProgram.ensureReady() && GlassProgram.blurUsable();
+    }
+
+    /**
+     * Snapshot the panorama. Driven from an ASM hook placed immediately after
+     * {@code GuiMainMenu.renderSkybox} returns, because that is the only point
+     * where the title screen's BACKGROUND is on screen by itself — capturing at
+     * end-of-frame would bake in the logo, splash text and buttons and blur
+     * those too.
+     */
+    public static void capture() {
+        // Throttled: the panorama pans slowly and this freezes the moment you
+        // leave the menu anyway, so a full-screen copy every frame is waste.
+        long now = System.nanoTime();
+        if (now - lastCaptureNanos < CAPTURE_GAP_NS) return;
+        lastCaptureNanos = now;
+
+        MinecraftClient mc = MinecraftClient.getInstance();
+        int w = s1mp1e$vpW(), h = s1mp1e$vpH();
+        if (w <= 0 || h <= 0) return;
+
+        int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        if (texture == 0 || texW != w || texH != h) {
+            if (texture != 0) GL11.glDeleteTextures(texture);
+            texture = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+            // Level 0 must exist before glCopyTexSubImage2D, and the min filter
+            // must not be a mipmap filter — an incomplete texture makes GL act
+            // as if texturing were off, which renders flat white.
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB, w, h, 0,
+                              GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, (java.nio.ByteBuffer) null);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            texW = w; texH = h;
+        } else {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+        }
+        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
+        hasFrame = true;
+    }
+
+    /** Draw the blurred backdrop full-screen. False -> caller draws the dirt. */
+    public static boolean draw() {
+        if (!ready()) return false;
+
+        MinecraftClient mc = MinecraftClient.getInstance();
+        // GUI-SCALED quad size (NOT the framebuffer viewport). The capture texture is
+        // framebuffer-sized; the quad lives in the scaled GUI ortho, so a viewport-sized
+        // quad would show only a magnified top-left corner. UV 0..1 maps the texture.
+        float w = s1mp1e$scaledW();
+        float h = s1mp1e$scaledH();
+
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
+                        | GL11.GL_CURRENT_BIT | GL11.GL_TEXTURE_BIT);
+        GL11.glDisable(GL11.GL_BLEND);          // opaque: it IS the background
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+
+        GlassProgram.bind(GlassProgram.BLUR);
+        GlassProgram.setBlur(RADIUS, DIM);
+
+        // capture is framebuffer space (origin bottom-left); GUI space is
+        // top-left, but the shader derives its UV from gl_FragCoord, so the
+        // quad only needs to cover the screen.
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, 0f);
+        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, h);
+        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(w,  h);
+        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(w,  0f);
+        GL11.glEnd();
+
+        GlassProgram.unbind();
+        GL11.glDepthMask(true);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glPopAttrib();
+        GlStateManager.bindTexture(0);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        return true;
+    }
+
+    // 1.13.2 (Legacy Fabric): mc.window unmapped -> read the GL viewport.
+    // NOTE: menu-blur/screen-dissolve are secondary; TODO exact scaled dims.
+    private static final java.nio.IntBuffer S1MP1E_VP = BufferUtils.createIntBuffer(16);
+    private static int s1mp1e$vpW() { S1MP1E_VP.clear(); GL11.glGetIntegerv(GL11.GL_VIEWPORT, S1MP1E_VP); return S1MP1E_VP.get(2); }
+    private static int s1mp1e$vpH() { S1MP1E_VP.clear(); GL11.glGetIntegerv(GL11.GL_VIEWPORT, S1MP1E_VP); return S1MP1E_VP.get(3); }
+
+    // GUI-scaled dims from the active ortho projection (Window.getScaledWidth is unmapped
+    // in build.604): glOrtho sets m[0]=2/scaledW, m[5]=-2/scaledH — invert. Falls back to
+    // the viewport if the projection isn't ortho.
+    private static final java.nio.FloatBuffer S1MP1E_PROJ = BufferUtils.createFloatBuffer(16);
+    private static float s1mp1e$scaledW() {
+        S1MP1E_PROJ.clear();
+        GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, S1MP1E_PROJ);
+        float m0 = S1MP1E_PROJ.get(0);
+        return (Math.abs(m0) > 1e-6f) ? Math.abs(2f / m0) : s1mp1e$vpW();
+    }
+    private static float s1mp1e$scaledH() {
+        S1MP1E_PROJ.clear();
+        GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, S1MP1E_PROJ);
+        float m5 = S1MP1E_PROJ.get(5);
+        return (Math.abs(m5) > 1e-6f) ? Math.abs(2f / m5) : s1mp1e$vpH();
+    }
+}

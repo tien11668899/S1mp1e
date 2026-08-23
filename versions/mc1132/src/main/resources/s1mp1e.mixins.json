@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "dev.s1mp1e.glass.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "client": [
+    "ButtonGlassMixin",
+    "InGameHudMixin", "PlayerInventoryAccessor",
+    "MinecraftClientFadeMixin", "ScreenFadeMixin", "InGameHudFadeMixin",
+    "ScreenTooltipMixin", "InGameHudTooltipGhostMixin",
+    "HandledScreenGlassMixin", "InventoryGlassMixin", "MinecraftClientContainerGhostMixin",
+    "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin",
+    "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin",
+    "RecipeToggleGlassMixin", "CreativeGlassMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <RootNamespace>S1mp1e</RootNamespace>
+    <AssemblyName>S1mp1e</AssemblyName>
+    <ApplicationIcon>Assets\s1mp1e.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.1" />
+  </ItemGroup>
+
+  <!-- vendor is built via ProjectReference only; keep its sources out of THIS project's globs -->
+  <ItemGroup>
+    <Compile Remove="vendor\**\*.cs" />
+    <AvaloniaXaml Remove="vendor\**" />
+    <AvaloniaResource Remove="vendor\**" />
+    <None Remove="vendor\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="vendor\LiquidGlassAvaloniaUI\LiquidGlassAvaloniaUI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+</Project>

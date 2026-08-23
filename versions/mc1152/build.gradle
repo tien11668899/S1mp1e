@@ -1,0 +1,56 @@
+// S1mp1e Client — 1.16.5 line (Fabric).
+// The glass render layer (4 GLSL-120 programs + immediate-mode GlassRenderer)
+// is the SAME code as the 1.8.9/1.12.2 lines — 1.16.5 still has the fixed-
+// function pipeline (glBegin/glEnd, gl_ModelViewProjectionMatrix, gl_Color).
+// Only the plumbing changes: Forge coremod/events -> Fabric mixins + entrypoint,
+// and MC API names go yarn (Minecraft->MinecraftClient, ResourceLocation->
+// Identifier, mc.displayWidth->mc.getWindow().getWidth()).
+//
+// Toolchain: JDK8 target via --release 8, Gradle 8.10 + Loom 1.7 on JDK21.
+plugins {
+    id 'fabric-loom' version '1.7.4'
+}
+
+version = project.mod_version
+group = project.maven_group
+base { archivesName = project.archives_base_name }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") { expand "version": project.version }
+}
+
+// 1.16.5 runs on Java 8; emit Java-8 bytecode.
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 8
+    it.options.encoding = 'UTF-8'
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+// MC 1.16.5 renders a white screen on JDK16+ — Loom pulls LWJGL 3.3.2, which
+// logs "Unsupported JNI version detected" on modern JVMs and the GL path breaks.
+// Gradle 8/Loom need JDK21 to RUN, but the GAME must run on Java 8 (its native
+// runtime). Point every Loom run task at the registered JDK 8 toolchain.
+def s1mp1eJava8 = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(8)
+}
+tasks.withType(JavaExec).configureEach {
+    if (name.toLowerCase().contains('run')) {
+        javaLauncher = s1mp1eJava8
+    }
+}

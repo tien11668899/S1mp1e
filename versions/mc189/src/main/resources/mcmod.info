@@ -1,0 +1,12 @@
+[
+  {
+    "modid": "s1mp1e",
+    "name": "S1mp1e Client",
+    "description": "Liquid glass UI for Minecraft 1.8.9 — a port of the 26.2 line. Snell refraction, chromatic dispersion, Fresnel edge light and measured Apple springs. No tint, no gimmicks.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "authorList": ["S1mp1e"],
+    "credits": "Refraction model after reglass / liquid-glass-studio"
+  }
+]

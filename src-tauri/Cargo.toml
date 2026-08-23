@@ -1,0 +1,27 @@
+[package]
+name = "s1mp1e"
+version = "0.1.0"
+description = "S1mp1e — liquid glass Minecraft launcher (1.8.9 → 26.2)"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+window-vibrancy = "0.6"
+# L2 install pipeline
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
+futures-util = "0.3"
+sha1_smol = "1"
+zip = "2"
+dirs = "5"
+anyhow = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

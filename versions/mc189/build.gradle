@@ -1,0 +1,63 @@
+// S1mp1e Client — 1.8.9 line.
+// A port of LiquidGlass26 (the 26.2 mod) onto MC 1.8.9's OpenGL 2.1 stack.
+// Same measured Apple parameters, same Snell refraction model, same springs —
+// only the plumbing differs (GLSL 120 + immediate mode instead of blaze3d).
+//
+// Toolchain: JDK8 + Gradle 2.14 + ForgeGradle 2.1-SNAPSHOT.
+//   $env:JAVA_HOME="C:\Temp\jdk8dl\jdk8u502-b07"; .\gradlew.bat build
+
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { name = "forge";  url = "https://maven.minecraftforge.net/" }
+        maven { name = "sponge"; url = "https://repo.spongepowered.org/maven" }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+
+version          = "0.1.0"
+group            = "dev.s1mp1e"
+archivesBaseName = "s1mp1e-1.8.9"
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+tasks.withType(JavaCompile) { options.encoding = 'UTF-8' }
+compileJava.options.encoding = 'UTF-8'
+
+minecraft {
+    version  = "1.8.9-11.15.1.2318-1.8.9"
+    runDir   = "run"
+    mappings = "stable_22"
+}
+
+jar {
+    manifest {
+        attributes(
+            'Implementation-Title'  : 'S1mp1e Client',
+            'Implementation-Version': project.version,
+            // Coremod: Forge 1.8.9 has no button-render event and no way to
+            // cancel a container's background blit, so the glass has to replace
+            // them in bytecode. FMLCorePluginContainsFMLMod tells FML the same
+            // jar also carries a normal @Mod.
+            'FMLCorePlugin'                 : 'dev.s1mp1e.glass.asm.S1mp1eLoadingPlugin',
+            'FMLCorePluginContainsFMLMod'   : 'true'
+        )
+    }
+}
+
+processResources {
+    inputs.property "version",   project.version
+    inputs.property "mcversion", project.minecraft.version
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': project.minecraft.version
+    }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+}
