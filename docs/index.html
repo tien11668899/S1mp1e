@@ -3,674 +3,505 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>S1mp1e — Liquid Glass Minecraft Launcher</title>
-<meta name="description" content="Apple 液態玻璃風格的 Minecraft 客戶端與啟動器。支援 1.8.9 到 26.2,Fabric 加載,Modrinth 一鍵下載,MSA 登入。">
+<title>S1mp1e — 液態玻璃 Minecraft 啟動器</title>
+<meta name="description" content="Apple 液態玻璃美學的 Minecraft 客戶端與啟動器。從 1.8.9 到 26.2 一鍵開玩,Modrinth 直搜下載,Microsoft 帳號登入。">
 <meta property="og:title" content="S1mp1e — Liquid Glass Minecraft Launcher">
-<meta property="og:description" content="Apple 液態玻璃 UI · 支援 1.8.9→26.2 · Modrinth 一鍵安裝 · 皮膚匯入 · 中文譯本">
+<meta property="og:description" content="液態玻璃 UI · 支援 1.8.9 到 26.2 · Modrinth 直搜 · MSA 登入">
 <meta property="og:image" content="https://tien11668899.github.io/S1mp1e/assets/icon.png">
 <link rel="icon" href="assets/icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Instrument+Serif:ital@1&display=swap">
 <style>
-html, body { background: #000000 !important; color: #ffffff; }
-html, body { background: #000000; background: var(--bg, #000000); color: #ffffff; color: var(--text, #ffffff); }
+html, body { background: #fbfbfd; color: #1d1d1f; }
 
 :root {
-    --bg: #000000;
-    --text: #ffffff;
-    --muted: #9a9a9a;
-    --stat: #d8d8d8;
-    --border: rgba(255, 255, 255, 0.16);
-    --border-soft: rgba(255, 255, 255, 0.12);
-
-    --logo: 15.5px;
-    --logo-mark: 22px;
-    --nav: 14px;
-    --nav-h: 40px;
-    --btn: 13.5px;
-    --btn-h: 40px;
-    --hero-btn-h: 42px;
-    --h1: 48px;
-    --lede: 15.5px;
-    --badge: 12.5px;
-    --stat-size: 13.5px;
-    --header-y: 22px;
-    --header-x: 40px;
-    --stats-x: 72px;
-    --stats-y: 36px;
-    --hero-gap: 85px;
-    --copy-max: 860px;
-    --lede-max: 470px;
-
-    --font-ui: "PingFang TC", "PingFang SC", "SF Pro Text", -apple-system,
-               BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", Inter,
-               system-ui, sans-serif;
-    --font-serif: "Instrument Serif", "PingFang TC", "Times New Roman", Times, serif;
+    --ink: #1d1d1f;
+    --ink-2: #6e6e73;
+    --ink-3: #86868b;
+    --canvas: #fbfbfd;
+    --canvas-pearl: #f5f5f7;
+    --canvas-tile: #ffffff;
+    --dark: #000000;
+    --dark-tile: #161617;
+    --accent: #0066cc;
+    --accent-hover: #0077ed;
+    --hairline: #d2d2d7;
+    --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont,
+                    "PingFang TC", "PingFang SC", "Helvetica Neue",
+                    "Microsoft JhengHei", sans-serif;
+    --font-text: "SF Pro Text", -apple-system, BlinkMacSystemFont,
+                 "PingFang TC", "PingFang SC", "Helvetica Neue",
+                 "Microsoft JhengHei", sans-serif;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
 body {
-    font-family: var(--font-ui);
-    -webkit-font-smoothing: antialiased;
+    font-family: var(--font-text);
+    font-size: 17px;
+    line-height: 1.47059;
+    letter-spacing: -0.022em;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     overflow-x: hidden;
-    position: relative;
 }
-a { color: inherit; text-decoration: none; }
-button { font-family: inherit; border: none; background: none; cursor: pointer; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { max-width: 100%; height: auto; display: block; }
+button { font-family: inherit; border: 0; background: none; cursor: pointer; }
 
-/* Ambient background */
-.hero-photo {
-    position: fixed; inset: 0; z-index: 0;
-    background:
-        radial-gradient(ellipse at 25% 15%, rgba(94, 92, 230, 0.12) 0%, transparent 45%),
-        radial-gradient(ellipse at 78% 68%, rgba(10, 132, 255, 0.10) 0%, transparent 50%),
-        radial-gradient(ellipse at 50% 100%, rgba(191, 90, 242, 0.06) 0%, transparent 60%),
-        #000;
+/* -------- Nav (persistent, translucent) -------- */
+.nav {
+    position: sticky; top: 0; z-index: 50;
+    height: 44px;
+    background: rgba(251, 251, 253, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(0,0,0,0.06);
 }
-.hero-photo::after {
-    content: "";
-    position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 25%, transparent 70%, rgba(0,0,0,0.6) 100%);
+.nav-inner {
+    max-width: 980px;
+    height: 100%;
+    margin: 0 auto;
+    padding: 0 22px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 14px;
+    color: var(--ink);
 }
-.grain {
-    position: fixed; inset: 0; z-index: 100;
-    pointer-events: none;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.9'/></svg>");
-}
-
-.page {
-    position: relative; z-index: 1;
-    display: grid; grid-template-rows: auto 1fr auto;
-    min-height: 100vh;
-    min-height: 100dvh;
-}
-
-/* Header */
-.header {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    padding: var(--header-y) var(--header-x) 10px;
-    position: relative;
-    z-index: 50;
-}
-.logo {
-    display: inline-flex; align-items: center; gap: 9px;
-    justify-self: start;
-    font-size: var(--logo); font-weight: 600;
-    letter-spacing: -0.03em; color: #fff;
-}
-.logo img {
-    width: var(--logo-mark); height: var(--logo-mark);
-    border-radius: 6px;
-}
-.logo-suffix { font-weight: 400; color: rgba(255,255,255,0.75); }
-
-nav.nav {
-    display: flex; align-items: center; gap: 8px;
-    justify-self: center;
-}
-.nav a {
-    height: var(--nav-h); padding: 0 18px;
-    display: inline-flex; align-items: center;
-    border-radius: 7px; position: relative; overflow: hidden;
-    border: 1px solid rgba(198, 198, 198, 0.55);
-    background: linear-gradient(105deg, #050505 0%, #2a2a2a 48%, #4a4a4a 100%);
-    color: #f3f3f3;
-    font-size: var(--nav); font-weight: 400;
-    letter-spacing: -0.01em; white-space: nowrap;
-    transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
-}
-.nav a::before {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.16) 50%, transparent 70%);
-    transform: translateX(-120%);
-    transition: transform 0.6s ease;
-}
-.nav a:hover {
-    border-color: rgba(235, 235, 235, 0.9);
-    background: linear-gradient(105deg, #111 0%, #3a3a3a 45%, #6a6a6a 100%);
-    box-shadow: 0 0 18px rgba(200, 210, 230, 0.18);
-}
-.nav a:hover::before { transform: translateX(120%); }
-
-.header-cta { justify-self: end; }
-
-/* Buttons */
-.btn {
-    position: relative; isolation: isolate; overflow: hidden;
-    display: inline-flex; align-items: center; justify-content: center;
-    height: var(--btn-h); padding: 0 16px;
-    border-radius: 6px;
-    font-size: var(--btn); font-weight: 500;
-    letter-spacing: -0.02em; line-height: 1;
-    white-space: nowrap; cursor: pointer;
-    transition: background 0.35s ease, border-color 0.35s ease,
-                box-shadow 0.35s ease, color 0.35s ease, filter 0.35s ease;
-}
-.btn::after {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.45) 48%, transparent 76%);
-    transform: translateX(-130%);
-    transition: transform 0.65s ease;
-}
-.btn:hover::after { transform: translateX(130%); }
-
-.btn-solid {
-    background: linear-gradient(180deg, #ffffff 0%, #e7e7e7 48%, #cfcfcf 100%);
-    color: #111; border: 1px solid #fff;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.95);
-}
-.btn-solid:hover {
-    background: linear-gradient(180deg, #ffffff 0%, #f3f6ff 42%, #d5def2 100%);
-    border-color: #f2f6ff;
-    box-shadow: inset 0 1px 0 #fff, 0 0 22px rgba(186,208,255,0.35), 0 8px 18px rgba(255,255,255,0.12);
-}
-.hero-solid.btn-solid:hover {
-    box-shadow: inset 0 1px 0 #fff, 0 0 26px rgba(186,208,255,0.4), 0 8px 18px rgba(255,255,255,0.14);
-}
-
-.btn-ghost {
-    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(0,0,0,0.45) 50%, rgba(160,175,200,0.08));
-    color: #fff;
-    border: 1px solid rgba(198,198,198,0.45);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
-}
-.btn-ghost:hover {
-    background: linear-gradient(135deg, rgba(210,225,255,0.18), rgba(0,0,0,0.35) 48%, rgba(180,195,220,0.16));
-    border-color: rgba(220,230,255,0.75);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 20px rgba(170,200,255,0.22);
-}
-
-.hero-ghost {
-    background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(0,0,0,0.5) 46%, rgba(150,170,200,0.1));
-    border: 1px solid rgba(198,198,198,0.55);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-}
-.hero-ghost:hover {
-    border-color: rgba(220,230,255,0.8);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 24px rgba(170,200,255,0.28);
-}
-
-.hero-actions .btn { height: var(--hero-btn-h); padding: 0 18px; }
-
-/* Burger (mobile) */
-.burger {
-    display: none;
-    width: 42px; height: 42px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: rgba(8,8,8,0.55);
-    justify-self: end;
-    align-items: center; justify-content: center; gap: 5px;
-    flex-direction: column;
-    z-index: 60;
-    transition: border-color 0.2s, background 0.2s;
-}
-.burger:hover { border-color: rgba(255,255,255,0.32); background: rgba(255,255,255,0.05); }
-.burger span {
-    display: block;
-    width: 16px; height: 1.5px;
-    background: #fff; border-radius: 1px;
-    transition: transform 0.25s ease, opacity 0.2s ease;
-}
-body.menu-open .burger span:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
-body.menu-open .burger span:nth-child(2) { opacity: 0; }
-body.menu-open .burger span:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
-
-.menu-backdrop { display: none; }
-
-/* Hero */
-.hero {
-    display: flex; align-items: flex-end; justify-content: center;
-    padding: 8px 24px var(--hero-gap);
-    min-height: 0;
-}
-.hero-copy {
-    position: relative; z-index: 1;
-    display: flex; flex-direction: column; align-items: center;
-    text-align: center;
-    max-width: var(--copy-max); width: 100%;
-}
-.badge {
+.nav-inner a { color: inherit; text-decoration: none; font-weight: 400; letter-spacing: -0.01em; }
+.nav-inner a:hover { color: #000; }
+.nav-brand {
     display: inline-flex; align-items: center; gap: 8px;
-    margin-bottom: 22px;
-    padding: 9px 15px;
-    border: 0; border-radius: 5px;
-    background: linear-gradient(90deg, #7d7d7d 0%, #2a2a2a 52%, #0a0a0a 100%);
-    color: #f2f2f2;
-    font-size: var(--badge); font-weight: 400;
-    letter-spacing: -0.01em;
+    font-weight: 600; font-size: 20px;
+    letter-spacing: -0.02em;
 }
-.badge-star { filter: drop-shadow(0 0 3px rgba(255,255,255,0.45)); }
+.nav-brand img { width: 20px; height: 20px; border-radius: 4px; }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a { opacity: 0.88; transition: opacity .18s; }
+.nav-links a:hover { opacity: 1; }
+.nav-cta {
+    color: var(--accent) !important;
+    font-weight: 500 !important;
+}
 
-.hero h1 {
-    font-family: var(--font-ui);
-    font-weight: 500;
-    letter-spacing: -0.045em;
-    line-height: 1.12;
-    color: #fff;
-    font-size: var(--h1);
-    display: flex; flex-direction: column;
-    align-items: center;
+/* -------- Section shell -------- */
+.section {
+    padding: 100px 22px 90px;
+    text-align: center;
 }
-.headline-line {
-    display: block; overflow: hidden;
-    padding: 0.06em 0.15em 0.14em;
+.section.dark { background: var(--dark); color: #f5f5f7; }
+.section.pearl { background: var(--canvas-pearl); }
+.section.canvas { background: var(--canvas); }
+.section-inner { max-width: 980px; margin: 0 auto; }
+
+.eyebrow {
+    font-size: 21px; font-weight: 600;
+    letter-spacing: 0;
+    color: var(--ink);
+    margin-bottom: 6px;
 }
-.hero h1 em {
-    font-family: var(--font-serif);
-    font-style: italic; font-weight: 400;
-    font-size: 1.08em;
-    letter-spacing: -0.03em;
-    color: #9a9a9a;
+.dark .eyebrow { color: #f5f5f7; }
+
+h1, h2, h3 {
+    font-family: var(--font-display);
+    color: inherit;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    line-height: 1.05;
 }
+h1 { font-size: 96px; letter-spacing: -0.015em; }
+h2 { font-size: 56px; letter-spacing: -0.005em; line-height: 1.07; }
+h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
+
+.subhead {
+    font-family: var(--font-display);
+    font-size: 28px; font-weight: 400;
+    line-height: 1.14;
+    letter-spacing: 0.007em;
+    margin-top: 8px;
+    color: var(--ink);
+}
+.dark .subhead { color: #f5f5f7; }
 
 .lede {
-    max-width: var(--lede-max);
-    margin-top: 18px;
-    color: var(--muted);
-    font-size: var(--lede);
+    font-size: 21px; font-weight: 400;
+    line-height: 1.38;
+    letter-spacing: 0.011em;
+    margin-top: 12px;
+    color: var(--ink-2);
+    max-width: 620px; margin-left: auto; margin-right: auto;
+}
+.dark .lede { color: #a1a1a6; }
+
+.action-row {
+    margin-top: 24px;
+    display: flex; gap: 24px; justify-content: center; flex-wrap: wrap;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+}
+.action-row a {
+    color: var(--accent);
+    display: inline-flex; align-items: center; gap: 4px;
     font-weight: 400;
-    line-height: 1.55;
-    letter-spacing: -0.015em;
+    transition: color .18s;
+}
+.action-row a:hover { color: var(--accent-hover); text-decoration: none; }
+.action-row a::after { content: "›"; font-size: 20px; line-height: 1; transform: translateY(-1px); }
+.dark .action-row a { color: #2997ff; }
+.dark .action-row a:hover { color: #4ba8ff; }
+
+/* Solid pill button (used in hero + download) */
+.btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 44px; padding: 0 22px;
+    background: var(--accent); color: #fff;
+    border-radius: 980px;
+    font-size: 17px; font-weight: 400;
+    letter-spacing: -0.01em;
+    transition: background .2s;
+    text-decoration: none;
+}
+.btn:hover { background: var(--accent-hover); text-decoration: none; }
+.btn.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+.btn.secondary:hover { background: rgba(0,102,204,0.06); }
+.dark .btn.secondary { color: #2997ff; border-color: #2997ff; }
+.dark .btn.secondary:hover { background: rgba(41,151,255,0.12); }
+
+.btn-row {
+    margin-top: 28px;
+    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
 }
 
-.hero-actions {
+/* -------- Hero -------- */
+.hero { padding: 68px 22px 0; text-align: center; }
+.hero h1 {
+    margin: 0 auto;
+    max-width: 12ch;
+}
+.hero .subhead {
+    margin-top: 10px;
+    color: var(--ink);
+    max-width: 20ch;
+    margin-left: auto; margin-right: auto;
+}
+.hero .action-row { margin-top: 18px; margin-bottom: 40px; }
+
+.hero-photo {
+    margin: 0 auto;
+    max-width: 1200px;
+    padding: 0 22px;
+    position: relative;
+}
+.hero-photo img {
+    width: 100%; height: auto;
+    border-radius: 22px;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+/* -------- Product tiles -------- */
+.tiles {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px 12px 0;
+    max-width: 1440px;
+    margin: 0 auto;
+}
+.tile {
+    position: relative;
+    border-radius: 28px;
+    overflow: hidden;
+    padding: 60px 40px 0;
+    text-align: center;
+    min-height: 580px;
+    display: flex; flex-direction: column;
+    background: var(--canvas-tile);
+}
+.tile.dark { background: var(--dark-tile); color: #f5f5f7; }
+.tile.dark .subhead { color: #f5f5f7; }
+.tile.dark .lede { color: #a1a1a6; }
+.tile-copy { flex: 0 0 auto; }
+.tile-visual {
+    flex: 1 1 auto;
+    display: flex; align-items: center; justify-content: center;
+    padding: 32px 0 40px;
+    position: relative;
+}
+.tile-visual img {
+    max-height: 340px; width: auto;
+    border-radius: 14px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.15);
+}
+.tile.dark .tile-visual img { box-shadow: 0 30px 60px rgba(0,0,0,0.4); }
+
+/* Tile grid (small) */
+.tile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+.tile.compact {
+    min-height: 460px;
+    padding: 48px 32px 0;
+}
+.tile.compact h3 { font-size: 24px; }
+
+/* -------- Versions strip -------- */
+.versions {
     display: flex; flex-wrap: wrap; justify-content: center;
-    gap: 10px; margin-top: 26px;
+    gap: 10px;
+    max-width: 800px; margin: 40px auto 0;
+}
+.version-chip {
+    display: inline-flex; align-items: center;
+    height: 32px; padding: 0 14px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #f5f5f7;
+    border-radius: 999px;
+    font-size: 14px; font-weight: 400;
+    letter-spacing: -0.01em;
 }
 
-/* Stats */
-.stats {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 24px;
-    padding: 0 var(--stats-x) var(--stats-y);
-    padding-bottom: max(var(--stats-y), env(safe-area-inset-bottom));
-    color: var(--stat);
+/* -------- Glass badge visual (hero decoration) -------- */
+.glass-panel {
+    width: 100%; height: 200px;
+    margin: 40px auto 0;
+    max-width: 720px;
+    border-radius: 24px;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02) 60%),
+        radial-gradient(ellipse at 30% 20%, rgba(94,92,230,0.35) 0%, transparent 60%),
+        radial-gradient(ellipse at 75% 65%, rgba(10,132,255,0.35) 0%, transparent 55%);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.18);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.14);
+    position: relative;
+    overflow: hidden;
 }
-.stat {
-    display: inline-flex; align-items: center; gap: 14px;
-    font-size: var(--stat-size);
-    letter-spacing: -0.015em; white-space: nowrap;
-}
-.stat svg { color: #e8e8e8; }
-
-/* Appear */
-.appear { opacity: 1; }
-.appear:not(.is-in) {
-    animation-name: in-scale;
-    animation-duration: 1.05s;
-    animation-fill-mode: both;
-    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-    animation-delay: var(--d, 0.08s);
-}
-.appear.is-in {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
-    clip-path: none !important;
-    filter: none !important;
-}
-.hero-photo.is-in { opacity: 1; }
-
-.appear--scale:not(.is-in) { animation-name: in-scale; }
-.appear--soft:not(.is-in)  { animation-name: in-soft; }
-.appear--pop:not(.is-in)   { animation-name: in-pop; }
-.appear--mask:not(.is-in)  { animation-name: in-mask; }
-.appear--btn:not(.is-in)   { animation-name: in-btn; }
-.appear--side:not(.is-in)  { animation-name: in-side; }
-.appear--stat:not(.is-in)  { animation-name: in-stat; }
-
-@keyframes in-scale { from { opacity: 0; transform: scale(0.84); } to { opacity: 1; transform: scale(1); } }
-@keyframes in-soft  { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes in-mask  { from { opacity: 0; transform: translateY(40%); } to { opacity: 1; transform: translateY(0); } }
-@keyframes in-pop {
-    0% { opacity: 0; transform: scale(0.9); }
-    70% { opacity: 1; transform: scale(1.03); }
-    100% { opacity: 1; transform: scale(1); }
-}
-@keyframes in-btn { from { opacity: 0; transform: translateY(18px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes in-side { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes in-stat { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes in-star {
-    0% { transform: scale(0.2) rotate(-50deg); opacity: 0; }
-    65% { transform: scale(1.2) rotate(8deg); opacity: 1; }
-    100% { transform: scale(1) rotate(0); opacity: 1; }
-}
-@keyframes in-em {
-    from { opacity: 0.35; filter: blur(4px); }
-    to { opacity: 1; filter: blur(0); }
-}
-.badge-star { animation: in-star 0.9s cubic-bezier(0.16,1,0.3,1) 0.28s both; }
-.hero h1 em { animation: in-em 1.2s cubic-bezier(0.16,1,0.3,1) 0.72s both; }
-
-.appear--lede:not(.is-in) { animation-duration: 1.25s; }
-
-@media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { transition: none !important; animation: none !important; }
-    .appear, .hero-photo, .hero h1 em, .badge-star {
-        opacity: 1 !important; transform: none !important;
-        clip-path: none !important; filter: none !important;
-    }
+.glass-panel::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 50%, transparent 70%);
 }
 
-/* ≥1600 */
-@media (min-width: 1600px) {
-    :root {
-        --logo: 17px; --logo-mark: 24px;
-        --nav: 15px; --nav-h: 44px;
-        --btn: 15px; --btn-h: 44px; --hero-btn-h: 48px;
-        --h1: 64px; --lede: 18px; --badge: 13.5px; --stat-size: 15px;
-        --header-y: 28px; --header-x: 64px;
-        --stats-x: 96px; --stats-y: 44px;
-        --copy-max: 980px; --lede-max: 540px;
-    }
-    .nav a { padding: 0 20px; }
-    .badge { margin-bottom: 26px; }
-    .lede { margin-top: 22px; }
-    .hero-actions { margin-top: 30px; gap: 12px; }
+/* -------- Footer -------- */
+.foot {
+    background: var(--canvas-pearl);
+    padding: 44px 22px 20px;
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--ink-3);
 }
+.foot-inner { max-width: 980px; margin: 0 auto; }
+.foot p { margin-bottom: 8px; }
+.foot a { color: var(--ink-2); }
+.foot-divider { height: 1px; background: var(--hairline); margin: 20px 0; }
 
-/* ≥1920 */
-@media (min-width: 1920px) {
-    :root {
-        --logo: 18px; --logo-mark: 26px;
-        --nav: 16px; --nav-h: 48px;
-        --btn: 16px; --btn-h: 48px; --hero-btn-h: 52px;
-        --h1: 76px; --lede: 20px; --badge: 14.5px; --stat-size: 16px;
-        --header-y: 32px; --header-x: 80px;
-        --stats-x: 120px; --stats-y: 52px;
-        --copy-max: 1120px; --lede-max: 620px;
-    }
-    .nav { gap: 10px; }
-    .nav a { padding: 0 22px; }
-    .btn { padding: 0 22px; }
-    .badge { padding: 10px 15px; }
+/* -------- Responsive -------- */
+@media (max-width: 1068px) {
+    h1 { font-size: 76px; }
+    h2 { font-size: 48px; }
+    h3 { font-size: 28px; }
+    .subhead { font-size: 24px; }
+    .tile { padding: 48px 28px 0; min-height: 520px; }
 }
-
-/* ≥2560 */
-@media (min-width: 2560px) {
-    :root { --h1: 88px; --lede: 22px; --header-x: 120px; --stats-x: 160px; --copy-max: 1280px; --lede-max: 680px; }
-}
-
-/* 1280-1599 */
-@media (min-width: 1280px) and (max-width: 1599px) {
-    :root { --h1: 54px; --lede: 16px; --header-x: 48px; --stats-x: 80px; --copy-max: 900px; }
-}
-
-/* 901-1279 */
-@media (min-width: 901px) and (max-width: 1279px) {
-    :root {
-        --logo: 15px; --nav: 13px; --nav-h: 36px;
-        --btn: 13px; --btn-h: 38px; --hero-btn-h: 40px;
-        --h1: 42px; --lede: 15px; --badge: 12px; --stat-size: 12.5px;
-        --header-y: 16px; --header-x: 28px;
-        --stats-x: 36px; --stats-y: 28px;
-        --hero-gap: 64px; --copy-max: 760px; --lede-max: 440px;
-    }
-    .nav a { padding: 0 14px; }
-    .badge { margin-bottom: 16px; }
-    .lede { margin-top: 14px; }
-    .hero-actions { margin-top: 20px; }
-}
-
-@media (min-width: 901px) and (max-height: 850px) {
-    :root { --header-y: 14px; --stats-y: 24px; --hero-gap: 48px; --h1: 40px; }
-    .badge { margin-bottom: 12px; }
-    .lede { margin-top: 12px; }
-    .hero-actions { margin-top: 16px; }
-}
-@media (min-width: 901px) and (max-height: 720px) {
-    :root { --h1: 34px; --lede: 14px; --hero-gap: 32px; --stats-y: 18px; --nav-h: 30px; --btn-h: 34px; --hero-btn-h: 36px; }
-    .badge { margin-bottom: 8px; }
-}
-
-/* Desktop no-scroll lock */
-@media (min-width: 901px) {
-    html, body { height: 100%; overflow: hidden; }
-    .page { height: 100vh; height: 100dvh; overflow: hidden; }
-}
-
-/* Phone */
-@media (max-width: 900px) {
-    html, body { height: auto; overflow-y: auto; }
-    :root {
-        --logo: 16px; --btn: 15px; --btn-h: 46px; --hero-btn-h: 48px;
-        --h1: 36px; --lede: 16.5px; --badge: 13.5px; --stat-size: 15px;
-        --header-y: 16px; --header-x: 18px;
-        --stats-x: 20px; --stats-y: 28px; --hero-gap: 36px;
-    }
-    .header {
-        grid-template-columns: 1fr auto auto;
-        gap: 8px;
-        padding-top: max(var(--header-y), env(safe-area-inset-top));
-    }
-    .logo, .header-cta, .burger { z-index: 80; }
-    .burger { display: flex; }
-    .header-cta { display: none; }
-    nav.nav {
-        position: fixed; inset: 0;
-        display: none;
-        flex-direction: column; align-items: stretch; justify-content: flex-start;
-        gap: 12px;
-        padding: 96px 22px 32px;
-        padding-top: max(96px, calc(env(safe-area-inset-top) + 88px));
-        z-index: 45;
-        background: transparent;
-    }
-    .nav a {
-        height: 56px; width: 100%;
-        justify-content: center;
-        font-size: 19px; border-radius: 10px;
-    }
-    body.menu-open nav.nav { display: flex; }
-
-    .menu-backdrop {
-        display: block; position: fixed; inset: 0; z-index: 40;
-        background: rgba(8,8,8,0.42);
-        opacity: 0; visibility: hidden;
-        transition: opacity 0.28s ease, backdrop-filter 0.28s ease;
-    }
-    body.menu-open .menu-backdrop {
-        opacity: 1; visibility: visible;
-        backdrop-filter: blur(24px);
-        -webkit-backdrop-filter: blur(24px);
-    }
-    body.menu-open { overflow: hidden; }
-
-    .hero { padding: 20px 20px 64px; }
-    .stats { flex-direction: column; align-items: center; gap: 16px; white-space: normal; }
-    .hero-copy, .lede { max-width: 100%; }
-}
-
-@media (max-width: 560px) {
-    :root { --h1: 34px; --lede: 16px; --header-x: 16px; }
-    .hero-actions { flex-direction: column; width: 100%; }
-    .hero-actions .btn { width: 100%; }
+@media (max-width: 734px) {
+    .nav-links { gap: 18px; }
+    .nav-links a:nth-child(3),
+    .nav-links a:nth-child(4) { display: none; }
+    .section { padding: 64px 20px 56px; }
+    .hero { padding: 40px 20px 0; }
+    h1 { font-size: 48px; letter-spacing: -0.01em; }
+    h2 { font-size: 32px; letter-spacing: 0; }
+    h3 { font-size: 22px; }
+    .subhead { font-size: 19px; }
+    .lede { font-size: 17px; }
+    .tile-grid { grid-template-columns: 1fr; }
+    .tile { min-height: 440px; padding: 44px 22px 0; }
+    .tile-visual img { max-height: 240px; }
+    .hero-photo { padding: 0 12px; }
+    .hero-photo img { border-radius: 14px; }
+    .tiles { padding: 8px 8px 0; }
+    .glass-panel { height: 140px; }
 }
 </style>
 </head>
-<body style="background:#000;color:#fff">
+<body>
 
-<div class="grain"></div>
-<div class="hero-photo"></div>
-
-<div class="page">
-    <div class="menu-backdrop" aria-hidden="true"></div>
-
-    <header class="header">
-        <a class="logo appear appear--scale" href="#top" aria-label="S1mp1e" style="--d:0.08s">
-            <img src="assets/icon.png" alt="">
-            <span>S1mp1e<span class="logo-suffix">.launcher</span></span>
+<nav class="nav">
+    <div class="nav-inner">
+        <a class="nav-brand" href="#top" aria-label="S1mp1e">
+            <img src="assets/icon.png" alt=""><span>S1mp1e</span>
         </a>
-
-        <nav id="site-nav" class="nav" aria-label="Primary">
-            <a class="appear appear--scale" href="#features" style="--d:0.16s">功能特色</a>
-            <a class="appear appear--soft"  href="#versions" style="--d:0.28s">支援版本</a>
-            <a class="appear appear--scale" href="#download" style="--d:0.40s">下載</a>
-            <a class="appear appear--soft"  href="https://github.com/tien11668899/S1mp1e" style="--d:0.52s" target="_blank" rel="noopener">GitHub</a>
-        </nav>
-
-        <a class="btn btn-solid header-cta appear appear--scale"
-           href="https://github.com/tien11668899/S1mp1e/releases/latest/download/S1mp1e-0.1.0-setup.exe"
-           style="--d:0.34s" id="download">下載 · Windows</a>
-
-        <button class="burger appear appear--scale"
-                aria-controls="site-nav" aria-expanded="false"
-                aria-label="Open menu" style="--d:0.34s">
-            <span></span><span></span><span></span>
-        </button>
-    </header>
-
-    <main class="hero" id="top">
-        <div class="hero-copy">
-            <span class="badge appear appear--pop" style="--d:0.22s">
-                <svg class="badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white" aria-hidden="true">
-                    <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z"/>
-                </svg>
-                Apple Liquid Glass for Minecraft
-            </span>
-
-            <h1>
-                <span class="headline-line appear appear--mask" style="--d:0.42s">用 <em>液態玻璃</em> 玩</span>
-                <span class="headline-line appear appear--mask" style="--d:0.62s">你的 Minecraft。</span>
-            </h1>
-
-            <p class="lede appear appear--soft appear--lede" style="--d:0.82s">
-                Microsoft 帳號一鍵登入、Modrinth 直搜下載、每個 UI 表面都是真折射玻璃。
-                從 1.8.9 到 26.2,全部支援。
-            </p>
-
-            <div class="hero-actions">
-                <a class="btn btn-solid hero-solid appear appear--btn" style="--d:0.96s"
-                   href="https://github.com/tien11668899/S1mp1e/releases/latest/download/S1mp1e-0.1.0-setup.exe">
-                   下載安裝檔
-                </a>
-                <a class="btn btn-ghost hero-ghost appear appear--side" style="--d:1.10s"
-                   href="https://github.com/tien11668899/S1mp1e">
-                   看原始碼
-                </a>
-            </div>
+        <div class="nav-links">
+            <a href="#overview">總覽</a>
+            <a href="#versions">版本</a>
+            <a href="#features">功能</a>
+            <a href="https://github.com/tien11668899/S1mp1e">開源</a>
+            <a class="nav-cta" href="#download">下載</a>
         </div>
-    </main>
+    </div>
+</nav>
 
-    <footer class="stats">
-        <span class="stat appear appear--stat" style="--d:1.12s">
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <defs>
-                    <linearGradient id="pl" x1="3" y1="2" x2="14" y2="22" gradientUnits="userSpaceOnUse">
-                        <stop offset="0" stop-color="#fff" stop-opacity="0.38"/>
-                        <stop offset="1" stop-color="#3a3a3a" stop-opacity="0.62"/>
-                    </linearGradient>
-                    <linearGradient id="pr" x1="3" y1="2" x2="14" y2="22" gradientUnits="userSpaceOnUse">
-                        <stop offset="0" stop-color="#3a3a3a" stop-opacity="0.38"/>
-                        <stop offset="1" stop-color="#fff" stop-opacity="0.62"/>
-                    </linearGradient>
-                </defs>
-                <rect x="3.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#pl)"/>
-                <rect x="13.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#pr)"/>
-                <rect x="9.2" y="10.9" width="5.6" height="2.2" rx="1.1" fill="#4a4a4a"/>
-            </svg>
-            10 個 MC 版本 · 全支援 Fabric
-        </span>
-        <span class="stat appear appear--stat" style="--d:1.28s">
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="2.4" y="2.4" width="19.2" height="19.2" rx="6.2" fill="#ffffff"/>
-                <path d="M12 7.1v7.4" stroke="#111" stroke-width="1.85" stroke-linecap="round" fill="none"/>
-                <path d="M8.15 12.35L12 16.2l3.85-3.85" stroke="#111" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-            </svg>
-            60 MB 安裝檔 · 一鍵搞定
-        </span>
-        <span class="stat appear appear--stat" style="--d:1.44s">
-            <svg class="stat-icon-wide" width="38" height="21" viewBox="0 0 40 22" aria-hidden="true">
-                <circle cx="10.2" cy="11" r="9.2" fill="#2b2b2b"/>
-                <ellipse cx="10.2" cy="12.1" rx="4.15" ry="3.7" fill="#f4f4f4"/>
-                <path d="M3.9 4.5 L6.6 7 L4.1 8Z" fill="#2b2b2b"/>
-                <path d="M16.5 4.5 L13.8 7 L16.3 8Z" fill="#2b2b2b"/>
-                <circle cx="8.7" cy="11.9" r="0.7" fill="#1a1a1a"/>
-                <circle cx="11.7" cy="11.9" r="0.7" fill="#1a1a1a"/>
-                <circle cx="20.2" cy="11" r="9.2" fill="#ffffff"/>
-                <circle cx="18.0" cy="10.2" r="1.7" fill="#111"/>
-                <circle cx="22.4" cy="10.2" r="1.7" fill="#111"/>
-                <ellipse cx="20.2" cy="13.2" rx="0.9" ry="0.55" fill="#111"/>
-                <path d="M17.8 15.2 Q20.2 17 22.6 15.2" stroke="#111" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-                <circle cx="30.2" cy="11" r="9.2" fill="#f26b1d"/>
-                <text x="30.2" y="15.1" text-anchor="middle" fill="#fff"
-                      font-size="12.5" font-weight="700"
-                      font-family="Inter, system-ui, sans-serif">S</text>
-            </svg>
-            MIT · 開源自由使用
-        </span>
-    </footer>
+<!-- ============= HERO ============= -->
+<section class="hero" id="top">
+    <h1>S1mp1e</h1>
+    <p class="subhead">液態玻璃,重新想像 Minecraft。</p>
+    <div class="action-row">
+        <a href="#download">下載</a>
+        <a href="#overview">深入了解</a>
+    </div>
+    <div class="hero-photo">
+        <img src="assets/browse.png" alt="S1mp1e 啟動器界面" loading="eager">
+    </div>
+</section>
+
+<!-- ============= OVERVIEW / DARK TILE ============= -->
+<section class="section dark" id="overview">
+    <div class="section-inner">
+        <p class="eyebrow">產品介紹</p>
+        <h2>把 Apple 的手感,<br>裝進你的 Minecraft。</h2>
+        <p class="lede">
+            每一個按鈕、每一格 hotbar、每一個 tooltip,都是真折射玻璃。
+            從 1.8.9 到最新 26.2 開發預覽,通吃十個 MC 版本。
+        </p>
+        <div class="action-row">
+            <a href="#features">看功能</a>
+            <a href="https://github.com/tien11668899/S1mp1e">看原始碼</a>
+        </div>
+        <div class="glass-panel" aria-hidden="true"></div>
+    </div>
+</section>
+
+<!-- ============= TILES ============= -->
+<div class="tiles">
+
+    <!-- Big feature tile: Modrinth -->
+    <section class="tile" id="features">
+        <div class="tile-copy">
+            <p class="eyebrow" style="color:var(--ink-2);">模組管理</p>
+            <h2>從搜到玩,<br>一鍵搞定。</h2>
+            <p class="lede">
+                內建 Modrinth 搜尋。中文自動翻譯。按下「下載到所有版本」,
+                連相容性檢查都幫你算好。
+            </p>
+        </div>
+        <div class="tile-visual">
+            <img src="assets/mods.png" alt="Modrinth 搜尋介面">
+        </div>
+    </section>
+
+    <!-- Big feature tile: Account -->
+    <section class="tile dark">
+        <div class="tile-copy">
+            <p class="eyebrow">帳號</p>
+            <h2>Microsoft 一鍵登入。<br>換皮膚也順手。</h2>
+            <p class="lede">
+                Device-code 登入零設定。多帳號切換。想換皮膚?
+                直接把 PNG 匯進來,套用到你的 Mojang 帳號。
+            </p>
+        </div>
+        <div class="tile-visual">
+            <img src="assets/account.png" alt="帳號管理介面">
+        </div>
+    </section>
+
+    <!-- 2x compact tiles -->
+    <div class="tile-grid">
+        <section class="tile compact">
+            <div class="tile-copy">
+                <p class="eyebrow" style="color:var(--ink-2);">熱物欄</p>
+                <h3>真折射玻璃。</h3>
+                <p class="lede">
+                    SDF 位移 shader、彈簧選擇框、每一 slot 都會折射底下的世界。
+                </p>
+            </div>
+            <div class="tile-visual" style="align-items:flex-end;">
+                <div style="width:100%;height:60px;background:linear-gradient(90deg,rgba(0,102,204,0.15),rgba(94,92,230,0.15));border-radius:12px;position:relative;overflow:hidden;">
+                    <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;background:linear-gradient(135deg,rgba(255,255,255,0.4),rgba(255,255,255,0.1));border:1px solid rgba(255,255,255,0.4);border-radius:8px;backdrop-filter:blur(6px);"></div>
+                </div>
+            </div>
+        </section>
+        <section class="tile compact dark">
+            <div class="tile-copy">
+                <p class="eyebrow">Fabric 加載器</p>
+                <h3>自動裝好一切。</h3>
+                <p class="lede">
+                    Java runtime · Fabric loader · 液玻客戶端 mod,
+                    背景幫你搞定,你只要按 Play。
+                </p>
+            </div>
+            <div class="tile-visual">
+                <div style="width:120px;height:120px;border-radius:26px;background:linear-gradient(135deg,#0066cc,#5e5ce6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:64px;font-weight:600;">▶</div>
+            </div>
+        </section>
+    </div>
 </div>
 
-<script>
-(function() {
-    // 1. Each .appear commits to is-in on its own animationend
-    document.querySelectorAll(".appear").forEach(function(el) {
-        el.addEventListener("animationend", function() {
-            el.classList.add("is-in");
-        }, { once: true });
-    });
+<!-- ============= VERSIONS ============= -->
+<section class="section dark" id="versions">
+    <div class="section-inner">
+        <p class="eyebrow">支援版本</p>
+        <h2>從 2015 到今天,<br>一個啟動器全搞定。</h2>
+        <div class="versions">
+            <span class="version-chip">1.8.9</span>
+            <span class="version-chip">1.12.2 · Forge</span>
+            <span class="version-chip">1.13.2 · Legacy Fabric</span>
+            <span class="version-chip">1.14.4</span>
+            <span class="version-chip">1.15.2</span>
+            <span class="version-chip">1.16.5</span>
+            <span class="version-chip">1.17.1</span>
+            <span class="version-chip">1.20.1</span>
+            <span class="version-chip">1.21.1</span>
+            <span class="version-chip">26.2 · Preview</span>
+        </div>
+    </div>
+</section>
 
-    // 2. If animations don't run (reduced-motion / stale browser), force reveal
-    requestAnimationFrame(function() {
-        requestAnimationFrame(function() {
-            var anyRunning = false;
-            document.querySelectorAll(".appear").forEach(function(el) {
-                if (typeof el.getAnimations === "function") {
-                    var anims = el.getAnimations();
-                    if (anims.some(function(a) {
-                        return a.playState === "running" || a.playState === "finished";
-                    })) {
-                        anyRunning = true;
-                    }
-                }
-            });
-            if (!anyRunning) {
-                document.querySelectorAll(".appear, .hero-photo").forEach(function(el) {
-                    el.classList.add("is-in");
-                });
-            }
-        });
-    });
+<!-- ============= DOWNLOAD ============= -->
+<section class="section pearl" id="download">
+    <div class="section-inner">
+        <p class="eyebrow">下載</p>
+        <h2>60 MB。<br>雙擊安裝。開玩。</h2>
+        <p class="lede">
+            Windows 10 21H2 或以上。.NET 8 runtime 已內建。
+        </p>
+        <div class="btn-row">
+            <a class="btn" href="https://github.com/tien11668899/S1mp1e/releases/latest/download/S1mp1e-0.1.0-setup.exe">
+                下載 Windows 安裝檔
+            </a>
+            <a class="btn secondary" href="https://github.com/tien11668899/S1mp1e/releases/latest">
+                所有下載選項
+            </a>
+        </div>
+        <p class="lede" style="font-size:14px;margin-top:24px;">
+            開源專案 · <a href="https://github.com/tien11668899/S1mp1e/blob/main/LICENSE">MIT 授權</a> ·
+            <a href="https://github.com/tien11668899/S1mp1e">在 GitHub 上檢視</a>
+        </p>
+    </div>
+</section>
 
-    // 3-5. Menu
-    var burger = document.querySelector(".burger");
-    var nav = document.getElementById("site-nav");
-    var body = document.body;
-
-    function setMenu(open) {
-        body.classList.toggle("menu-open", open);
-        burger.setAttribute("aria-expanded", open ? "true" : "false");
-        burger.setAttribute("aria-label", open ? "Close menu" : "Open menu");
-    }
-
-    burger.addEventListener("click", function() {
-        setMenu(!body.classList.contains("menu-open"));
-    });
-
-    nav.querySelectorAll("a").forEach(function(a) {
-        a.addEventListener("click", function() { setMenu(false); });
-    });
-
-    document.addEventListener("keydown", function(e) {
-        if (e.key === "Escape") setMenu(false);
-    });
-
-    var mq = window.matchMedia("(min-width: 901px)");
-    (mq.addEventListener ? mq.addEventListener.bind(mq, "change") : mq.addListener.bind(mq))(function(e) {
-        if (e.matches) setMenu(false);
-    });
-})();
-</script>
+<!-- ============= FOOTER ============= -->
+<footer class="foot">
+    <div class="foot-inner">
+        <p>
+            S1mp1e 為社群作品,和 Mojang Studios、Microsoft Corporation、
+            Apple Inc. 均無隸屬關係。Minecraft 是 Mojang 的商標。
+        </p>
+        <div class="foot-divider"></div>
+        <p>
+            © 2026 tien11668899. 以 MIT 授權釋出。
+            <a href="https://github.com/tien11668899/S1mp1e">GitHub</a> ·
+            <a href="https://github.com/tien11668899/S1mp1e/releases">Releases</a> ·
+            <a href="https://github.com/tien11668899/S1mp1e/issues">回報問題</a>
+        </p>
+    </div>
+</footer>
 
 </body>
 </html>
