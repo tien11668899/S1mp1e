@@ -220,11 +220,15 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
     max-width: 1200px;
     padding: 0 22px;
     position: relative;
+    perspective: 2400px;
+    perspective-origin: 50% 40%;
 }
 .hero-photo img {
     width: 100%; height: auto;
     border-radius: 22px;
     box-shadow: 0 40px 80px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
+    transform-style: preserve-3d;
+    transform-origin: 50% 40%;
 }
 
 /* -------- Product tiles -------- */
@@ -355,7 +359,11 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
 
 .hero-photo img {
     will-change: transform;
-    transform: translate3d(0, var(--parallax, 0px), 0) scale(var(--pscale, 1));
+    transform:
+        translate3d(0, var(--parallax, 0px), 0)
+        scale(var(--pscale, 1))
+        rotateX(var(--rx, 0deg))
+        rotateY(var(--ry, 0deg));
     transition: none;
 }
 
@@ -579,12 +587,15 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
     }, { threshold: 0.15, rootMargin: "0px 0px -60px 0px" });
     document.querySelectorAll(".reveal").forEach(function(el) { io.observe(el); });
 
-    // 2. Hero image parallax — image translates up slightly + micro zoom-out as
-    //    the user scrolls past the fold. rAF-throttled; -12vh max shift.
+    // 2. Hero image 3D — starts angled back (like a laptop lid mid-open),
+    //    flattens as the user scrolls down + micro rise/zoom. Also mouse-move
+    //    adds gentle sideways rotateY for a live-glass feel. All rAF-throttled.
     var heroImg = document.querySelector(".hero-photo img");
     var heroBox = document.querySelector(".hero-photo");
     if (heroImg && heroBox) {
+        var mx = 0, my = 0;             // mouse offset relative to box centre
         var ticking = false;
+
         function update() {
             var rect = heroBox.getBoundingClientRect();
             var vh = window.innerHeight || document.documentElement.clientHeight;
@@ -592,13 +603,31 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
             progress = Math.max(0, Math.min(1.4, progress));
             var shift = -progress * 80;
             var scale = 1 + progress * 0.03;
+            // Scroll tilt: -10deg (angled back) → 0deg (flat toward viewer) as
+            // hero enters top of viewport, then stays flat.
+            var flatProgress = Math.max(0, Math.min(1, progress * 1.6));
+            var rx = -10 * (1 - flatProgress) + my * 4;
+            var ry = mx * 6;
             heroImg.style.setProperty("--parallax", shift.toFixed(1) + "px");
             heroImg.style.setProperty("--pscale", scale.toFixed(3));
+            heroImg.style.setProperty("--rx", rx.toFixed(2) + "deg");
+            heroImg.style.setProperty("--ry", ry.toFixed(2) + "deg");
             ticking = false;
         }
-        window.addEventListener("scroll", function() {
+        function schedule() {
             if (!ticking) { requestAnimationFrame(update); ticking = true; }
-        }, { passive: true });
+        }
+
+        window.addEventListener("scroll", schedule, { passive: true });
+        heroBox.addEventListener("mousemove", function(ev) {
+            var r = heroBox.getBoundingClientRect();
+            mx = ((ev.clientX - r.left) / r.width) * 2 - 1;      // -1 … +1
+            my = ((ev.clientY - r.top) / r.height) * 2 - 1;
+            schedule();
+        });
+        heroBox.addEventListener("mouseleave", function() {
+            mx = 0; my = 0; schedule();
+        });
         update();
     }
 })();
