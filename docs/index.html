@@ -337,6 +337,45 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
     .subhead { font-size: 24px; }
     .tile { padding: 48px 28px 0; min-height: 520px; }
 }
+/* -------- Scroll-driven animations -------- */
+.reveal {
+    opacity: 0;
+    transform: translateY(32px) scale(0.98);
+    transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+}
+.reveal.in {
+    opacity: 1;
+    transform: none;
+}
+.reveal.d1 { transition-delay: 0.06s; }
+.reveal.d2 { transition-delay: 0.14s; }
+.reveal.d3 { transition-delay: 0.22s; }
+
+.hero-photo img {
+    will-change: transform;
+    transform: translate3d(0, var(--parallax, 0px), 0) scale(var(--pscale, 1));
+    transition: none;
+}
+
+/* Sticky headline (tiles section) */
+.sticky-headline {
+    position: sticky;
+    top: 88px;
+    z-index: 1;
+    padding: 40px 0 20px;
+    background: linear-gradient(180deg, var(--canvas) 0%, var(--canvas) 60%, transparent 100%);
+    text-align: center;
+}
+.sticky-headline .eyebrow { color: var(--ink-2); }
+.sticky-headline h2 { margin-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .hero-photo img { transform: none; }
+}
+
 @media (max-width: 734px) {
     .nav-links { gap: 18px; }
     .nav-links a:nth-child(3),
@@ -390,7 +429,7 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
 
 <!-- ============= OVERVIEW / DARK TILE ============= -->
 <section class="section dark" id="overview">
-    <div class="section-inner">
+    <div class="section-inner reveal">
         <p class="eyebrow">液態玻璃</p>
         <h2>每一格<br>都在流動</h2>
         <p class="lede">
@@ -409,28 +448,28 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
 
     <!-- Big feature tile: Modrinth (light) -->
     <section class="tile" id="features">
-        <div class="tile-copy">
+        <div class="tile-copy reveal d1">
             <p class="eyebrow" style="color:var(--ink-2);">模組</p>
             <h2>搜 · 點 · 玩</h2>
             <p class="lede">
                 Modrinth 全站直搜 中文翻譯 相容自動判斷
             </p>
         </div>
-        <div class="tile-visual">
+        <div class="tile-visual reveal d2">
             <img src="assets/mods-light.png" alt="Modrinth 搜尋介面">
         </div>
     </section>
 
     <!-- Big feature tile: Account (dark) -->
     <section class="tile dark">
-        <div class="tile-copy">
+        <div class="tile-copy reveal d1">
             <p class="eyebrow">帳號</p>
             <h2>一個 code<br>就登入</h2>
             <p class="lede">
                 Microsoft device flow 皮膚 PNG 拖進來就套用
             </p>
         </div>
-        <div class="tile-visual">
+        <div class="tile-visual reveal d2">
             <img src="assets/account-dark.png" alt="帳號管理介面">
         </div>
     </section>
@@ -438,7 +477,7 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
     <!-- 2x compact tiles -->
     <div class="tile-grid">
         <section class="tile compact">
-            <div class="tile-copy">
+            <div class="tile-copy reveal d1">
                 <p class="eyebrow" style="color:var(--ink-2);">熱物欄</p>
                 <h3>真的會折射</h3>
                 <p class="lede">
@@ -452,14 +491,14 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
             </div>
         </section>
         <section class="tile compact dark">
-            <div class="tile-copy">
+            <div class="tile-copy reveal d1">
                 <p class="eyebrow">加載器</p>
                 <h3>全部幫你裝好</h3>
                 <p class="lede">
                     Java · Fabric · 液玻 mod 一次搞定 你只按 Play
                 </p>
             </div>
-            <div class="tile-visual">
+            <div class="tile-visual reveal d2">
                 <div style="width:120px;height:120px;border-radius:26px;background:linear-gradient(135deg,#0066cc,#5e5ce6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:64px;font-weight:600;">▶</div>
             </div>
         </section>
@@ -468,7 +507,7 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
 
 <!-- ============= VERSIONS ============= -->
 <section class="section dark" id="versions">
-    <div class="section-inner">
+    <div class="section-inner reveal">
         <p class="eyebrow">版本</p>
         <h2>十年<br>一個 launcher</h2>
         <div class="versions">
@@ -488,7 +527,7 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
 
 <!-- ============= DOWNLOAD ============= -->
 <section class="section pearl" id="download">
-    <div class="section-inner">
+    <div class="section-inner reveal">
         <p class="eyebrow">下載</p>
         <h2>60 MB<br>雙擊 · 開玩</h2>
         <p class="lede">
@@ -526,5 +565,43 @@ h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
     </div>
 </footer>
 
+<script>
+(function() {
+    // 1. Scroll-in reveal via IntersectionObserver — sections + tiles fade+slide up
+    //    on first enter viewport (only once, no unmount).
+    var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(e) {
+            if (e.isIntersecting) {
+                e.target.classList.add("in");
+                io.unobserve(e.target);
+            }
+        });
+    }, { threshold: 0.15, rootMargin: "0px 0px -60px 0px" });
+    document.querySelectorAll(".reveal").forEach(function(el) { io.observe(el); });
+
+    // 2. Hero image parallax — image translates up slightly + micro zoom-out as
+    //    the user scrolls past the fold. rAF-throttled; -12vh max shift.
+    var heroImg = document.querySelector(".hero-photo img");
+    var heroBox = document.querySelector(".hero-photo");
+    if (heroImg && heroBox) {
+        var ticking = false;
+        function update() {
+            var rect = heroBox.getBoundingClientRect();
+            var vh = window.innerHeight || document.documentElement.clientHeight;
+            var progress = 1 - (rect.top / vh);
+            progress = Math.max(0, Math.min(1.4, progress));
+            var shift = -progress * 80;
+            var scale = 1 + progress * 0.03;
+            heroImg.style.setProperty("--parallax", shift.toFixed(1) + "px");
+            heroImg.style.setProperty("--pscale", scale.toFixed(3));
+            ticking = false;
+        }
+        window.addEventListener("scroll", function() {
+            if (!ticking) { requestAnimationFrame(update); ticking = true; }
+        }, { passive: true });
+        update();
+    }
+})();
+</script>
 </body>
 </html>
