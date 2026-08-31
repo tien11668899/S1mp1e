@@ -298,7 +298,8 @@ async fn launch_version(
         .await
         .map_err(|e| format!("函式庫準備失敗：{e:#}"))?;
     let auth_info = resolve_auth(&user).await;
-    let plan = launch::plan_launch(&root, &id, &auth_info, ram).map_err(|e| format!("{e:#}"))?;
+    let glass = config::load().settings.glass;
+    let plan = launch::plan_launch(&root, &id, &auth_info, ram, glass).map_err(|e| format!("{e:#}"))?;
 
     std::thread::spawn(move || {
         let app2 = app.clone();

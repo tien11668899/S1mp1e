@@ -26,6 +26,7 @@ pub struct Settings {
     #[serde(default)]               pub reduce_transparency: bool,
     #[serde(default = "d_ver")]     pub version: String,      // last picked MC version
     #[serde(default = "d_loader")]  pub loader: String,       // fabric | forge
+    #[serde(default = "d_theme")]   pub theme: String,        // auto | light | dark
 }
 
 fn d_ram() -> u32 { 4096 }
@@ -35,6 +36,7 @@ fn d_accent() -> String { "#0a84ff".into() }
 fn d_true() -> bool { true }
 fn d_ver() -> String { "26.2".into() }
 fn d_loader() -> String { "fabric".into() }
+fn d_theme() -> String { "auto".into() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -42,6 +44,7 @@ impl Default for Settings {
             ram_mb: d_ram(), after_launch: d_after(), mc_path: String::new(),
             offline_name: d_name(), accent: d_accent(), glass: d_true(),
             reduce_transparency: false, version: d_ver(), loader: d_loader(),
+            theme: d_theme(),
         }
     }
 }
@@ -69,10 +72,18 @@ pub fn config_path() -> PathBuf {
 
 pub fn load() -> Config {
     let p = config_path();
-    std::fs::read_to_string(&p)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    let Ok(s) = std::fs::read_to_string(&p) else {
+        return Config::default();
+    };
+    match serde_json::from_str(&s) {
+        Ok(c) => c,
+        Err(_) => {
+            // Don't silently discard a corrupt config (that would wipe the account +
+            // settings) — keep a copy for recovery, then start fresh.
+            let _ = std::fs::rename(&p, p.with_extension("json.corrupt"));
+            Config::default()
+        }
+    }
 }
 
 pub fn save(cfg: &Config) -> std::io::Result<()> {
@@ -80,7 +91,13 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&p, serde_json::to_string_pretty(cfg).unwrap())
+    let json = serde_json::to_string_pretty(cfg)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    // Atomic write: serialise to a temp file then rename over the real one, so a crash
+    // mid-write can't leave a truncated config.json (which load() would then reset).
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, &p)
 }
 
 pub fn now_secs() -> u64 {

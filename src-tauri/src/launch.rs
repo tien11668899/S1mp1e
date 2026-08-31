@@ -356,7 +356,7 @@ fn setup_instance(root: &PathBuf, mc: &str) -> PathBuf {
     inst
 }
 
-pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Result<LaunchPlan> {
+pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32, glass: bool) -> Result<LaunchPlan> {
     let merged = resolve(root, id)?;
     let natives = extract_natives(root, &merged)?;
     // Per-version gameDir for mod isolation (assets/libraries/natives stay shared under root).
@@ -454,20 +454,36 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Re
     // ships a matching fabric-api-*.jar (loaded below via addMods); when 1.21.1's folder
     // was empty the reload came up "vanilla" only and every shader was "File not found".
     // If a Fabric glass version ever renders no glass again, check fabric-api is present.
-    if let Some(glass) = pick_glass_jar(root, &merged.base_id) {
-        let dst = gamedir.join("mods");
-        let _ = std::fs::create_dir_all(&dst);
-        let _ = std::fs::copy(&glass, dst.join(format!("glass-{}.jar", merged.base_id)));
+    // Glass toggle: only inject the glass client mod when the user has it enabled
+    // (Settings.glass). Off → launch a plain profile with no glass jar.
+    if glass {
+        if let Some(glass_jar) = pick_glass_jar(root, &merged.base_id) {
+            let dst = gamedir.join("mods");
+            let _ = std::fs::create_dir_all(&dst);
+            let _ = std::fs::copy(&glass_jar, dst.join(format!("glass-{}.jar", merged.base_id)));
+        }
     }
+    let user_mods = pick_user_mods(root, &merged.base_id);
     if is_fabric {
-        // The user's downloaded Modrinth mods (s1mp1e-mods/<mc>/) still ride addMods.
-        let jars = pick_user_mods(root, &merged.base_id);
-        if !jars.is_empty() {
-            let joined = jars.iter()
+        // Fabric: the user's downloaded mods (s1mp1e-mods/<mc>/) ride -Dfabric.addMods,
+        // kept out of the shared mods folder.
+        if !user_mods.is_empty() {
+            let joined = user_mods.iter()
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
                 .join(";");
             args.push(format!("-Dfabric.addMods={joined}"));
+        }
+    } else {
+        // Forge (1.8.9/1.12.2): there is no addMods — copy the user's downloaded mods
+        // NATIVELY into the per-version instance mods/ folder (next to the glass jar) so
+        // they actually load. Previously Forge user mods were silently dropped.
+        let dst = gamedir.join("mods");
+        let _ = std::fs::create_dir_all(&dst);
+        for m in &user_mods {
+            if let Some(name) = m.file_name() {
+                let _ = std::fs::copy(m, dst.join(name));
+            }
         }
     }
 

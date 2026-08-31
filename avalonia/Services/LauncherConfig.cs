@@ -23,6 +23,7 @@ public class LauncherSettings
     [JsonPropertyName("reduce_transparency")] public bool   ReduceTransparency { get; set; }
     [JsonPropertyName("version")]             public string Version            { get; set; } = "26.2";
     [JsonPropertyName("loader")]              public string Loader             { get; set; } = "fabric";
+    [JsonPropertyName("theme")]               public string Theme              { get; set; } = "auto";  // auto | light | dark
 }
 
 /// One saved MC account (mirrors Rust's <c>Account</c>). The tokens are the raw
@@ -75,7 +76,12 @@ public static class ConfigStore
                 return JsonSerializer.Deserialize<LauncherConfig>(json) ?? new LauncherConfig();
             }
         }
-        catch { /* corrupt file → fall through to fresh config */ }
+        catch
+        {
+            // Corrupt config → keep a copy for recovery instead of silently wiping the
+            // account + settings, then start fresh.
+            try { File.Move(ConfigPath, ConfigPath + ".corrupt", overwrite: true); } catch { }
+        }
         return new LauncherConfig();
     }
 
@@ -84,7 +90,11 @@ public static class ConfigStore
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(cfg, Opts));
+            // Atomic: write a temp file then move over the real one, so a crash mid-write
+            // can't corrupt config.json (which Load would then reset — losing the account).
+            var tmp = ConfigPath + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(cfg, Opts));
+            File.Move(tmp, ConfigPath, overwrite: true);
         }
         catch { /* best effort */ }
     }

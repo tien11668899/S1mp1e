@@ -790,12 +790,23 @@ public partial class MainWindow : Window
                 McPathLabel.Text = string.IsNullOrEmpty(s.McPath) ? @"%APPDATA%\.minecraft" : s.McPath;
             SetGlassSelect(AfterLaunchBox, s.AfterLaunch switch { "keep" => "保持開啟", "close" => "關閉啟動器", _ => "隱藏啟動器" });
 
-            // settings page — appearance (accent + toggles; theme handled by OS/ThemeBox default)
+            // settings page — appearance (accent + toggles + theme)
             var accIdx = Array.FindIndex(Accents, a => string.Equals(a.hex, s.Accent, StringComparison.OrdinalIgnoreCase));
             if (accIdx >= 0 && AccentBox is not null) AccentBox.SelectedIndex = accIdx;
             ApplyAccent(s.Accent);
             if (GlassToggle is not null) GlassToggle.IsChecked = s.Glass;
             if (DemoToggle is not null) DemoToggle.IsChecked = s.ReduceTransparency;
+            // Theme: restore the saved 自動/淺色/深色 choice (was previously never
+            // persisted, so it reset to 自動 on every launch).
+            if (ThemeBox is not null)
+                ThemeBox.SelectedIndex = s.Theme switch { "light" => 1, "dark" => 2, _ => 0 };
+            if (Application.Current is not null)
+                Application.Current.RequestedThemeVariant = s.Theme switch
+                {
+                    "light" => ThemeVariant.Light,
+                    "dark"  => ThemeVariant.Dark,
+                    _       => ThemeVariant.Default,
+                };
         }
         finally { _hydrating = false; }
         ApplyGlassPref();
@@ -863,6 +874,9 @@ public partial class MainWindow : Window
             2 => ThemeVariant.Dark,
             _ => ThemeVariant.Default,
         };
+        if (_hydrating) return;   // don't persist while ApplyLoadedConfig is populating
+        _cfg.Settings.Theme = box.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "auto" };
+        SaveCfg();
     }
 
     // MC versions >= 1.13 only work through Fabric in this launcher (Forge modding
