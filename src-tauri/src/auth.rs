@@ -287,6 +287,11 @@ pub async fn sign_in_auth_code(client_id: &str, on_url: impl Fn(&str)) -> Result
 
 /// Silent refresh via the stored MSA refresh token.
 pub async fn refresh(client_id: &str, refresh_token: &str) -> Result<Account> {
+    // Empty config client_id → the bundled fallback, exactly as sign_in does.
+    // WITHOUT this, an empty client_id was sent verbatim to Microsoft (which
+    // rejects it), so every silent refresh failed and launch fell back to the
+    // offline "Player" account — the signed-in identity never reached the game.
+    let client_id = effective_client_id(client_id);
     let cl = client();
     let resp = cl
         .post(TOKEN_URL)

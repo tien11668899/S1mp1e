@@ -24,6 +24,12 @@ async fn main() {
         "login" => cmd_login(rest.first().cloned().unwrap_or_default()).await,
         "play" => cmd_play(rest).await,
         "install" => cmd_install(rest).await,
+        "whoami" => {
+            // Diagnostic: what identity would `play` launch with?
+            let ai = resolve_auth("Player").await;
+            println!("user_type={} name={} uuid={}", ai.user_type, ai.name, ai.uuid);
+            if ai.user_type == "msa" { 0 } else { 1 }
+        }
         _ => {
             eprintln!("usage: itest <login|play|install> ...");
             2
