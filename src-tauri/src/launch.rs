@@ -496,7 +496,25 @@ pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String) + Send + Sync + '
     if !plan.java_exe.exists() {
         return Err(anyhow!("java not installed: {}", plan.java_exe.display()));
     }
-    on_line(format!("$ {} {}", plan.java_exe.display(), plan.args.join(" ")));
+    // Echo the command line for diagnostics, but REDACT the MSA access token — the
+    // value right after `--accessToken` is a live session credential and this line is
+    // captured by the launcher's log console. Never print it verbatim.
+    {
+        let mut shown: Vec<String> = Vec::with_capacity(plan.args.len());
+        let mut redact_next = false;
+        for a in &plan.args {
+            if redact_next {
+                shown.push("<redacted>".into());
+                redact_next = false;
+            } else {
+                shown.push(a.clone());
+                if a == "--accessToken" {
+                    redact_next = true;
+                }
+            }
+        }
+        on_line(format!("$ {} {}", plan.java_exe.display(), shown.join(" ")));
+    }
     let mut cmd = Command::new(&plan.java_exe);
     cmd.args(&plan.args)
         .current_dir(&plan.cwd)

@@ -36,4 +36,24 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
+  <!-- The UI shells out to the Rust `itest` CLI for ALL real work (login/play/install).
+       Without this, `dotnet publish` shipped S1mp1e.exe with NO itest.exe next to it, so
+       every download was a dead launcher. Build itest from source (needs the Rust
+       toolchain — same as building the glass mods) and carry it into both the build
+       output and the publish output. EnsureItest runs before AssignTargetPaths so the
+       exe exists when the None item's copy is computed. -->
+  <Target Name="EnsureItest" BeforeTargets="AssignTargetPaths">
+    <Exec Command="cargo build --release --bin itest"
+          WorkingDirectory="$(MSBuildThisFileDirectory)..\src-tauri" />
+  </Target>
+
+  <ItemGroup>
+    <None Include="..\src-tauri\target\release\itest.exe">
+      <Link>itest.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
 </Project>

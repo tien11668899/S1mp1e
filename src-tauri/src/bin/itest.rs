@@ -81,17 +81,28 @@ async fn resolve_auth(offline_name: &str) -> launch::AuthInfo {
                 user_type: "msa".into(),
             };
         }
-        if let Ok(fresh) = auth::refresh(&cfg.client_id, &acc.msa_refresh).await {
-            let ai = launch::AuthInfo {
-                name: fresh.name.clone(),
-                uuid: fresh.uuid.clone(),
-                token: fresh.mc_token.clone(),
-                user_type: "msa".into(),
-            };
-            let mut c = config::load();
-            c.account = Some(fresh);
-            let _ = config::save(&c);
-            return ai;
+        match auth::refresh(&cfg.client_id, &acc.msa_refresh).await {
+            Ok(fresh) => {
+                let ai = launch::AuthInfo {
+                    name: fresh.name.clone(),
+                    uuid: fresh.uuid.clone(),
+                    token: fresh.mc_token.clone(),
+                    user_type: "msa".into(),
+                };
+                let mut c = config::load();
+                c.account = Some(fresh);
+                let _ = config::save(&c);
+                return ai;
+            }
+            Err(e) => {
+                // The saved MSA session is dead (refresh token expired/revoked, or a
+                // transient network failure). DON'T silently launch offline while the
+                // UI still shows "signed in" — emit a marker the launcher parses so it
+                // can prompt a re-login, then fall back to offline so the game can still
+                // open (single-player / cracked servers) instead of hard-failing.
+                println!("AUTH_EXPIRED\t{}", acc.name);
+                eprintln!("MSA session refresh failed for {}: {e:#}", acc.name);
+            }
         }
     }
     launch::AuthInfo::offline(offline_name)

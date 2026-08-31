@@ -295,11 +295,19 @@ public partial class MainWindow : Window
 
     // ---- PLAY: spawn the Rust launcher CLI (itest play <mc> <loader>) ----
     private System.Diagnostics.Process? _game;
+    private volatile string? _lastLaunchError;   // last meaningful stderr line
+    private volatile bool _authExpired;          // itest emitted AUTH_EXPIRED (session dead)
+    private volatile bool _reachedRunning;       // game actually started rendering
 
     private void OnPlay(object? sender, RoutedEventArgs e)
     {
         if (_game is { HasExited: false })
             return;
+
+        _lastLaunchError = null;
+        _authExpired = false;
+        _reachedRunning = false;
+        ToolTip.SetTip(PlayButton, null);
 
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "26.2" : VersionBox.SelectedText;
         var loader = (string.IsNullOrEmpty(LoaderBox.SelectedText) ? "Fabric" : LoaderBox.SelectedText)
@@ -337,8 +345,16 @@ public partial class MainWindow : Window
             proc.OutputDataReceived += (_, ev) =>
             {
                 if (ev.Data is null) return;
+                // itest prints AUTH_EXPIRED\t<name> when the saved MSA session is dead:
+                // the game will launch OFFLINE, so warn instead of silently failing MP.
+                if (ev.Data.StartsWith("AUTH_EXPIRED", StringComparison.Ordinal))
+                {
+                    _authExpired = true;
+                    return;
+                }
                 if (ev.Data.Contains("LWJGL") || ev.Data.Contains("Setting user") || ev.Data.Contains("LAUNCHING"))
                 {
+                    _reachedRunning = true;
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
                         PlayLabel.Text = "遊戲執行中";
@@ -353,13 +369,47 @@ public partial class MainWindow : Window
                     });
                 }
             };
-            proc.ErrorDataReceived += (_, _) => { };   // drain the progress/stderr pipe
-            proc.Exited += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            proc.ErrorDataReceived += (_, ev) =>
             {
-                PlayButton.IsEnabled = true;
-                PlayLabel.Text = "Play";
-                _game = null;
-            });
+                // Keep the last meaningful stderr line so a failed launch can show WHY
+                // instead of silently snapping back to "Play". Prefer error-looking lines.
+                if (string.IsNullOrWhiteSpace(ev.Data)) return;
+                var line = ev.Data.Trim();
+                if (line.StartsWith("[", StringComparison.Ordinal)) return; // skip MC log spam
+                _lastLaunchError = line;
+            };
+            proc.Exited += (_, _) =>
+            {
+                int code = -1;
+                try { code = proc.ExitCode; } catch { }
+                bool expired = _authExpired;
+                bool ranOk = _reachedRunning && code == 0;
+                string? err = _lastLaunchError;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    PlayButton.IsEnabled = true;
+                    _game = null;
+                    if (expired)
+                    {
+                        // Session was dead → launched offline. Nudge the user to re-login.
+                        PlayLabel.Text = "登入已過期，請重新登入";
+                        ToolTip.SetTip(PlayButton, "你的 Microsoft 登入已過期，剛才以離線身分啟動，無法進多人伺服器。請到「帳號」重新登入。");
+                        if (NavAccountSub is not null) NavAccountSub.Text = "登入已過期";
+                    }
+                    else if (ranOk || code == 0)
+                    {
+                        PlayLabel.Text = "Play";
+                    }
+                    else
+                    {
+                        // Non-zero exit that isn't a normal quit: a real launch/crash error.
+                        PlayLabel.Text = "啟動失敗";
+                        ToolTip.SetTip(PlayButton, string.IsNullOrEmpty(err)
+                            ? $"啟動器結束碼 {code}（無錯誤輸出）"
+                            : $"錯誤：{err}");
+                    }
+                });
+            };
             proc.Start();
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
@@ -1964,10 +2014,24 @@ public partial class MainWindow : Window
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft")
             : _cfg.Settings.McPath;
 
-    // Download one file into s1mp1e-mods/<mc>/. Returns true on success.
-    // Reports progress via <paramref name="onProgress"/>; caller drives UI text.
-    private async Task<bool> DownloadOneVersionAsync(string projectId, string mc, string loader, Action<double>? onProgress = null)
+    // Download one mod into s1mp1e-mods/<mc>/, THEN recursively pull its REQUIRED
+    // Modrinth dependencies (Fabric API, prerequisite libraries). Returns true on
+    // success. Reports the PRIMARY file's progress via <paramref name="onProgress"/>;
+    // caller drives UI text.
+    private Task<bool> DownloadOneVersionAsync(string projectId, string mc, string loader, Action<double>? onProgress = null)
+        => DownloadWithDepsAsync(projectId, mc, loader, onProgress,
+                                 new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
+
+    // The recursive worker. Downloads projectId's primary file, records bookkeeping,
+    // then best-effort downloads every REQUIRED dependency so the mod actually loads
+    // in-game (a mod that needs Fabric API otherwise fails silently on a missing dep —
+    // the exact class of bug the glass mod hit). `visited` guards cycles/duplicates;
+    // `depth` caps the transitive chain. A dep that can't be resolved never fails the
+    // primary download — it's logged and skipped.
+    private async Task<bool> DownloadWithDepsAsync(string projectId, string mc, string loader,
+        Action<double>? onProgress, HashSet<string> visited, int depth)
     {
+        if (!visited.Add(projectId)) return true;   // already handled in this chain
         var ver = await ModrinthClient.ResolvePrimaryVersionAsync(projectId, mc, loader);
         if (ver is null || ver.Files.Length == 0) return false;
         var file = Array.Find(ver.Files, f => f.Primary) ?? ver.Files[0];
@@ -1981,6 +2045,24 @@ public partial class MainWindow : Window
         if (!_cfg.DownloadedMods.TryGetValue(projectId, out var mcs))
             _cfg.DownloadedMods[projectId] = mcs = new List<string>();
         if (!mcs.Contains(mc)) { mcs.Add(mc); SaveCfg(); }
+
+        // Pull required dependencies (Fabric API, libraries) so the mod loads.
+        if (depth < 4)
+        {
+            foreach (var dep in ver.Dependencies)
+            {
+                if (!string.Equals(dep.DependencyType, "required", StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.IsNullOrEmpty(dep.ProjectId)) continue;               // version-pinned deps unsupported
+                if (visited.Contains(dep.ProjectId)) continue;
+                if (_cfg.DownloadedMods.TryGetValue(dep.ProjectId, out var have) && have.Contains(mc))
+                {
+                    visited.Add(dep.ProjectId);                                   // already installed for this MC
+                    continue;
+                }
+                try { await DownloadWithDepsAsync(dep.ProjectId, mc, loader, null, visited, depth + 1); }
+                catch (Exception ex) { LogCrash(ex); }                           // best-effort: never fail the primary
+            }
+        }
         return true;
     }
 
