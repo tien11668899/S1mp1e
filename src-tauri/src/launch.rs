@@ -317,9 +317,50 @@ pub struct LaunchPlan {
     pub cwd: PathBuf,
 }
 
+/// Per-version instance directory. Each MC version launches with its OWN gameDir
+/// (`.minecraft/instances/<mc>/`) so its `mods/` folder is isolated — a 1.21.1 mod
+/// can no longer cross-load onto 26.2 (or vice-versa) and crash. Worlds, resource
+/// packs and settings are SHARED with the main `.minecraft` via directory junctions,
+/// so switching versions doesn't hide the user's saves.
+fn instance_dir(root: &PathBuf, mc: &str) -> PathBuf {
+    root.join("instances").join(mc)
+}
+
+fn setup_instance(root: &PathBuf, mc: &str) -> PathBuf {
+    let inst = instance_dir(root, mc);
+    let _ = std::fs::create_dir_all(inst.join("mods"));
+    // Junction the shared game data to the main .minecraft (created once; junctions
+    // need no admin rights, unlike symlinks).
+    #[cfg(target_os = "windows")]
+    for shared in ["saves", "resourcepacks", "shaderpacks"] {
+        let link = inst.join(shared);
+        let target = root.join(shared);
+        let _ = std::fs::create_dir_all(&target);
+        if !link.exists() {
+            let _ = std::process::Command::new("cmd")
+                .args([
+                    "/c",
+                    "mklink",
+                    "/J",
+                    &link.to_string_lossy(),
+                    &target.to_string_lossy(),
+                ])
+                .output();
+        }
+    }
+    // Share the settings file on first run.
+    let opt = inst.join("options.txt");
+    if !opt.exists() && root.join("options.txt").exists() {
+        let _ = std::fs::copy(root.join("options.txt"), &opt);
+    }
+    inst
+}
+
 pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Result<LaunchPlan> {
     let merged = resolve(root, id)?;
     let natives = extract_natives(root, &merged)?;
+    // Per-version gameDir for mod isolation (assets/libraries/natives stay shared under root).
+    let gamedir = setup_instance(root, &merged.base_id);
 
     // classpath: all allowed library jars + the base client jar
     let mut cp: Vec<String> = Vec::new();
@@ -354,7 +395,7 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Re
     let mut vars: BTreeMap<&str, String> = BTreeMap::new();
     vars.insert("auth_player_name", auth.name.clone());
     vars.insert("version_name", merged.id.clone());
-    vars.insert("game_directory", root.to_string_lossy().into_owned());
+    vars.insert("game_directory", gamedir.to_string_lossy().into_owned());
     vars.insert("assets_root", assets_dir(root).to_string_lossy().into_owned());
     vars.insert("assets_index_name", merged.asset_index_id.clone());
     vars.insert("auth_uuid", auth.uuid.clone());
@@ -431,7 +472,7 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Re
         for a in &merged.modern_game { args.push(subst(a)); }
     }
 
-    Ok(LaunchPlan { java_exe, args, cwd: root.clone() })
+    Ok(LaunchPlan { java_exe, args, cwd: gamedir })
 }
 
 /// Spawn the JVM, streaming stdout+stderr lines via `on_line`, and return the
