@@ -11,7 +11,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, install, launch, paths};
+use s1mp1e::{auth, config, download, install, launch, meta, paths};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -24,6 +24,7 @@ async fn main() {
         "login" => cmd_login(rest.first().cloned().unwrap_or_default()).await,
         "play" => cmd_play(rest).await,
         "install" => cmd_install(rest).await,
+        "list-versions" => cmd_list_versions().await,
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
             let ai = resolve_auth("Player").await;
@@ -31,7 +32,7 @@ async fn main() {
             if ai.user_type == "msa" { 0 } else { 1 }
         }
         _ => {
-            eprintln!("usage: itest <login|play|install> ...");
+            eprintln!("usage: itest <login|play|install|list-versions|whoami> ...");
             2
         }
     };
@@ -212,7 +213,29 @@ async fn cmd_play(a: &[String]) -> i32 {
     .unwrap_or(-1)
 }
 
-/// itest install fabric <mc> [mcPath]
+/// itest list-versions — print the Mojang version manifest, one per line as
+/// `<id>\t<kind>\t<release_time>` (kind = release|snapshot|old_beta|…). The UI parses
+/// this to populate the version picker instead of hardcoding a fixed list.
+async fn cmd_list_versions() -> i32 {
+    let cl = download::client();
+    match download::get_json::<meta::VersionManifest>(&cl, meta::VERSION_MANIFEST).await {
+        Ok(man) => {
+            let out = std::io::stdout();
+            let mut o = out.lock();
+            for v in man.versions {
+                let _ = writeln!(o, "{}\t{}\t{}", v.id, v.kind, v.release_time.unwrap_or_default());
+            }
+            let _ = o.flush();
+            0
+        }
+        Err(e) => {
+            eprintln!("取得版本清單失敗：{e:#}");
+            1
+        }
+    }
+}
+
+/// itest install <fabric|forge|vanilla> <mc> [mcPath]
 async fn cmd_install(a: &[String]) -> i32 {
     let kind = a.first().map(String::as_str).unwrap_or("");
     let mc = a.get(1).cloned().unwrap_or_default();
@@ -225,6 +248,7 @@ async fn cmd_install(a: &[String]) -> i32 {
     let res = match kind {
         "fabric" => install::install_fabric(root, mc, silent_emit()).await.map(|id| id),
         "forge" => install::install_forge(root, mc, silent_emit()).await,
+        "vanilla" => install::install_version(root, mc.clone(), silent_emit()).await.map(|_| mc.clone()),
         other => {
             eprintln!("未知的 install 類型：{other}");
             return 2;
