@@ -454,6 +454,16 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Re
                 .join(";");
             args.push(format!("-Dfabric.addMods={joined}"));
         }
+    } else {
+        // Forge/legacy (1.8.9, 1.12.2): there is no fabric.addMods. The glass jar is
+        // a Forge COREMOD (manifest FMLCorePlugin) and Forge loads coremods from
+        // <gameDir>/mods, so copy it into the per-version instance's mods folder. The
+        // instance is isolated, so this never cross-loads onto another version.
+        if let Some(glass) = pick_glass_jar(root, &merged.base_id) {
+            let dst = gamedir.join("mods");
+            let _ = std::fs::create_dir_all(&dst);
+            let _ = std::fs::copy(&glass, dst.join(format!("glass-{}.jar", merged.base_id)));
+        }
     }
 
     if !merged.modern_jvm.is_empty() {
