@@ -408,11 +408,18 @@ public partial class MainWindow : Window
         // Compute per-item disable mask: Forge on a Fabric-only MC (>=1.13 or 26.2)
         // is not supported by this launcher, so the row shows greyed and no-op.
         bool[]? dis = null;
-        if (ReferenceEquals(src, LoaderBox) && IsFabricOnly(VersionBox?.SelectedText ?? ""))
+        if (ReferenceEquals(src, LoaderBox))
         {
-            dis = new bool[src.Items.Length];
-            for (int i = 0; i < src.Items.Length; i++)
-                if (src.Items[i].Equals("Forge", StringComparison.OrdinalIgnoreCase)) dis[i] = true;
+            var v = VersionBox?.SelectedText ?? "";
+            // Grey the loader the version can't use: Forge on Fabric-only MC (>=1.13/26.2),
+            // Fabric on Forge-only MC (1.8.9/1.12.2).
+            string? greyed = IsFabricOnly(v) ? "Forge" : (IsForgeOnly(v) ? "Fabric" : null);
+            if (greyed is not null)
+            {
+                dis = new bool[src.Items.Length];
+                for (int i = 0; i < src.Items.Length; i++)
+                    if (src.Items[i].Equals(greyed, StringComparison.OrdinalIgnoreCase)) dis[i] = true;
+            }
         }
         ShowMenuFor(src, src.Items, src.SelectedIndex, dis, pick =>
         {
@@ -712,6 +719,7 @@ public partial class MainWindow : Window
             SetGlassSelect(VersionBox, s.Version);
             var loaderLabel = s.Loader.Equals("forge", StringComparison.OrdinalIgnoreCase) ? "Forge" : "Fabric";
             if (IsFabricOnly(s.Version)) loaderLabel = "Fabric";
+            else if (IsForgeOnly(s.Version)) loaderLabel = "Forge";
             SetGlassSelect(LoaderBox, loaderLabel);
             UpdateStartNavSub();
 
@@ -821,11 +829,24 @@ public partial class MainWindow : Window
         return false;
     }
 
+    // The inverse: pre-1.13 MC (1.8.9, 1.12.2) — our liquid glass there is a FORGE
+    // coremod (Fabric didn't exist / isn't wired), so Fabric is greyed and the loader
+    // auto-switches to Forge, mirroring how 26.2 forces Fabric.
+    private static bool IsForgeOnly(string mc)
+    {
+        if (string.IsNullOrEmpty(mc) || mc == "26.2") return false;
+        var parts = mc.Split('.');
+        if (parts.Length >= 2 && parts[0] == "1" && int.TryParse(parts[1], out var x))
+            return x < 13;
+        return false;
+    }
+
     private void UpdateStartNavSub()
     {
         if (StartNavSub is null) return;
         var mc = string.IsNullOrEmpty(VersionBox?.SelectedText) ? "26.2" : VersionBox.SelectedText;
         var ldr = IsFabricOnly(mc) ? "Fabric"
+                 : IsForgeOnly(mc) ? "Forge"
                  : (string.IsNullOrEmpty(LoaderBox?.SelectedText) ? "Fabric" : LoaderBox.SelectedText);
         StartNavSub.Text = $"{mc} · {ldr}";
     }
@@ -841,6 +862,17 @@ public partial class MainWindow : Window
         {
             LoaderBox.SelectedIndex = 0;
             _cfg.Settings.Loader = "fabric";
+        }
+        else if (IsForgeOnly(VersionBox.SelectedText))
+        {
+            // 1.8.9 / 1.12.2 → auto-switch to Forge (glass is a Forge coremod there).
+            int fi = System.Array.FindIndex(LoaderBox.Items,
+                        s => s.Equals("Forge", StringComparison.OrdinalIgnoreCase));
+            if (fi >= 0 && LoaderBox.SelectedIndex != fi)
+            {
+                LoaderBox.SelectedIndex = fi;
+                _cfg.Settings.Loader = "forge";
+            }
         }
         UpdateStartNavSub();
         SaveCfg();
