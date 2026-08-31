@@ -812,6 +812,7 @@ public partial class MainWindow : Window
         ApplyGlassPref();
         RefreshAccountChip();
         _ = RefreshInstalledVersionsAsync();
+        UpdateInstallState();
     }
 
     // The MC versions S1mp1e has a verified liquid-glass port for (see
@@ -943,6 +944,7 @@ public partial class MainWindow : Window
         // Browse pane is version-scoped (scans s1mp1e-mods/<mc>/) — refresh it
         // if the user's currently viewing local mods.
         if (_modModeIdx == 1) _ = RunLocalScanAsync();
+        UpdateInstallState();
     }
     private void OnLoaderChanged(object? sender, EventArgs e)
     {
@@ -950,6 +952,122 @@ public partial class MainWindow : Window
         _cfg.Settings.Loader = LoaderBox.SelectedText.ToLowerInvariant();
         UpdateStartNavSub();
         SaveCfg();
+        UpdateInstallState();
+    }
+
+    // ---- start page: install-state of the selected version + on-demand download ----
+
+    // Is a launchable profile for this MC+loader already on disk? Fabric = a
+    // `fabric-loader-…-<mc>` profile; Forge = a `<mc>-forge…` profile. (PLAY auto-
+    // installs missing Fabric, but Forge — 1.8.9/1.12.2 — must be installed first,
+    // which is exactly what the 下載 button is for.)
+    private bool IsVersionInstalled(string mc, string loader)
+    {
+        try
+        {
+            var dir = System.IO.Path.Combine(EffectiveMcDir(), "versions");
+            if (!System.IO.Directory.Exists(dir)) return false;
+            foreach (var d in System.IO.Directory.GetDirectories(dir))
+            {
+                var id = System.IO.Path.GetFileName(d);
+                if (!System.IO.File.Exists(System.IO.Path.Combine(d, id + ".json"))) continue;
+                if (loader == "forge")
+                {
+                    if (id.StartsWith(mc + "-forge", StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                else
+                {
+                    if (id.StartsWith("fabric-loader", StringComparison.OrdinalIgnoreCase)
+                        && id.EndsWith("-" + mc, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    // Refresh the version card's 安裝狀態 line + 下載 button for the current selection.
+    private void UpdateInstallState()
+    {
+        if (InstallStatus is null || InstallBtn is null || VersionBox is null) return;
+        var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "26.2" : VersionBox.SelectedText;
+        var loader = IsForgeOnly(mc) ? "forge" : "fabric";
+        if (IsVersionInstalled(mc, loader))
+        {
+            InstallStatus.Text = "已安裝，可直接遊玩";
+            InstallBtn.IsVisible = false;
+        }
+        else
+        {
+            InstallStatus.Text = loader == "forge"
+                ? "尚未安裝 — Forge 版本需先下載才能遊玩"
+                : "尚未安裝 — 按「開始」會自動下載，或先手動下載";
+            InstallBtn.Content = "下載此版本";
+            InstallBtn.IsEnabled = true;
+            InstallBtn.Tag = mc;
+            InstallBtn.IsVisible = true;
+        }
+    }
+
+    // Download+install the SELECTED version via `itest install <fabric|forge> <mc>`,
+    // streaming the % onto the button. On success, re-check install state.
+    private async void OnInstallSelectedVersion(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "26.2" : VersionBox.SelectedText;
+        var loader = IsForgeOnly(mc) ? "forge" : "fabric";
+        var exe = ResolveItestExe();
+        if (!System.IO.File.Exists(exe)) { btn.Content = "缺 CLI"; return; }
+        btn.IsEnabled = false;
+        btn.Content = "安裝中…";
+        ToolTip.SetTip(btn, null);
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(exe)
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add("install");
+            psi.ArgumentList.Add(loader);
+            psi.ArgumentList.Add(mc);
+            if (!string.IsNullOrEmpty(_cfg.Settings.McPath))
+                psi.ArgumentList.Add(_cfg.Settings.McPath);
+
+            string? lastErr = null;
+            var proc = new System.Diagnostics.Process { StartInfo = psi, EnableRaisingEvents = true };
+            proc.ErrorDataReceived += (_, ev) =>
+            {
+                if (ev.Data is null) return;
+                var m = System.Text.RegularExpressions.Regex.Match(ev.Data, @"(\d{1,3})%");
+                if (m.Success)
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => btn.Content = $"{m.Groups[1].Value}%");
+                else if (!string.IsNullOrWhiteSpace(ev.Data) && !ev.Data.StartsWith("["))
+                    lastErr = ev.Data.Trim();
+            };
+            proc.OutputDataReceived += (_, _) => { };
+            proc.Start();
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+            await proc.WaitForExitAsync();
+            int code = proc.ExitCode;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (code == 0) UpdateInstallState();
+                else
+                {
+                    btn.Content = "重試";
+                    btn.IsEnabled = true;
+                    ToolTip.SetTip(btn, string.IsNullOrEmpty(lastErr) ? $"安裝失敗（碼 {code}）" : $"安裝失敗：{lastErr}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            LogCrash(ex);
+            btn.Content = "重試";
+            btn.IsEnabled = true;
+        }
     }
 
     // ---- settings: general ----
@@ -2548,59 +2666,6 @@ public partial class MainWindow : Window
             { UseShellExecute = true });
         }
         catch { }
-    }
-
-    // ---- versions page: 下載 (install a specific MC + fabric via itest CLI) ----
-    private async void OnInstallVersion(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.Tag is not string mc || string.IsNullOrEmpty(mc)) return;
-        var exe = ResolveItestExe();
-        if (!System.IO.File.Exists(exe)) { btn.Content = "缺 CLI"; return; }
-        var origContent = btn.Content;
-        btn.Content = "安裝中…";
-        btn.IsEnabled = false;
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo(exe)
-            {
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true,
-            };
-            psi.ArgumentList.Add("install");
-            psi.ArgumentList.Add("fabric");
-            psi.ArgumentList.Add(mc);
-            if (!string.IsNullOrEmpty(_cfg.Settings.McPath))
-                psi.ArgumentList.Add(_cfg.Settings.McPath);
-
-            var proc = new System.Diagnostics.Process { StartInfo = psi, EnableRaisingEvents = true };
-            proc.ErrorDataReceived += (_, ev) =>
-            {
-                if (ev.Data is null) return;
-                // "[libraries] 下載庫檔 42%" → surface the % on the button
-                var m = System.Text.RegularExpressions.Regex.Match(ev.Data, @"(\d{1,3})%");
-                if (m.Success)
-                    Avalonia.Threading.Dispatcher.UIThread.Post(() => btn.Content = $"{m.Groups[1].Value}%");
-            };
-            proc.OutputDataReceived += (_, _) => { };
-            proc.Start();
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
-            await proc.WaitForExitAsync();
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                if (proc.ExitCode == 0)
-                {
-                    btn.Content = "已安裝";
-                    _ = RefreshInstalledVersionsAsync();
-                }
-                else { btn.Content = "重試"; btn.IsEnabled = true; }
-            });
-        }
-        catch
-        {
-            btn.Content = "重試";
-            btn.IsEnabled = true;
-        }
     }
 
     // ---- sidebar search: filter nav rows by label ----

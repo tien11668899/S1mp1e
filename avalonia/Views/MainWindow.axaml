@@ -745,6 +745,24 @@
                                                      Options="Fabric|Forge"
                                                      SelectionChanged="OnLoaderChanged"/>
                                 </Grid>
+
+                                <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+
+                                <!-- install status + on-demand download of the selected version -->
+                                <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Border Grid.Column="0" Classes="tile" Background="#FF9F0A">
+                                        <TextBlock Text="↓" FontSize="17" FontWeight="Bold" Foreground="White"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="安裝狀態" FontSize="13" Foreground="{DynamicResource TextMain}"/>
+                                        <TextBlock x:Name="InstallStatus" Text="檢查中…" FontSize="11"
+                                                   Foreground="{DynamicResource TextSub}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="2" x:Name="InstallBtn" Classes="mini" Content="下載此版本"
+                                            VerticalAlignment="Center" IsVisible="False"
+                                            Click="OnInstallSelectedVersion"/>
+                                </Grid>
                             </StackPanel>
                         </Border>
                         </StackPanel>
