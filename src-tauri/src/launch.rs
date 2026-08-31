@@ -356,7 +356,9 @@ fn setup_instance(root: &PathBuf, mc: &str) -> PathBuf {
     inst
 }
 
-pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32, glass: bool) -> Result<LaunchPlan> {
+pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::config::Settings) -> Result<LaunchPlan> {
+    let ram_mb = settings.ram_mb;
+    let glass = settings.glass;
     let merged = resolve(root, id)?;
     let natives = extract_natives(root, &merged)?;
     // Per-version gameDir for mod isolation (assets/libraries/natives stay shared under root).
@@ -382,7 +384,10 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32, glass
     // AF_UNIX bug that crashes MC 1.21+ on world load ("failed to create a child
     // event loop"). Temurin/Zulu 21 don't have it. The override lets the user
     // point at a working JDK without patching the launcher.
-    let java_exe = if let Ok(p) = std::env::var("S1MP1E_JAVA") {
+    let java_exe = if !settings.java_path.trim().is_empty() {
+        // User-picked Java (Settings → 自訂 Java 路徑). Overrides the auto-selected runtime.
+        PathBuf::from(settings.java_path.trim())
+    } else if let Ok(p) = std::env::var("S1MP1E_JAVA") {
         PathBuf::from(p)
     } else {
         match &merged.java_component {
@@ -425,6 +430,11 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32, glass
     let mut args: Vec<String> = Vec::new();
     args.push(format!("-Xmx{ram_mb}M"));
     args.push(format!("-Xms{}M", (ram_mb / 2).max(512)));
+    // User-supplied JVM args (Settings → JVM 參數): GC flags, -Dprops, etc. Whitespace
+    // split, injected before the version's own jvm args and the main class.
+    for tok in settings.jvm_args.split_whitespace() {
+        args.push(tok.to_string());
+    }
     // Short java.io.tmpdir — safety net for AF_UNIX socket path length (108-byte
     // limit) even though on some Windows builds AF_UNIX loopback fails regardless.
     #[cfg(target_os = "windows")]
@@ -501,6 +511,15 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32, glass
         for tok in legacy.split_whitespace() { args.push(subst(tok)); }
     } else {
         for a in &merged.modern_game { args.push(subst(a)); }
+    }
+
+    // Window resolution (Settings → 遊戲解析度): MC honours --width/--height on every
+    // version. 0 = leave the game's own default.
+    if settings.res_width > 0 && settings.res_height > 0 {
+        args.push("--width".into());
+        args.push(settings.res_width.to_string());
+        args.push("--height".into());
+        args.push(settings.res_height.to_string());
     }
 
     Ok(LaunchPlan { java_exe, args, cwd: gamedir })

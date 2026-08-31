@@ -27,6 +27,10 @@ pub struct Settings {
     #[serde(default = "d_ver")]     pub version: String,      // last picked MC version
     #[serde(default = "d_loader")]  pub loader: String,       // fabric | forge
     #[serde(default = "d_theme")]   pub theme: String,        // auto | light | dark
+    #[serde(default)]               pub jvm_args: String,     // extra JVM flags, whitespace-split
+    #[serde(default)]               pub res_width: u32,       // 0 = MC default
+    #[serde(default)]               pub res_height: u32,      // 0 = MC default
+    #[serde(default)]               pub java_path: String,    // "" = auto-select the runtime
 }
 
 fn d_ram() -> u32 { 4096 }
@@ -45,6 +49,7 @@ impl Default for Settings {
             offline_name: d_name(), accent: d_accent(), glass: d_true(),
             reduce_transparency: false, version: d_ver(), loader: d_loader(),
             theme: d_theme(),
+            jvm_args: String::new(), res_width: 0, res_height: 0, java_path: String::new(),
         }
     }
 }

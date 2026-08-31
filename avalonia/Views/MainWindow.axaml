@@ -930,6 +930,48 @@
                                 </StackPanel>
                             </Border>
 
+                            <TextBlock Classes="caption" Text="進階"/>
+                            <Border Classes="card">
+                                <StackPanel>
+                                    <!-- JVM 參數 -->
+                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*">
+                                        <Border Grid.Column="0" Classes="tile" Background="#8E8E93" VerticalAlignment="Top">
+                                            <TextBlock Text="⚙" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="JVM 參數" FontSize="13" Foreground="{DynamicResource TextMain}"/>
+                                            <TextBox x:Name="JvmArgsBox" Classes="field" Margin="0,4,16,0"
+                                                     Watermark="例：-XX:+UseG1GC -Dfile.encoding=UTF-8" LostFocus="OnJvmArgsChanged"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <!-- 遊戲解析度 -->
+                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#30B0C7">
+                                            <TextBlock Text="◱" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲解析度" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="留空或 0 = 使用遊戲預設" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <TextBox x:Name="ResWidthBox" Classes="field" Width="66" Watermark="寬" LostFocus="OnResChanged"/>
+                                            <TextBlock Text="×" VerticalAlignment="Center" Foreground="{DynamicResource TextSub}"/>
+                                            <TextBox x:Name="ResHeightBox" Classes="field" Width="66" Watermark="高" LostFocus="OnResChanged"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <!-- 自訂 Java 路徑 -->
+                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#FF9500">
+                                            <TextBlock Text="☕" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="自訂 Java" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock x:Name="JavaPathLabel" Text="自動（依版本選擇）" FontSize="11" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis"/></StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <Button Classes="mini" Content="選擇…" Click="OnPickJava"/>
+                                            <Button Classes="mini" Content="自動" Click="OnClearJava"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <TextBlock Classes="caption" Text="外觀"/>
                             <Border Classes="card">
                                 <StackPanel>

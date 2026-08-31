@@ -790,6 +790,12 @@ public partial class MainWindow : Window
                 McPathLabel.Text = string.IsNullOrEmpty(s.McPath) ? @"%APPDATA%\.minecraft" : s.McPath;
             SetGlassSelect(AfterLaunchBox, s.AfterLaunch switch { "keep" => "保持開啟", "close" => "關閉啟動器", _ => "隱藏啟動器" });
 
+            // settings page — advanced (JVM args, resolution, custom Java)
+            if (JvmArgsBox is not null) JvmArgsBox.Text = s.JvmArgs;
+            if (ResWidthBox is not null)  ResWidthBox.Text  = s.ResWidth  > 0 ? s.ResWidth.ToString()  : "";
+            if (ResHeightBox is not null) ResHeightBox.Text = s.ResHeight > 0 ? s.ResHeight.ToString() : "";
+            if (JavaPathLabel is not null) JavaPathLabel.Text = string.IsNullOrEmpty(s.JavaPath) ? "自動（依版本選擇）" : s.JavaPath;
+
             // settings page — appearance (accent + toggles + theme)
             var accIdx = Array.FindIndex(Accents, a => string.Equals(a.hex, s.Accent, StringComparison.OrdinalIgnoreCase));
             if (accIdx >= 0 && AccentBox is not null) AccentBox.SelectedIndex = accIdx;
@@ -1097,6 +1103,55 @@ public partial class MainWindow : Window
     {
         if (_hydrating) return;
         _cfg.Settings.AfterLaunch = AfterLaunchBox.SelectedIndex switch { 1 => "keep", 2 => "close", _ => "hide" };
+        SaveCfg();
+    }
+
+    // ---- settings: advanced (JVM args / resolution / custom Java) ----
+    private void OnJvmArgsChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || JvmArgsBox is null) return;
+        _cfg.Settings.JvmArgs = JvmArgsBox.Text?.Trim() ?? "";
+        SaveCfg();
+    }
+
+    private void OnResChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating) return;
+        int.TryParse(ResWidthBox?.Text?.Trim(),  out var w);
+        int.TryParse(ResHeightBox?.Text?.Trim(), out var h);
+        _cfg.Settings.ResWidth  = w > 0 ? w : 0;
+        _cfg.Settings.ResHeight = h > 0 ? h : 0;
+        SaveCfg();
+    }
+
+    private async void OnPickJava(object? sender, RoutedEventArgs e)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null) return;
+        var picked = await top.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = "選擇 Java 執行檔（javaw.exe / java.exe）",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new Avalonia.Platform.Storage.FilePickerFileType("Java")
+                {
+                    Patterns = new[] { "javaw.exe", "java.exe", "java", "javaw" }
+                }
+            },
+        });
+        var f = picked.FirstOrDefault();
+        if (f is null) return;
+        var path = f.Path.LocalPath;
+        _cfg.Settings.JavaPath = path;
+        if (JavaPathLabel is not null) JavaPathLabel.Text = path;
+        SaveCfg();
+    }
+
+    private void OnClearJava(object? sender, RoutedEventArgs e)
+    {
+        _cfg.Settings.JavaPath = "";
+        if (JavaPathLabel is not null) JavaPathLabel.Text = "自動（依版本選擇）";
         SaveCfg();
     }
 

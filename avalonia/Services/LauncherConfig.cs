@@ -24,6 +24,10 @@ public class LauncherSettings
     [JsonPropertyName("version")]             public string Version            { get; set; } = "26.2";
     [JsonPropertyName("loader")]              public string Loader             { get; set; } = "fabric";
     [JsonPropertyName("theme")]               public string Theme              { get; set; } = "auto";  // auto | light | dark
+    [JsonPropertyName("jvm_args")]            public string JvmArgs            { get; set; } = "";
+    [JsonPropertyName("res_width")]           public int    ResWidth           { get; set; }            // 0 = MC default
+    [JsonPropertyName("res_height")]          public int    ResHeight          { get; set; }
+    [JsonPropertyName("java_path")]           public string JavaPath           { get; set; } = "";      // "" = auto
 }
 
 /// One saved MC account (mirrors Rust's <c>Account</c>). The tokens are the raw

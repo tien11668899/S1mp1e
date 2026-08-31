@@ -198,7 +198,7 @@ async fn cmd_play(a: &[String]) -> i32 {
 
     let auth_info = resolve_auth(&name).await;
     let settings = config::load().settings;
-    let plan = match launch::plan_launch(&root, &id, &auth_info, settings.ram_mb, settings.glass) {
+    let plan = match launch::plan_launch(&root, &id, &auth_info, &settings) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("啟動規劃失敗：{e:#}");
