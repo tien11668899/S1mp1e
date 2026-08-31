@@ -310,8 +310,7 @@ public partial class MainWindow : Window
         ToolTip.SetTip(PlayButton, null);
 
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "26.2" : VersionBox.SelectedText;
-        var loader = (string.IsNullOrEmpty(LoaderBox.SelectedText) ? "Fabric" : LoaderBox.SelectedText)
-            .ToLowerInvariant();
+        var loader = EffectiveLoader();
 
         var exe = ResolveItestExe();
         if (!System.IO.File.Exists(exe))
@@ -461,15 +460,16 @@ public partial class MainWindow : Window
         if (ReferenceEquals(src, LoaderBox))
         {
             var v = VersionBox?.SelectedText ?? "";
-            // Grey the loader the version can't use: Forge on Fabric-only MC (>=1.13/26.2),
-            // Fabric on Forge-only MC (1.8.9/1.12.2).
-            string? greyed = IsFabricOnly(v) ? "Forge" : (IsForgeOnly(v) ? "Fabric" : null);
-            if (greyed is not null)
+            // Grey every loader the version can't use (Forge on ≥1.13/26.2; Fabric+Quilt
+            // on 1.8.9/1.12.2; Quilt+Forge on 26.2).
+            dis = new bool[src.Items.Length];
+            bool any = false;
+            for (int i = 0; i < src.Items.Length; i++)
             {
-                dis = new bool[src.Items.Length];
-                for (int i = 0; i < src.Items.Length; i++)
-                    if (src.Items[i].Equals(greyed, StringComparison.OrdinalIgnoreCase)) dis[i] = true;
+                dis[i] = !LoaderAllowed(v, src.Items[i]);
+                any |= dis[i];
             }
+            if (!any) dis = null;
         }
         ShowMenuFor(src, src.Items, src.SelectedIndex, dis, pick =>
         {
@@ -767,9 +767,13 @@ public partial class MainWindow : Window
 
             // start page — remember last version + loader (Fabric-forced if MC is 1.13+)
             SetGlassSelect(VersionBox, s.Version);
-            var loaderLabel = s.Loader.Equals("forge", StringComparison.OrdinalIgnoreCase) ? "Forge" : "Fabric";
-            if (IsFabricOnly(s.Version)) loaderLabel = "Fabric";
-            else if (IsForgeOnly(s.Version)) loaderLabel = "Forge";
+            var loaderLabel = s.Loader.ToLowerInvariant() switch
+            {
+                "forge" => "Forge",
+                "quilt" => "Quilt",
+                _ => "Fabric",
+            };
+            if (!LoaderAllowed(s.Version, loaderLabel)) loaderLabel = DefaultLoader(s.Version);
             SetGlassSelect(LoaderBox, loaderLabel);
             UpdateStartNavSub();
 
@@ -912,13 +916,35 @@ public partial class MainWindow : Window
         return false;
     }
 
+    // Which loaders a version can actually use: 1.8.9/1.12.2 = Forge only; 26.2 fork =
+    // Fabric only; 1.13+ = Fabric or Quilt (both Fabric-family; glass is a Fabric mod
+    // that Quilt also loads). Forge is greyed on everything ≥1.13.
+    private static bool LoaderAllowed(string mc, string loader)
+    {
+        loader = (loader ?? "").ToLowerInvariant();
+        if (IsForgeOnly(mc)) return loader == "forge";
+        if (mc == "26.2")   return loader == "fabric";
+        if (IsFabricOnly(mc)) return loader == "fabric" || loader == "quilt";
+        return true;
+    }
+
+    // The loader to fall back to when the current pick isn't allowed for a version.
+    private static string DefaultLoader(string mc) => IsForgeOnly(mc) ? "Forge" : "Fabric";
+
+    // The loader to actually launch/install with for the current selection.
+    private string EffectiveLoader()
+    {
+        var mc = string.IsNullOrEmpty(VersionBox?.SelectedText) ? "26.2" : VersionBox.SelectedText;
+        var sel = LoaderBox?.SelectedText ?? "Fabric";
+        return (LoaderAllowed(mc, sel) ? sel : DefaultLoader(mc)).ToLowerInvariant();
+    }
+
     private void UpdateStartNavSub()
     {
         if (StartNavSub is null) return;
         var mc = string.IsNullOrEmpty(VersionBox?.SelectedText) ? "26.2" : VersionBox.SelectedText;
-        var ldr = IsFabricOnly(mc) ? "Fabric"
-                 : IsForgeOnly(mc) ? "Forge"
-                 : (string.IsNullOrEmpty(LoaderBox?.SelectedText) ? "Fabric" : LoaderBox.SelectedText);
+        var sel = string.IsNullOrEmpty(LoaderBox?.SelectedText) ? "Fabric" : LoaderBox.SelectedText;
+        var ldr = LoaderAllowed(mc, sel) ? sel : DefaultLoader(mc);
         StartNavSub.Text = $"{mc} · {ldr}";
     }
 
@@ -927,22 +953,19 @@ public partial class MainWindow : Window
     {
         if (_hydrating) return;
         _cfg.Settings.Version = VersionBox.SelectedText;
-        // For Fabric-only MC versions, force the loader select back to Fabric so the
-        // saved config never drifts to "forge" for a 1.13+ profile.
-        if (IsFabricOnly(VersionBox.SelectedText) && LoaderBox.SelectedIndex != 0)
+        // If the current loader isn't valid for this version, switch to the default one
+        // (Forge for 1.8.9/1.12.2, Fabric otherwise). A Fabric↔Quilt pick is preserved
+        // on ≥1.13 since both are allowed there.
+        var mc = VersionBox.SelectedText;
+        if (!LoaderAllowed(mc, LoaderBox.SelectedText))
         {
-            LoaderBox.SelectedIndex = 0;
-            _cfg.Settings.Loader = "fabric";
-        }
-        else if (IsForgeOnly(VersionBox.SelectedText))
-        {
-            // 1.8.9 / 1.12.2 → auto-switch to Forge (glass is a Forge coremod there).
-            int fi = System.Array.FindIndex(LoaderBox.Items,
-                        s => s.Equals("Forge", StringComparison.OrdinalIgnoreCase));
-            if (fi >= 0 && LoaderBox.SelectedIndex != fi)
+            var def = DefaultLoader(mc);
+            int di = System.Array.FindIndex(LoaderBox.Items,
+                        s => s.Equals(def, StringComparison.OrdinalIgnoreCase));
+            if (di >= 0 && LoaderBox.SelectedIndex != di)
             {
-                LoaderBox.SelectedIndex = fi;
-                _cfg.Settings.Loader = "forge";
+                LoaderBox.SelectedIndex = di;
+                _cfg.Settings.Loader = def.ToLowerInvariant();
             }
         }
         UpdateStartNavSub();
@@ -981,6 +1004,11 @@ public partial class MainWindow : Window
                 {
                     if (id.StartsWith(mc + "-forge", StringComparison.OrdinalIgnoreCase)) return true;
                 }
+                else if (loader == "quilt")
+                {
+                    if (id.StartsWith("quilt-loader", StringComparison.OrdinalIgnoreCase)
+                        && id.EndsWith("-" + mc, StringComparison.OrdinalIgnoreCase)) return true;
+                }
                 else
                 {
                     if (id.StartsWith("fabric-loader", StringComparison.OrdinalIgnoreCase)
@@ -997,7 +1025,7 @@ public partial class MainWindow : Window
     {
         if (InstallStatus is null || InstallBtn is null || VersionBox is null) return;
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "26.2" : VersionBox.SelectedText;
-        var loader = IsForgeOnly(mc) ? "forge" : "fabric";
+        var loader = EffectiveLoader();
         if (IsVersionInstalled(mc, loader))
         {
             InstallStatus.Text = "已安裝，可直接遊玩";
@@ -1021,7 +1049,7 @@ public partial class MainWindow : Window
     {
         if (sender is not Button btn) return;
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "26.2" : VersionBox.SelectedText;
-        var loader = IsForgeOnly(mc) ? "forge" : "fabric";
+        var loader = EffectiveLoader();
         var exe = ResolveItestExe();
         if (!System.IO.File.Exists(exe)) { btn.Content = "缺 CLI"; return; }
         btn.IsEnabled = false;
@@ -1473,15 +1501,16 @@ public partial class MainWindow : Window
         if (ScrollMotionBlur is not null) ScrollMotionBlur.SetSnapshot(null, 0);
     }
 
-    // 皮膚 card 切換 → menu: 尋找 (灰字暫時停用, mineskin/NameMC 都不好接) / 導入 (file picker)
+    // 皮膚 card 切換 → menu: 尋找 (mineskin gallery) / 導入 (file picker)
     private void OnSkinChangeClick(object? sender, RoutedEventArgs e)
     {
         ShowMenuFor(SkinChangeBtn,
             new[] { "尋找", "導入" }, -1,
-            disabled: new[] { true, false },
+            disabled: new[] { false, false },
             pick =>
             {
-                if (pick == 1) _ = ImportSkinFromFileAsync();
+                if (pick == 0) _ = OpenSkinGalleryAsync();
+                else if (pick == 1) _ = ImportSkinFromFileAsync();
             });
     }
 
@@ -2122,19 +2151,21 @@ public partial class MainWindow : Window
                     IconUrl = h.IconUrl,
                     Loaders = h.Loaders,
                 };
-                // Already downloaded for the currently-selected MC? Show the row as
-                // done — button label "已下載" and disabled so we don't refetch.
+                // Already downloaded for the currently-selected MC? Offer 更新 (re-fetch
+                // the latest release; the old jar is removed so versions don't clash).
                 if (_cfg.DownloadedMods.TryGetValue(h.ProjectId, out var mcs) && mcs.Contains(mc))
                 {
-                    vm.ButtonLabel = "已下載";
-                    vm.ButtonEnabled = false;
+                    vm.ButtonLabel = "更新";
+                    vm.ButtonEnabled = true;
                 }
                 if (h.IconUrl is not null && _iconCache.TryGetValue(h.IconUrl, out var cached)) vm.Icon = cached;
                 _mods.Add(vm);
             }
             ModStatus.Text = hits.Count == 0
-                ? "沒有結果"
-                : $"{hits.Count} 個結果 · {mc} · {(loader == "forge" ? "Forge" : "Fabric")}";
+                ? (mc == "26.2"
+                    ? "26.2 是開發預覽版，Modrinth 尚無對應版本的模組（液態玻璃已內建，無需另裝）"
+                    : "沒有結果")
+                : $"{hits.Count} 個結果 · {mc} · {char.ToUpper(loader[0]) + loader.Substring(1)}";
             _ = LoadIconsAsync(_mods.ToList(), ct);
         }
         catch (Exception ex) { LogCrash(ex); ModStatus.Text = "搜尋失敗"; }
@@ -2225,13 +2256,25 @@ public partial class MainWindow : Window
         var dstDir = Path.Combine(EffectiveMcDir(), "s1mp1e-mods", mc);
         Directory.CreateDirectory(dstDir);
         var dst = Path.Combine(dstDir, file.Filename);
+        // Update path: if we previously wrote a DIFFERENT filename for this mod+MC,
+        // delete that stale jar first so the new version doesn't double-load alongside it.
+        var fileKey = $"{projectId}@{mc}";
+        if (_cfg.DownloadedModFiles.TryGetValue(fileKey, out var oldName)
+            && !string.Equals(oldName, file.Filename, StringComparison.OrdinalIgnoreCase))
+        {
+            var oldEnabled = Path.Combine(dstDir, oldName);
+            try { if (File.Exists(oldEnabled)) File.Delete(oldEnabled); } catch { }
+            try { if (File.Exists(oldEnabled + ".disabled")) File.Delete(oldEnabled + ".disabled"); } catch { }
+        }
         var prog = onProgress is null ? null : new Progress<double>(onProgress);
         await ModrinthClient.DownloadFileAsync(file.Url, dst, prog);
         // Bookkeeping: remember what we've downloaded so the search can render
-        // rows as "已下載" up-front (and Fabric doesn't double-load duplicates).
+        // rows as "已下載"/"更新" up-front (and Fabric doesn't double-load duplicates).
         if (!_cfg.DownloadedMods.TryGetValue(projectId, out var mcs))
             _cfg.DownloadedMods[projectId] = mcs = new List<string>();
-        if (!mcs.Contains(mc)) { mcs.Add(mc); SaveCfg(); }
+        if (!mcs.Contains(mc)) mcs.Add(mc);
+        _cfg.DownloadedModFiles[fileKey] = file.Filename;
+        SaveCfg();
 
         // Pull required dependencies (Fabric API, libraries) so the mod loads.
         if (depth < 4)
@@ -2285,8 +2328,8 @@ public partial class MainWindow : Window
             {
                 row.Progress = 1;                // guarantee the ring closes fully
                 await FadeRingOutAsync(row);
-                row.ButtonLabel = "已下載";
-                row.ButtonEnabled = false;
+                row.ButtonLabel = "更新";        // stays clickable → re-fetch latest anytime
+                row.ButtonEnabled = true;
             }
             else
             {

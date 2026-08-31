@@ -55,6 +55,11 @@ public class LauncherConfig
     /// hitting the network again for repeat clicks.
     [JsonPropertyName("downloaded_mods")]
     public Dictionary<string, List<string>> DownloadedMods { get; set; } = new();
+
+    /// "projectId@mc" → the jar filename we last wrote, so an 更新 can delete the old
+    /// version before writing the new one (else two versions double-load and clash).
+    [JsonPropertyName("downloaded_mod_files")]
+    public Dictionary<string, string> DownloadedModFiles { get; set; } = new();
 }
 
 /// <summary>Load / save the launcher config shared with the Rust CLI.</summary>

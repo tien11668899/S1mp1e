@@ -112,10 +112,10 @@ async fn resolve_auth(offline_name: &str) -> launch::AuthInfo {
 /// The installed profile id to launch for (mc, loader): newest Fabric/Forge profile
 /// for that base MC, else the bare vanilla id.
 fn resolve_version_id(root: &std::path::PathBuf, mc: &str, loader: &str) -> Option<String> {
-    let want_fabric = loader.eq_ignore_ascii_case("fabric");
-    let fabric_suffix = format!("-{mc}");
+    let suffix = format!("-{mc}");            // fabric-loader-…-<mc> / quilt-loader-…-<mc>
     let forge_prefix = format!("{mc}-forge");
     let mut fabric: Vec<String> = Vec::new();
+    let mut quilt: Vec<String> = Vec::new();
     let mut forge: Vec<String> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(paths::versions_dir(root)) {
         for e in rd.flatten() {
@@ -123,20 +123,25 @@ fn resolve_version_id(root: &std::path::PathBuf, mc: &str, loader: &str) -> Opti
             if !paths::version_json(root, &id).exists() {
                 continue;
             }
-            if id.to_lowercase().starts_with("fabric-loader") && id.ends_with(&fabric_suffix) {
+            let low = id.to_lowercase();
+            if low.starts_with("fabric-loader") && id.ends_with(&suffix) {
                 fabric.push(id);
+            } else if low.starts_with("quilt-loader") && id.ends_with(&suffix) {
+                quilt.push(id);
             } else if id.starts_with(&forge_prefix) {
                 forge.push(id);
             }
         }
     }
     fabric.sort();
+    quilt.sort();
     forge.sort();
-    if want_fabric {
-        if let Some(f) = fabric.pop() {
-            return Some(f);
-        }
-    } else if let Some(f) = forge.pop() {
+    let pick = match loader.to_lowercase().as_str() {
+        "forge" => forge.pop(),
+        "quilt" => quilt.pop(),
+        _ => fabric.pop(),
+    };
+    if let Some(f) = pick {
         return Some(f);
     }
     // Fall back to a vanilla profile of that id if it exists.
@@ -172,18 +177,22 @@ async fn cmd_play(a: &[String]) -> i32 {
     // install it on demand so PLAY always launches a modded (glass) profile.
     let id = match resolve_version_id(&root, &mc, &loader) {
         Some(id) => id,
-        None if loader.eq_ignore_ascii_case("fabric") => {
-            match install::install_fabric(root.clone(), mc.clone(), silent_emit()).await {
+        None => {
+            // Not installed yet → install the requested loader on demand so PLAY always
+            // launches a modded (glass) profile instead of failing. Previously only
+            // Fabric auto-installed, so Forge/Quilt versions had to be pre-installed.
+            let res = match loader.to_lowercase().as_str() {
+                "forge" => install::install_forge(root.clone(), mc.clone(), silent_emit()).await,
+                "quilt" => install::install_quilt(root.clone(), mc.clone(), silent_emit()).await,
+                _ => install::install_fabric(root.clone(), mc.clone(), silent_emit()).await,
+            };
+            match res {
                 Ok(id) => id,
                 Err(e) => {
-                    eprintln!("安裝 Fabric 失敗：{e:#}");
+                    eprintln!("安裝 {loader} 失敗：{e:#}");
                     return 1;
                 }
             }
-        }
-        None => {
-            eprintln!("找不到已安裝的 {mc} 設定檔");
-            return 1;
         }
     };
 
@@ -247,6 +256,7 @@ async fn cmd_install(a: &[String]) -> i32 {
     let root = paths::mc_root(mc_path.as_deref());
     let res = match kind {
         "fabric" => install::install_fabric(root, mc, silent_emit()).await.map(|id| id),
+        "quilt" => install::install_quilt(root, mc, silent_emit()).await,
         "forge" => install::install_forge(root, mc, silent_emit()).await,
         "vanilla" => install::install_version(root, mc.clone(), silent_emit()).await.map(|_| mc.clone()),
         other => {

@@ -51,33 +51,68 @@ public static class SkinService
         }
     }
 
-    /// <summary>Fetch recent skins from mineskin.org's public list endpoint.
-    /// Returns up to <paramref name="count"/> entries with their raw texture URLs
-    /// (textures.minecraft.net PNGs, which can be fed straight into <see cref="ApplySkinAsync"/>).</summary>
+    /// <summary>Fetch recent skins from mineskin.org. Returns up to
+    /// <paramref name="count"/> entries with their raw texture URLs
+    /// (textures.minecraft.net PNGs, fed straight into <see cref="ApplySkinAsync"/>).
+    /// Uses the modern v2 endpoint first, falling back to the deprecated legacy list.</summary>
     public static async Task<IReadOnlyList<TrendingSkin>> FetchTrendingAsync(int count = 30, CancellationToken ct = default)
     {
-        var url = $"https://api.mineskin.org/get/list?page=0";
-        using var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) return Array.Empty<TrendingSkin>();
-        await using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct).ConfigureAwait(false);
-        var arr = doc.RootElement.TryGetProperty("skins", out var a) ? a : default;
-        if (arr.ValueKind != JsonValueKind.Array) return Array.Empty<TrendingSkin>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var list = new List<TrendingSkin>(count);
-        foreach (var e in arr.EnumerateArray())
+        var v2 = await FetchV2Async(count, ct).ConfigureAwait(false);
+        return v2.Count > 0 ? v2 : await FetchLegacyAsync(count, ct).ConfigureAwait(false);
+    }
+
+    // v2: GET /v2/skins?size=N → { skins:[{ uuid, texture:"<hash>", ... }] }.
+    private static async Task<IReadOnlyList<TrendingSkin>> FetchV2Async(int count, CancellationToken ct)
+    {
+        try
         {
-            var id = e.TryGetProperty("uuid", out var u) ? u.GetString() ?? "" : "";
-            var tex = e.TryGetProperty("url", out var t) ? t.GetString() ?? "" : "";
-            if (string.IsNullOrEmpty(tex) || !seen.Add(tex)) continue;
-            // Mineskin sometimes returns http URLs — upgrade to https so we don't
-            // get blocked by ModernHttp / TLS-only policies on the client side.
-            if (tex.StartsWith("http://textures.minecraft.net/"))
-                tex = "https" + tex.Substring(4);
-            list.Add(new TrendingSkin(id, tex));
-            if (list.Count >= count) break;
+            var url = $"https://api.mineskin.org/v2/skins?size={count}";
+            using var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return Array.Empty<TrendingSkin>();
+            await using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct).ConfigureAwait(false);
+            if (!doc.RootElement.TryGetProperty("skins", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                return Array.Empty<TrendingSkin>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<TrendingSkin>(count);
+            foreach (var e in arr.EnumerateArray())
+            {
+                var id = e.TryGetProperty("uuid", out var u) ? u.GetString() ?? "" : "";
+                var hash = e.TryGetProperty("texture", out var t) ? t.GetString() ?? "" : "";
+                if (string.IsNullOrEmpty(hash) || !seen.Add(hash)) continue;
+                list.Add(new TrendingSkin(id, $"https://textures.minecraft.net/texture/{hash}"));
+                if (list.Count >= count) break;
+            }
+            return list;
         }
-        return list;
+        catch { return Array.Empty<TrendingSkin>(); }
+    }
+
+    // Legacy (deprecated but still live): GET /get/list → { skins:[{ uuid, url }] }.
+    private static async Task<IReadOnlyList<TrendingSkin>> FetchLegacyAsync(int count, CancellationToken ct)
+    {
+        try
+        {
+            using var resp = await _http.GetAsync("https://api.mineskin.org/get/list?page=0", ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return Array.Empty<TrendingSkin>();
+            await using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct).ConfigureAwait(false);
+            var arr = doc.RootElement.TryGetProperty("skins", out var a) ? a : default;
+            if (arr.ValueKind != JsonValueKind.Array) return Array.Empty<TrendingSkin>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<TrendingSkin>(count);
+            foreach (var e in arr.EnumerateArray())
+            {
+                var id = e.TryGetProperty("uuid", out var u) ? u.GetString() ?? "" : "";
+                var tex = e.TryGetProperty("url", out var t) ? t.GetString() ?? "" : "";
+                if (string.IsNullOrEmpty(tex) || !seen.Add(tex)) continue;
+                if (tex.StartsWith("http://textures.minecraft.net/")) tex = "https" + tex.Substring(4);
+                list.Add(new TrendingSkin(id, tex));
+                if (list.Count >= count) break;
+            }
+            return list;
+        }
+        catch { return Array.Empty<TrendingSkin>(); }
     }
 
     /// <summary>Download the raw PNG behind a textures.minecraft.net URL.</summary>

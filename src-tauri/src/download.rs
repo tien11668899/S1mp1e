@@ -61,6 +61,23 @@ pub async fn download_file(
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
+
+    // If the manifest carried no sha1 (Fabric/legacy libs derived from a maven
+    // coordinate), fetch the `.sha1` companion Maven publishes so the download is
+    // still integrity-checked instead of trusted blind. Missing companion (or a
+    // non-hash body) → fall back to no verification, as before.
+    let companion: Option<String>;
+    let sha1: Option<&str> = match sha1 {
+        Some(s) => Some(s),
+        None => {
+            companion = get_text(cl, &format!("{url}.sha1")).await.ok().and_then(|t| {
+                let h: String = t.trim().chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+                if h.len() == 40 { Some(h.to_ascii_lowercase()) } else { None }
+            });
+            companion.as_deref()
+        }
+    };
+
     let resp = cl.get(url).send().await?.error_for_status()?;
     let tmp = dest.with_extension("s1part");
     let mut file = tokio::fs::File::create(&tmp).await?;

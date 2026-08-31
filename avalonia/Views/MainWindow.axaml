@@ -742,7 +742,7 @@
                                                Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
                                     <ctl:GlassSelect x:Name="LoaderBox" Grid.Column="2" SelectedIndex="0"
                                                      VerticalAlignment="Center" FontSize="13"
-                                                     Options="Fabric|Forge"
+                                                     Options="Fabric|Forge|Quilt"
                                                      SelectionChanged="OnLoaderChanged"/>
                                 </Grid>
 
