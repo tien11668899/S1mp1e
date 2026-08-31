@@ -440,29 +440,34 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, ram_mb: u32) -> Re
     // mappings it wasn't built for. Store: `.minecraft/s1mp1e-mods/glass-<baseMc>.jar`.
     let is_fabric = merged.main_class.contains("KnotClient")
         || merged.main_class.contains("fabric");
+
+    // The glass jar goes into the per-version instance's `mods/` folder (NATIVE load)
+    // for BOTH Fabric and Forge; the instance is per-version so this never cross-loads
+    // onto a version it wasn't built for. Forge coremods (1.8.9/1.12.2) also load from
+    // <gameDir>/mods.
+    //
+    // NOTE (root cause of the old "1.21.1 no glass" bug): the glass shaders live in
+    // `assets/minecraft/shaders/core/` and are registered into the ResourceManager by
+    // Fabric API's `fabric-resource-loader-v0` — plain fabric-loader does NOT turn a
+    // mod's assets into a resource pack on its own. So glass HARD-DEPENDS on Fabric API
+    // being present in the launched mod set. Every version's `s1mp1e-mods/<mc>/` folder
+    // ships a matching fabric-api-*.jar (loaded below via addMods); when 1.21.1's folder
+    // was empty the reload came up "vanilla" only and every shader was "File not found".
+    // If a Fabric glass version ever renders no glass again, check fabric-api is present.
+    if let Some(glass) = pick_glass_jar(root, &merged.base_id) {
+        let dst = gamedir.join("mods");
+        let _ = std::fs::create_dir_all(&dst);
+        let _ = std::fs::copy(&glass, dst.join(format!("glass-{}.jar", merged.base_id)));
+    }
     if is_fabric {
-        // Combine glass-<mc>.jar (version-specific) with any user-downloaded
-        // Modrinth mods into ONE -Dfabric.addMods argument, `;`-separated so
-        // Fabric loads them all onto the classpath.
-        let mut jars: Vec<PathBuf> = Vec::new();
-        if let Some(glass) = pick_glass_jar(root, &merged.base_id) { jars.push(glass); }
-        jars.extend(pick_user_mods(root, &merged.base_id));
+        // The user's downloaded Modrinth mods (s1mp1e-mods/<mc>/) still ride addMods.
+        let jars = pick_user_mods(root, &merged.base_id);
         if !jars.is_empty() {
             let joined = jars.iter()
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
                 .join(";");
             args.push(format!("-Dfabric.addMods={joined}"));
-        }
-    } else {
-        // Forge/legacy (1.8.9, 1.12.2): there is no fabric.addMods. The glass jar is
-        // a Forge COREMOD (manifest FMLCorePlugin) and Forge loads coremods from
-        // <gameDir>/mods, so copy it into the per-version instance's mods folder. The
-        // instance is isolated, so this never cross-loads onto another version.
-        if let Some(glass) = pick_glass_jar(root, &merged.base_id) {
-            let dst = gamedir.join("mods");
-            let _ = std::fs::create_dir_all(&dst);
-            let _ = std::fs::copy(&glass, dst.join(format!("glass-{}.jar", merged.base_id)));
         }
     }
 
