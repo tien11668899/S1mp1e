@@ -64,10 +64,13 @@ public static class ModrinthClient
     /// <summary>MC versions Modrinth doesn't index — mapped to a base Modrinth
     /// version so search + download still work. 26.2 is our internal preview
     /// built on the 1.21.x API, so we alias it to 1.21.1.</summary>
-    private static readonly Dictionary<string, string> McAlias = new(StringComparer.OrdinalIgnoreCase)
-    {
-        { "26.2", "1.21.1" },
-    };
+    // No aliases. 26.2 used to alias to 1.21.1 so its mod pane showed 1.21.1 mods —
+    // but 26.2's internals differ enough that a 1.21.1 mod's mixins fail injection and
+    // CRASH the game on launch. Aliasing a real, distinct version to another is wrong:
+    // the downloaded jar is the WRONG version's file. 26.2 has no Modrinth-compatible
+    // mods, so its pane is now (correctly) empty; it still runs its own glass-26.2.jar
+    // (deployed separately, exact-matched by the launcher — unaffected by this map).
+    private static readonly Dictionary<string, string> McAlias = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Modrinth search key for the UI-selected MC version — internal
     /// versions get aliased to their closest supported Modrinth base.</summary>
     public static string EffectiveMc(string mc) => McAlias.TryGetValue(mc, out var v) ? v : mc;

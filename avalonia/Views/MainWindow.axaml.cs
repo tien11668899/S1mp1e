@@ -95,7 +95,9 @@ public partial class MainWindow : Window
             System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "") ?? "";
         var side = System.IO.Path.Combine(here, "itest.exe");
         if (System.IO.File.Exists(side)) return side;
-        return @"C:\Users\Administrator\source\repos\S1mp1e\src-tauri\target\debug\itest.exe";
+        // Dev fallback: the release CLI built from this repo (the old
+        // source/repos path was removed).
+        return @"C:\Users\Administrator\source\S1mp1e\src-tauri\target\release\itest.exe";
     }
 
     private void SaveCfg()
