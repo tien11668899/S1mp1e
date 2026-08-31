@@ -1,6 +1,6 @@
 # S1mp1e
 
-Apple-style liquid-glass Minecraft launcher & client mod for Fabric.
+Apple-style liquid-glass Minecraft launcher & client mod for Fabric .https://tien11668899.github.io/S1mp1e/
 
 **Supported versions:** 1.8.9 · 1.12.2 (Forge) · 1.13.2 (Legacy Fabric) · 1.14.4 · 1.15.2 · 1.16.5 · 1.17.1 · 1.18.2 · 1.19.2 · 1.20.1 · 1.21.1 · 26.2 (dev preview)
 
