@@ -207,6 +207,11 @@ async fn cmd_play(a: &[String]) -> i32 {
 
     let auth_info = resolve_auth(&name).await;
     let settings = config::load().settings;
+    // Fresh machine: the glass jar was never built locally → fetch it from the repo so
+    // the friend who just downloaded the launcher still gets liquid glass.
+    if settings.glass {
+        let _ = install::ensure_glass(&root, &mc, &silent_emit()).await;
+    }
     let plan = match launch::plan_launch(&root, &id, &auth_info, &settings) {
         Ok(p) => p,
         Err(e) => {

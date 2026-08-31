@@ -190,6 +190,38 @@ async fn install_java(
     Ok(out)
 }
 
+/// Where the prebuilt liquid-glass client jars live in the S1mp1e repo.
+const GLASS_BASE_URL: &str =
+    "https://raw.githubusercontent.com/tien11668899/S1mp1e/main/glass-mods";
+
+/// Ensure the liquid-glass client jar for `mc` is present in `.minecraft/s1mp1e-mods/`.
+/// On a fresh machine the jar was never built locally, so fetch it from the repo's
+/// `glass-mods/`. No-op if already present. A missing build (404) is not an error —
+/// the game just launches without glass for that version.
+pub async fn ensure_glass(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
+    let dst = root.join("s1mp1e-mods").join(format!("glass-{mc}.jar"));
+    if dst.exists() {
+        return Ok(());
+    }
+    tick(emit, "glass", format!("下載 {mc} 液態玻璃"), 0, 0);
+    let cl = client();
+    let url = format!("{GLASS_BASE_URL}/glass-{mc}.jar");
+    let resp = match cl.get(&url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(()), // no glass build for this version → skip silently
+    };
+    let bytes = resp.bytes().await.context("download glass jar")?;
+    if let Some(p) = dst.parent() {
+        tokio::fs::create_dir_all(p).await?;
+    }
+    // Atomic: temp + rename so a mid-download abort never leaves a truncated jar.
+    let tmp = dst.with_extension("jar.part");
+    tokio::fs::write(&tmp, &bytes).await?;
+    tokio::fs::rename(&tmp, &dst).await?;
+    tick(emit, "glass", format!("{mc} 液態玻璃就緒"), 1, 1);
+    Ok(())
+}
+
 /// Full vanilla install for `id`. Returns the java runtime dir used (if any).
 pub async fn install_version(root: PathBuf, id: String, emit: Emit) -> Result<()> {
     let cl = client();
