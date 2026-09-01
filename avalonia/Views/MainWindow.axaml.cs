@@ -460,8 +460,8 @@ public partial class MainWindow : Window
         if (ReferenceEquals(src, LoaderBox))
         {
             var v = VersionBox?.SelectedText ?? "";
-            // Grey every loader the version can't use (Forge on ≥1.13/26.2; Fabric+Quilt
-            // on 1.8.9/1.12.2; Quilt+Forge on 26.2).
+            // Grey every loader the version can't use (Forge on ≥1.13/26.2;
+            // Fabric on 1.8.9/1.12.2).
             dis = new bool[src.Items.Length];
             bool any = false;
             for (int i = 0; i < src.Items.Length; i++)
@@ -770,7 +770,6 @@ public partial class MainWindow : Window
             var loaderLabel = s.Loader.ToLowerInvariant() switch
             {
                 "forge" => "Forge",
-                "quilt" => "Quilt",
                 _ => "Fabric",
             };
             if (!LoaderAllowed(s.Version, loaderLabel)) loaderLabel = DefaultLoader(s.Version);
@@ -917,14 +916,13 @@ public partial class MainWindow : Window
     }
 
     // Which loaders a version can actually use: 1.8.9/1.12.2 = Forge only; 26.2 fork =
-    // Fabric only; 1.13+ = Fabric or Quilt (both Fabric-family; glass is a Fabric mod
-    // that Quilt also loads). Forge is greyed on everything ≥1.13.
+    // Fabric only; 1.13+ = Fabric. Forge is greyed on everything ≥1.13.
     private static bool LoaderAllowed(string mc, string loader)
     {
         loader = (loader ?? "").ToLowerInvariant();
         if (IsForgeOnly(mc)) return loader == "forge";
         if (mc == "26.2")   return loader == "fabric";
-        if (IsFabricOnly(mc)) return loader == "fabric" || loader == "quilt";
+        if (IsFabricOnly(mc)) return loader == "fabric";
         return true;
     }
 
@@ -954,8 +952,7 @@ public partial class MainWindow : Window
         if (_hydrating) return;
         _cfg.Settings.Version = VersionBox.SelectedText;
         // If the current loader isn't valid for this version, switch to the default one
-        // (Forge for 1.8.9/1.12.2, Fabric otherwise). A Fabric↔Quilt pick is preserved
-        // on ≥1.13 since both are allowed there.
+        // (Forge for 1.8.9/1.12.2, Fabric otherwise).
         var mc = VersionBox.SelectedText;
         if (!LoaderAllowed(mc, LoaderBox.SelectedText))
         {
@@ -1003,11 +1000,6 @@ public partial class MainWindow : Window
                 if (loader == "forge")
                 {
                     if (id.StartsWith(mc + "-forge", StringComparison.OrdinalIgnoreCase)) return true;
-                }
-                else if (loader == "quilt")
-                {
-                    if (id.StartsWith("quilt-loader", StringComparison.OrdinalIgnoreCase)
-                        && id.EndsWith("-" + mc, StringComparison.OrdinalIgnoreCase)) return true;
                 }
                 else
                 {

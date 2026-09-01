@@ -279,35 +279,6 @@ pub async fn install_fabric(root: PathBuf, mc: String, emit: Emit) -> Result<Str
     Ok(new_id)
 }
 
-/// Install Quilt on top of a base MC version. Quilt's meta API (v3) is the same
-/// shape as Fabric's, so this mirrors `install_fabric` against meta.quiltmc.org.
-/// Returns the new `quilt-loader-…` id.
-pub async fn install_quilt(root: PathBuf, mc: String, emit: Emit) -> Result<String> {
-    let cl = client();
-    install_version(root.clone(), mc.clone(), emit.clone()).await?;
-
-    tick(&emit, "fabric", "查詢 Quilt 載入器", 0, 0);
-    let list_url = format!("https://meta.quiltmc.org/v3/versions/loader/{mc}");
-    let loaders: Vec<FabricLoaderInfo> = get_json(&cl, &list_url).await
-        .context("quilt loader list")?;
-    let loader = loaders.first()
-        .ok_or_else(|| anyhow!("no Quilt loader for {mc}"))?
-        .loader.version.clone();
-
-    let profile_url = format!("https://meta.quiltmc.org/v3/versions/loader/{mc}/{loader}/profile/json");
-    let text = get_text(&cl, &profile_url).await.context("quilt profile json")?;
-    let vj: VersionJson = serde_json::from_str(&text)?;
-    let new_id = vj.id.clone();
-
-    let dest = version_json(&root, &new_id);
-    if let Some(p) = dest.parent() { tokio::fs::create_dir_all(p).await?; }
-    tokio::fs::write(&dest, &text).await?;
-
-    install_libraries(&cl, &root, &vj, &emit).await?;
-    tick(&emit, "done", format!("Quilt {loader} 安裝完成"), 1, 1);
-    Ok(new_id)
-}
-
 /// Install legacy Forge (1.8.x–1.12.2) for a base MC version. These builds don't
 /// patch the client jar — the installer just carries a `version.json` profile plus
 /// the forge universal jar (which isn't on the public maven). So: pick the build
