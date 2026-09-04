@@ -94,6 +94,34 @@ public static class ConfigStore
         return new LauncherConfig();
     }
 
+    /// <summary>
+    /// Persist only the fields the UI owns, re-reading the file first so whatever
+    /// the <c>itest</c> CLI has written for the account survives.
+    /// </summary>
+    /// <remarks>
+    /// The CLI is a SEPARATE PROCESS that rewrites this same file: on login, and on
+    /// every silent token refresh at launch. The UI calls this from ~17 settings
+    /// handlers (version, loader, RAM, theme, accent, glass, mod bookkeeping...), so
+    /// writing the whole in-memory snapshot would clobber anything the CLI wrote
+    /// after we last loaded. On a FRESH profile the in-memory account starts null,
+    /// so picking a version right after signing in wrote <c>account: null</c>
+    /// straight over the successful sign-in and the next launch fell back to
+    /// offline. Account changes are deliberate and go through <see cref="Save"/>.
+    /// </remarks>
+    public static void SaveUiOwned(LauncherConfig cfg)
+    {
+        try
+        {
+            var live = Load();
+            live.Settings           = cfg.Settings;
+            live.ClientId           = cfg.ClientId;
+            live.DownloadedMods     = cfg.DownloadedMods;
+            live.DownloadedModFiles = cfg.DownloadedModFiles;
+            Save(live);
+        }
+        catch { /* best effort */ }
+    }
+
     public static void Save(LauncherConfig cfg)
     {
         try

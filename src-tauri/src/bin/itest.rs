@@ -55,6 +55,11 @@ async fn cmd_login(client_id: String) -> i32 {
             let _ = writeln!(o, "DONE {}\t{}", account.name, account.uuid);
             let _ = o.flush();
             let mut c = config::load();
+            // Keep accounts[] in step with the active account. The UI's switcher lists
+            // this array, and its logout path falls back to accounts[0] — with the array
+            // never populated, signing in then logging out cleared the account outright.
+            c.accounts.retain(|a| a.uuid != account.uuid);
+            c.accounts.push(account.clone());
             c.account = Some(account);
             if let Err(e) = config::save(&c) {
                 eprintln!("儲存帳號失敗：{e}");
@@ -91,6 +96,10 @@ async fn resolve_auth(offline_name: &str) -> launch::AuthInfo {
                     user_type: "msa".into(),
                 };
                 let mut c = config::load();
+                // Mirror the refreshed token into accounts[] too, or a later switch
+                // would hand back the stale entry we just replaced.
+                c.accounts.retain(|a| a.uuid != fresh.uuid);
+                c.accounts.push(fresh.clone());
                 c.account = Some(fresh);
                 let _ = config::save(&c);
                 return ai;

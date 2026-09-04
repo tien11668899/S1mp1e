@@ -103,7 +103,9 @@ public partial class MainWindow : Window
     private void SaveCfg()
     {
         if (_hydrating) return;
-        ConfigStore.Save(_cfg);
+        // Settings only — never write our in-memory account over what the itest CLI
+        // put on disk (see ConfigStore.SaveUiOwned).
+        ConfigStore.SaveUiOwned(_cfg);
     }
 
     public MainWindow()
@@ -1669,6 +1671,9 @@ public partial class MainWindow : Window
     // doesn't need re-auth). Removing the last account returns to the CTA state.
     private void SignOutActive()
     {
+        // Re-read first: the CLI may have refreshed the account since we loaded, and
+        // accounts[] must not be rolled back to a stale in-memory copy.
+        _cfg = ConfigStore.Load();
         _cfg.Account = null;
         ConfigStore.Save(_cfg);
         RefreshAccountChip();
