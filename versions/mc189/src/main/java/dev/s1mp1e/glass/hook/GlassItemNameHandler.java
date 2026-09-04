@@ -111,7 +111,7 @@ public final class GlassItemNameHandler {
 
         // The name is a HUD element; GlassHudHandler grabs the scene backdrop at
         // Pre(ALL) HIGHEST. Grab defensively if nothing has grabbed yet.
-        if (!SceneCapture.hasBackdrop()) SceneCapture.grab();
+        SceneCapture.grabOnce();
     }
 
     // ---- Post(ALL): restore the timer, draw our capsule -------------------

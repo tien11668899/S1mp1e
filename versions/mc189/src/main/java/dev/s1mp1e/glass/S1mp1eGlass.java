@@ -38,5 +38,15 @@ public final class S1mp1eGlass {
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassButtonHandler());
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassScreenFadeHandler());
         System.out.println("[S1mp1e] glass handlers registered");
+
+        // Bring up the combat/QoL module subsystem. Must happen at FMLInitialization --
+        // Minecraft.mcDataDir is populated by now, which the config loader needs.
+        dev.s1mp1e.client.ModuleManager.init();
+
+        // One rebindable key per module, listed under "S1mp1e" in vanilla's
+        // Controls screen. Registered after init() so every module exists.
+        dev.s1mp1e.client.KeybindHandler keys = new dev.s1mp1e.client.KeybindHandler();
+        keys.register();
+        MinecraftForge.EVENT_BUS.register(keys);
     }
 }

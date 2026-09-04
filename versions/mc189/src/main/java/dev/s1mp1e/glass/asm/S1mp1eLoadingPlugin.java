@@ -18,7 +18,7 @@ import java.util.Map;
  * defensive and no-ops on anything it doesn't recognise.
  */
 @IFMLLoadingPlugin.Name("S1mp1e")
-@IFMLLoadingPlugin.TransformerExclusions({ "dev.s1mp1e.glass.asm." })
+@IFMLLoadingPlugin.TransformerExclusions({ "dev.s1mp1e.glass.asm.", "dev.s1mp1e.client.asm." })
 @IFMLLoadingPlugin.SortingIndex(1001)   // after Forge's own deobf transformer
 public final class S1mp1eLoadingPlugin implements IFMLLoadingPlugin {
 
@@ -27,7 +27,10 @@ public final class S1mp1eLoadingPlugin implements IFMLLoadingPlugin {
 
     @Override
     public String[] getASMTransformerClass() {
-        return new String[] { "dev.s1mp1e.glass.asm.S1mp1eTransformer" };
+        return new String[] {
+            "dev.s1mp1e.glass.asm.S1mp1eTransformer",
+            "dev.s1mp1e.client.asm.CombatTransformer"
+        };
     }
 
     @Override

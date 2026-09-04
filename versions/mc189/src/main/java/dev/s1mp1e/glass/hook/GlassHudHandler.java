@@ -50,7 +50,10 @@ public final class GlassHudHandler {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onOverlayPre(RenderGameOverlayEvent.Pre e) {
         if (e.type != RenderGameOverlayEvent.ElementType.ALL) return;
-        SceneCapture.grab();
+        // Earliest point in the overlay pass: open the frame BEFORE anything can
+        // grab, so per-frame freshness checks mean what they say.
+        SceneCapture.newFrame();
+        SceneCapture.grabOnce();   // world only — shared with the item-name popup
     }
 
     // ---- lift the decorations so they clear the scaled bar ----------------
@@ -91,8 +94,11 @@ public final class GlassHudHandler {
         int center = sr.getScaledWidth() / 2;
         int bottom = sr.getScaledHeight();
 
-        // fade-out ghosts of a just-closed container, drawn in HUD space
-        PanelGhost.drawGhosts();
+        // NOTE: the close-fade ghost is drawn ONCE per frame, from
+        // GlassContainerHandler's Post(ALL). Drawing it here as well composited it
+        // twice with slightly different alpha, which made the fade judder — and
+        // this pass runs BEFORE the screen pass that cancels a stale ghost, so on a
+        // container->container switch the old panel flashed for one frame.
 
         // Proportional upscale of the whole bar (glass AND items follow the
         // matrix), anchored at the bar's bottom-centre — same as 26.2's pose.
@@ -180,5 +186,11 @@ public final class GlassHudHandler {
 
         GlStateManager.disableRescaleNormal();
         RenderHelper.disableStandardItemLighting();
+        // RenderItem leaves the real GL colour wherever the last item's overlay put
+        // it while GlStateManager's cache still reads white, so a plain
+        // color(1,1,1,1) would no-op (same trap as GlassRenderer.endBatch). Force
+        // the cache so the HUD decorations drawn after us are not tinted.
+        GlStateManager.color(0f, 0f, 0f, 0f);
+        GlStateManager.color(1f, 1f, 1f, 1f);
     }
 }

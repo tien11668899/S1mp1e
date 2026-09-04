@@ -96,8 +96,11 @@ public final class GlassContainerHandler {
             return;
         }
 
-        // Backdrop = world + dim, grabbed the instant before any glass draws.
-        SceneCapture.grab();
+        // Backdrop = world + dim + HUD, grabbed the instant before any glass draws.
+        // forceGrab, not grabOnce: this call site's POSITION is the point. Sharing
+        // the HUD's world-only capture would refract an undimmed frame, and which
+        // of the two won used to depend on timing jitter -> flicker.
+        SceneCapture.forceGrab();
 
         // Per-instance open fade: fadeByte = min(1, elapsedMs / 150).
         long now = System.nanoTime();
@@ -188,7 +191,7 @@ public final class GlassContainerHandler {
                         f = new Fade(0f, DRAG_IN_MS);
                         dragAlpha.put(k, f);
                     }
-                    f.to(1f);
+                    f.retarget(1f);
                 }
             }
         }
@@ -199,7 +202,7 @@ public final class GlassContainerHandler {
             Map.Entry<Long, Fade> en = it.next();
             Long k = en.getKey();
             Fade f = en.getValue();
-            if (!current.contains(k)) f.to(0f, DRAG_OUT_MS);
+            if (!current.contains(k)) f.retarget(0f, DRAG_OUT_MS);
             float a = f.value();
             if (a <= DRAG_DROP && f.isIdle()) {
                 it.remove();
@@ -257,10 +260,10 @@ public final class GlassContainerHandler {
                 hy1.setTarget(cy); hy2.setTarget(cy);
             }
             hoverActive = true;
-            hoverFade.to(1f);
+            hoverFade.retarget(1f);
         } else {
             hoverActive = false;
-            hoverFade.to(0f);
+            hoverFade.retarget(0f);
             if (hoverFade.value() <= 0.004f || hx1 == null) return;
         }
 
@@ -288,9 +291,16 @@ public final class GlassContainerHandler {
     public void onGuiOpen(GuiOpenEvent e) {
         GuiScreen old = Minecraft.getMinecraft().currentScreen;
         if (!(old instanceof GuiContainer)) return;
-        // Only fires when leaving a container (close, or switch to another
-        // screen); the incoming screen, if a container, re-remembers next frame.
-        PanelGhost.trigger();
+        // Only fires when leaving a container (close, or switch to another screen).
+        // If the INCOMING screen is itself a container (chest -> inventory, a
+        // double-tapped E), the new panel takes over immediately, so arming a
+        // fade-out ghost only flashes the old panel for the one frame before
+        // onBackgroundDrawn cancels it. Kill it here instead.
+        if (e.gui instanceof GuiContainer) {
+            PanelGhost.cancel();
+        } else {
+            PanelGhost.trigger();
+        }
         curScreen = null;
         hoverActive = false;
         hoverFade.snap(0f);

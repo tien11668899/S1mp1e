@@ -103,7 +103,7 @@ public final class GlassTooltip {
         // Grab the GUI drawn so far (slots, items, dimmer) as the refraction
         // backdrop. Tooltips draw LAST in a screen, so the framebuffer is complete
         // and does not yet contain this tooltip -> no self-ghosting.
-        SceneCapture.grab();
+        SceneCapture.forceGrab();
 
         // ---- panel geometry: content box + PADDING 3 -----------------------
         int x0 = tooltipX - PADDING;

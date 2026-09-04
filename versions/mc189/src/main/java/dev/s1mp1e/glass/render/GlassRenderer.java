@@ -112,6 +112,16 @@ public final class GlassRenderer {
         GlStateManager.enableTexture2D();
         GlStateManager.depthMask(true);
         GlStateManager.enableAlpha();
+        // COLOUR-CACHE DESYNC — the bug that made containers flicker.
+        // batchQuad sets the vertex colour with RAW GL11.glColor4f, which never touches
+        // GlStateManager's colorState cache. The cache therefore still believes the
+        // colour is white, so a plain GlStateManager.color(1,1,1,1) here compares equal
+        // and NO-OPs: the real GL colour stays at whatever the LAST quad set. Which quad
+        // is last depends on hover/mouse position, so every following draw (slot items,
+        // text) gets multiplied by a colour that changes frame to frame — the flicker.
+        // Force the cache to a value it cannot already hold, then set white through the
+        // manager so the real state AND the cache both end up white and in sync.
+        GlStateManager.color(0f, 0f, 0f, 0f);
         GlStateManager.color(1f, 1f, 1f, 1f);
     }
 

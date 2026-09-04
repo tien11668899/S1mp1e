@@ -14,37 +14,75 @@ import org.lwjgl.opengl.GL11;
  *
  * <p>The copy uses {@code glCopyTexSubImage2D} from whatever framebuffer is
  * bound, which works with and without MC's FBO path.
+ *
+ * <h3>Why de-duplication is by FRAME, not by wall clock</h3>
+ * This used to collapse grabs with a 3 ms {@code System.nanoTime()} guard, to
+ * stop the inventory doing three full-screen copies per frame. That guard was
+ * the container flicker: the call sites do not all want the SAME picture.
+ * <ul>
+ *   <li>the HUD grabs at Pre(ALL) — world only,</li>
+ *   <li>the container grabs at BackgroundDrawn — world + the 0xC0 dim + the HUD,</li>
+ *   <li>the tooltip grabs last — the complete GUI.</li>
+ * </ul>
+ * With a shared time guard, whichever site happened to be more than 3 ms after
+ * the previous one won the copy — and that depended on {@code nanoTime} jitter,
+ * not on render logic. A fast HUD pass meant the container's grab was skipped
+ * and the panel refracted the BRIGHT undimmed world; a slow one (GC, a chunk
+ * rebuild, an extra HUD module) let it through and the panel refracted the
+ * ~75 % darker dimmed image. Alternating between those two backdrops from frame
+ * to frame is exactly the flicker.
+ *
+ * <p>So: sites that merely need <em>a</em> backdrop call {@link #grabOnce()} and
+ * share one copy per frame; sites that need <em>their own</em> point in the draw
+ * order call {@link #forceGrab()}. Correctness costs up to three copies in a
+ * frame with a tooltip open, which is what the old guard was trying to avoid —
+ * but a stale backdrop is a visible bug and a copy is not.
  */
 public final class SceneCapture {
 
     private static int texture = 0;
     private static int texW = 0, texH = 0;
 
-    /** Shorter than one frame at 300 fps, so it only ever folds duplicates. */
-    private static final long MIN_GRAB_GAP_NS = 3_000_000L;
-    private static long lastGrabNanos = 0L;
+    /** Bumped once per rendered frame by {@link #newFrame()}. */
+    private static long frameId = 0L;
+    /** The frame in which the texture was last filled; -1 = never. */
+    private static long lastGrabFrame = -1L;
 
     private SceneCapture() {}
 
     public static int texture() { return texture; }
 
-    /** True once a backdrop has been captured this frame. */
-    public static boolean hasBackdrop() { return texture != 0; }
+    /**
+     * True when the backdrop holds something captured in the CURRENT frame.
+     *
+     * <p>This used to be {@code texture != 0}, which is permanently true after
+     * the first capture — so every "is the backdrop fresh?" guard built on it
+     * was dead code and glass could sample a frame-old picture.
+     */
+    public static boolean hasBackdrop() {
+        return texture != 0 && lastGrabFrame == frameId;
+    }
 
     /**
-     * Copy the current framebuffer into the backdrop texture. Cheap enough to
-     * call once a frame; reallocates only when the window resizes.
+     * Open a new frame. Called once, as early in the overlay pass as we can get
+     * (Pre(ALL) at HIGHEST priority), before any grab in that frame.
      */
-    public static void grab() {
-        // Same-frame de-duplication. Several call sites each want a fresh
-        // backdrop — the container panel, the tooltip, the item-name popup —
-        // and with a tooltip up in the inventory that was THREE full-screen
-        // copies in one frame. A 3 ms guard collapses them to one while still
-        // allowing a genuine grab every frame far above any real frame rate.
-        long now = System.nanoTime();
-        if (now - lastGrabNanos < MIN_GRAB_GAP_NS) return;
-        lastGrabNanos = now;
+    public static void newFrame() {
+        frameId++;
+    }
 
+    /** Capture only if nothing has captured yet this frame. */
+    public static void grabOnce() {
+        if (lastGrabFrame == frameId) return;
+        forceGrab();
+    }
+
+    /**
+     * Capture unconditionally — for a call site whose position in the draw order
+     * IS the point (the container wants the dimmed frame, the tooltip wants the
+     * finished GUI).
+     */
+    public static void forceGrab() {
         Minecraft mc = Minecraft.getMinecraft();
         int w = mc.displayWidth, h = mc.displayHeight;
         if (w <= 0 || h <= 0) return;
@@ -69,5 +107,14 @@ public final class SceneCapture {
 
         GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
+        lastGrabFrame = frameId;
+    }
+
+    /**
+     * Back-compat alias for the old call shape. Prefer {@link #grabOnce()} or
+     * {@link #forceGrab()} so the intent is explicit at the call site.
+     */
+    public static void grab() {
+        grabOnce();
     }
 }
