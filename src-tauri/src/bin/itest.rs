@@ -51,20 +51,28 @@ async fn cmd_login(client_id: String) -> i32 {
     .await
     {
         Ok(account) => {
-            let mut o = out.lock();
-            let _ = writeln!(o, "DONE {}\t{}", account.name, account.uuid);
-            let _ = o.flush();
+            // Persist the account BEFORE announcing DONE. The UI reacts to the
+            // "DONE" line by immediately calling ConfigStore.Load() — opening
+            // config.json for read. If that read handle is open at the instant
+            // our atomic save renames config.json.tmp over config.json, Windows
+            // fails the rename with ERROR_ACCESS_DENIED (os error 5) and the
+            // freshly signed-in account is dropped (the launcher then shows
+            // "登入失敗" even though auth fully succeeded). Saving first closes
+            // the race: the UI only ever reads a file we have finished writing.
             let mut c = config::load();
             // Keep accounts[] in step with the active account. The UI's switcher lists
             // this array, and its logout path falls back to accounts[0] — with the array
             // never populated, signing in then logging out cleared the account outright.
             c.accounts.retain(|a| a.uuid != account.uuid);
             c.accounts.push(account.clone());
-            c.account = Some(account);
+            c.account = Some(account.clone());
             if let Err(e) = config::save(&c) {
                 eprintln!("儲存帳號失敗：{e}");
                 return 1;
             }
+            let mut o = out.lock();
+            let _ = writeln!(o, "DONE {}\t{}", account.name, account.uuid);
+            let _ = o.flush();
             0
         }
         Err(e) => {

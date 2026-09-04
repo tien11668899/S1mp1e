@@ -101,8 +101,33 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
     // Atomic write: serialise to a temp file then rename over the real one, so a crash
     // mid-write can't leave a truncated config.json (which load() would then reset).
     let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, json)?;
-    std::fs::rename(&tmp, &p)
+    std::fs::write(&tmp, &json)?;
+    // The rename is normally atomic, but on Windows it can transiently fail with
+    // ERROR_ACCESS_DENIED (os error 5) or a sharing violation when another process
+    // holds the destination open for even a moment — the launcher UI reloading
+    // config.json, an AV scanner, or the search indexer. Retry a few times, then
+    // fall back to an in-place write so a signed-in account is never lost to a
+    // lost race (the whole point of saving it).
+    let mut last_err = None;
+    for attempt in 0..5u32 {
+        match std::fs::rename(&tmp, &p) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(40 * u64::from(attempt + 1)));
+            }
+        }
+    }
+    // Last resort: write config.json directly (non-atomic, but far better than
+    // dropping the account). Clean up the temp either way.
+    let direct = std::fs::write(&p, &json);
+    let _ = std::fs::remove_file(&tmp);
+    match direct {
+        Ok(()) => Ok(()),
+        Err(_) => Err(last_err.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Other, "config save failed")
+        })),
+    }
 }
 
 pub fn now_secs() -> u64 {
