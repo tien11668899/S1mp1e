@@ -1,0 +1,9 @@
+# Statically link the MSVC C runtime into every Rust binary we ship (itest.exe).
+# Default MSVC builds import vcruntime140.dll, which is NOT part of a base Windows
+# install — it ships with the VC++ 2015-2022 redistributable. A friend on a fresh
+# machine without that redist could not launch itest.exe (STATUS_DLL_NOT_FOUND,
+# 0xc0000135): the .NET UI opened but sign-in spawns itest.exe, which failed to
+# load, so the launcher reported "登入失敗". crt-static folds the CRT into the exe
+# so it runs on any clean Windows with zero prerequisites.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
