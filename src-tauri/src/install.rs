@@ -299,30 +299,80 @@ pub async fn install_forge(root: PathBuf, mc: String, emit: Emit) -> Result<Stri
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("no Forge build published for {mc}"))?
         .to_string();
-    let full = format!("{mc}-{build}"); // e.g. 1.12.2-14.23.5.2859
-
     tick(&emit, "forge", format!("下載 Forge {build} 安裝檔"), 0, 0);
-    let installer_url = format!(
-        "https://maven.minecraftforge.net/net/minecraftforge/forge/{full}/forge-{full}-installer.jar");
-    let bytes = cl.get(&installer_url).send().await?.error_for_status()?
-        .bytes().await.context("download forge installer")?;
+    // Forge's maven directory is usually "<mc>-<build>" (1.12.2-14.23.5.2859), but the
+    // older lines append the MC version AGAIN as a branch suffix — 1.8.9's real artifact
+    // is "1.8.9-11.15.1.2318-1.8.9". promotions_slim only gives the build number, so try
+    // the plain form first and fall back to the branch-suffixed one instead of 404ing.
+    let mut full = String::new();
+    let mut bytes = None;
+    for cand in [format!("{mc}-{build}"), format!("{mc}-{build}-{mc}")] {
+        let url = format!(
+            "https://maven.minecraftforge.net/net/minecraftforge/forge/{cand}/forge-{cand}-installer.jar");
+        match cl.get(&url).send().await {
+            Ok(r) if r.status().is_success() => {
+                if let Ok(b) = r.bytes().await {
+                    full = cand;
+                    bytes = Some(b);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let bytes = bytes.ok_or_else(||
+        anyhow!("no Forge installer published for {mc} build {build}"))?;
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .context("open forge installer")?;
 
-    // version.json → a standard version profile
-    let mut vtext = String::new();
-    zip.by_name("version.json").context("version.json missing in installer")?
-        .read_to_string(&mut vtext)?;
-    let vj: serde_json::Value = serde_json::from_str(&vtext)?;
-    let id = vj["id"].as_str()
-        .ok_or_else(|| anyhow!("forge version.json has no id"))?.to_string();
+    // The version profile. Modern-era installers ship a top-level `version.json`,
+    // but the LEGACY ones this function targets (verified against the real 1.8.9 and
+    // 1.12.2 installers) have no such entry — the profile lives inside
+    // `install_profile.json` under "versionInfo", and the universal jar sits at the
+    // ARCHIVE ROOT (named by install.filePath), not under a `maven/` tree. Reading
+    // only `version.json` meant install_forge could never actually install either of
+    // the two Forge versions this launcher supports; it just happened to go unnoticed
+    // wherever another launcher had already written the profile.
+    // Probe in its own statement so the mutable borrow of `zip` ends before the
+    // branch below re-borrows it.
+    let has_version_json = zip.by_name("version.json").is_ok();
+    let (vtext, id, jar_in_zip, maven_coord) = {
+        if has_version_json {
+            // Modern layout: profile at the root, universal jar under maven/.
+            let mut raw = String::new();
+            zip.by_name("version.json")?.read_to_string(&mut raw)?;
+            let vj: serde_json::Value = serde_json::from_str(&raw)?;
+            let id = vj["id"].as_str()
+                .ok_or_else(|| anyhow!("forge version.json has no id"))?.to_string();
+            let coord = format!("net.minecraftforge:forge:{full}");
+            (raw, id, format!("maven/{}", maven_to_path(&coord)), coord)
+        } else {
+            let mut prof = String::new();
+            zip.by_name("install_profile.json")
+                .context("neither version.json nor install_profile.json in installer")?
+                .read_to_string(&mut prof)?;
+            let pj: serde_json::Value = serde_json::from_str(&prof)?;
+            let vi = pj.get("versionInfo")
+                .ok_or_else(|| anyhow!("install_profile.json has no versionInfo"))?;
+            let id = vi["id"].as_str()
+                .ok_or_else(|| anyhow!("forge versionInfo has no id"))?.to_string();
+            // install.path is the maven coordinate the profile's libraries reference,
+            // install.filePath is the entry name inside this archive.
+            let coord = pj["install"]["path"].as_str()
+                .unwrap_or(&format!("net.minecraftforge:forge:{full}")).to_string();
+            let file = pj["install"]["filePath"].as_str()
+                .ok_or_else(|| anyhow!("install_profile.json has no install.filePath"))?
+                .to_string();
+            (serde_json::to_string_pretty(vi)?, id, file, coord)
+        }
+    };
+
     let dest = version_json(&root, &id);
     if let Some(p) = dest.parent() { tokio::fs::create_dir_all(p).await?; }
     tokio::fs::write(&dest, &vtext).await?;
 
-    // bundled forge universal jar → libraries/net/minecraftforge/forge/<full>/forge-<full>.jar
-    let rel = format!("net/minecraftforge/forge/{full}/forge-{full}.jar");
-    let jar_in_zip = format!("maven/{rel}");
+    // Bundled forge jar → libraries/<maven path of the coordinate the profile uses>.
+    let rel = maven_to_path(&maven_coord);
     let out = libraries_dir(&root).join(&rel);
     if let Some(p) = out.parent() { tokio::fs::create_dir_all(p).await?; }
     let mut buf = Vec::new();
