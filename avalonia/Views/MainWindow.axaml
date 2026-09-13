@@ -969,7 +969,7 @@
                                 <StackPanel>
                                     <!-- JVM 參數 -->
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*">
-                                        <Border Grid.Column="0" Classes="tile" Background="#8E8E93" VerticalAlignment="Top">
+                                        <Border Grid.Column="0" Classes="tile">
                                             <TextBlock Text="⚙" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
