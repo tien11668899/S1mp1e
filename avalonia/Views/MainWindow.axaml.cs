@@ -2360,20 +2360,16 @@ public partial class MainWindow : Window
         row.IsDownloading = false;
     }
 
-    // "下載到所有版本" — walk SupportedVersions × mod's declared loaders and download
-    // whichever combos Modrinth actually has. Fabric mods never touch Forge MCs and
-    // vice versa. Empty Loaders → fall back to the currently-selected loader so the
-    // resolve step still gates the download.
+    // "下載到所有版本" — for each supported MC, download the build for THAT version's
+    // one launch loader (Forge for 1.8.9/1.12.2, Fabric otherwise — DefaultLoader).
+    // Previously this iterated the mod's own declared loaders and took the first that
+    // resolved, so a mod with only a Forge build for, say, 1.14.4 dropped a Forge jar
+    // into a Fabric version's folder — which the launcher then fed to Fabric addMods
+    // and crashed. Downloading strictly the version's loader keeps each per-MC folder
+    // single-loader at the source.
     private async System.Threading.Tasks.Task DownloadModAllVersionsAsync(ModHitVm row)
     {
         row.ButtonEnabled = false;
-        var fallback = (LoaderBox.SelectedText ?? "Fabric").ToLowerInvariant();
-        var loaders = row.Loaders.Length > 0
-            ? row.Loaders.Where(l => !string.Equals(l, "neoforge", StringComparison.OrdinalIgnoreCase)
-                                  && !string.Equals(l, "quilt",    StringComparison.OrdinalIgnoreCase))
-                          .Select(l => l.ToLowerInvariant()).ToArray()
-            : new[] { fallback };
-        if (loaders.Length == 0) loaders = new[] { fallback };
         var targets = SupportedVersions.Where(ModrinthClient.McSupported).ToArray();
         int ok = 0, done = 0;
         try
@@ -2382,18 +2378,17 @@ public partial class MainWindow : Window
             {
                 done++;
                 row.ButtonLabel = $"{done}/{targets.Length}";
-                foreach (var loader in loaders)
+                var loader = DefaultLoader(mc).ToLowerInvariant();
+                // Skip versions this mod has no build for on their loader — no point
+                // resolving, and it avoids a misleading failure count.
+                if (row.Loaders.Length > 0 &&
+                    !row.Loaders.Any(l => string.Equals(l, loader, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                try
                 {
-                    try
-                    {
-                        if (await DownloadOneVersionAsync(row.ProjectId, mc, loader))
-                        {
-                            ok++;
-                            break;  // one loader per MC is enough
-                        }
-                    }
-                    catch (Exception ex) { LogCrash(ex); }
+                    if (await DownloadOneVersionAsync(row.ProjectId, mc, loader)) ok++;
                 }
+                catch (Exception ex) { LogCrash(ex); }
             }
             row.ButtonLabel = ok == 0 ? "全部失敗" : $"{ok} 版已下載";
             row.ButtonEnabled = ok == 0;

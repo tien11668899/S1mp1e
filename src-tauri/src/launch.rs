@@ -310,6 +310,38 @@ fn pick_user_mods(root: &PathBuf, mc: &str) -> Vec<PathBuf> {
     out
 }
 
+/// Peek a mod jar's zip directory to tell which loader it targets, so a jar that
+/// ended up in the wrong per-MC folder is not fed to the wrong loader. A per-MC
+/// folder can mix loaders — e.g. a Forge build of Xaero's for 1.14.4 sitting next
+/// to Fabric mods — and Fabric `addMods` choking on a Forge jar crashed the game.
+/// Markers: Fabric → `fabric.mod.json`; Forge → `META-INF/mods.toml` or the legacy
+/// `mcmod.info` (1.8.9/1.12.2); NeoForge → `META-INF/neoforge.mods.toml`. A jar with
+/// no recognizable marker (a plain library) is accepted for either loader — we only
+/// REJECT a jar that clearly belongs to the OTHER loader. Unreadable → accept (the
+/// resolve/load step stays the final arbiter, exactly as before).
+fn jar_matches_loader(path: &PathBuf, want_fabric: bool) -> bool {
+    let Ok(f) = std::fs::File::open(path) else { return true; };
+    let Ok(mut zip) = zip::ZipArchive::new(f) else { return true; };
+    let mut has_fabric = false;
+    let mut has_forge = false;
+    for i in 0..zip.len() {
+        if let Ok(e) = zip.by_index(i) {
+            match e.name() {
+                "fabric.mod.json" => has_fabric = true,
+                "META-INF/mods.toml" | "mcmod.info" | "META-INF/neoforge.mods.toml" => {
+                    has_forge = true;
+                }
+                _ => {}
+            }
+        }
+    }
+    if want_fabric {
+        !(has_forge && !has_fabric)
+    } else {
+        !(has_fabric && !has_forge)
+    }
+}
+
 /// Build the full java command line for `id`.
 pub struct LaunchPlan {
     pub java_exe: PathBuf,
@@ -466,17 +498,43 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     // If a Fabric glass version ever renders no glass again, check fabric-api is present.
     // Glass toggle: only inject the glass client mod when the user has it enabled
     // (Settings.glass). Off → launch a plain profile with no glass jar.
-    if glass {
-        if let Some(glass_jar) = pick_glass_jar(root, &merged.base_id) {
-            let dst = gamedir.join("mods");
-            let _ = std::fs::create_dir_all(&dst);
-            let _ = std::fs::copy(&glass_jar, dst.join(format!("glass-{}.jar", merged.base_id)));
+    // Reconcile the per-version instance mods/ folder BEFORE laying anything down. It
+    // is fully derived and owned by S1mp1e (users manage their mods in s1mp1e-mods/<mc>/,
+    // which the UI watches), so rebuild it from scratch each launch: wipe every jar,
+    // then add exactly the desired set below. Fixes two allocation bugs:
+    //   (a) toggling glass OFF still loaded a glass jar copied on a previous glass-ON
+    //       launch — the `if glass` block only SKIPS, it never removed the old copy;
+    //   (b) Forge user mods deleted/updated in s1mp1e-mods/ lingered here as stale
+    //       duplicates that double-loaded alongside the new version.
+    let mods_dir = gamedir.join("mods");
+    let _ = std::fs::create_dir_all(&mods_dir);
+    if let Ok(rd) = std::fs::read_dir(&mods_dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension()
+                .and_then(|x| x.to_str())
+                .map(|x| x.eq_ignore_ascii_case("jar"))
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(&p);
+            }
         }
     }
-    let user_mods = pick_user_mods(root, &merged.base_id);
+
+    if glass {
+        if let Some(glass_jar) = pick_glass_jar(root, &merged.base_id) {
+            let _ = std::fs::copy(&glass_jar, mods_dir.join(format!("glass-{}.jar", merged.base_id)));
+        }
+    }
+    // User's downloaded mods (s1mp1e-mods/<mc>/), filtered to jars that actually target
+    // the loader we're launching — see jar_matches_loader: a per-MC folder can mix
+    // loaders and feeding a Forge jar to Fabric addMods crashed the game.
+    let user_mods: Vec<PathBuf> = pick_user_mods(root, &merged.base_id)
+        .into_iter()
+        .filter(|p| jar_matches_loader(p, is_fabric))
+        .collect();
     if is_fabric {
-        // Fabric: the user's downloaded mods (s1mp1e-mods/<mc>/) ride -Dfabric.addMods,
-        // kept out of the shared mods folder.
+        // Fabric: mods ride -Dfabric.addMods, kept out of the shared mods folder.
         if !user_mods.is_empty() {
             let joined = user_mods.iter()
                 .map(|p| p.to_string_lossy().into_owned())
@@ -485,14 +543,11 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
             args.push(format!("-Dfabric.addMods={joined}"));
         }
     } else {
-        // Forge (1.8.9/1.12.2): there is no addMods — copy the user's downloaded mods
-        // NATIVELY into the per-version instance mods/ folder (next to the glass jar) so
-        // they actually load. Previously Forge user mods were silently dropped.
-        let dst = gamedir.join("mods");
-        let _ = std::fs::create_dir_all(&dst);
+        // Forge (1.8.9/1.12.2): no addMods — copy the user's mods NATIVELY into the
+        // per-version instance mods/ folder (next to the glass jar) so they load.
         for m in &user_mods {
             if let Some(name) = m.file_name() {
-                let _ = std::fs::copy(m, dst.join(name));
+                let _ = std::fs::copy(m, mods_dir.join(name));
             }
         }
     }
