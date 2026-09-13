@@ -274,6 +274,9 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#26FFFFFF"/>
             <Setter Property="Margin" Value="0,0,12,0"/>
+            <!-- Keep the icon square centred in taller (two-line) rows instead of
+                 top-anchored, so every row's icon lines up with its title/control. -->
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
 
         <Style Selector="Border.card">
@@ -571,6 +574,13 @@
                          acrylic re-composites during dropdown open/close). -->
                     <Panel Grid.Row="2" ClipToBounds="True">
                         <Canvas x:Name="PillLayer" ClipToBounds="True">
+                            <!-- Hover highlight (under the selection pill): a subtle grey box
+                                 that fades in on the hovered nav row and slides smoothly between
+                                 rows while the pointer stays in the bar — Minecraft-inventory feel.
+                                 Wired in code (WireSidebarHover). -->
+                            <Border x:Name="HoverPill" Width="212" Height="40" CornerRadius="10"
+                                    Canvas.Left="0" Canvas.Top="0" Opacity="0" IsHitTestVisible="False"
+                                    Background="{DynamicResource MenuHover}"/>
                             <!-- Apple Liquid Glass: EDGE-ONLY optics. No body tint, no body
                                  blur. The visible effect is a rim refraction band (that bends
                                  what's underneath, giving the convex-lens look) plus a rim
@@ -703,10 +713,16 @@
                  the right-side menu opens (a topLevel-transparency capture rerun). -->
             <Border Grid.Column="1" Background="{DynamicResource DetailBg}">
                 <Grid>
+                <!-- Padding lives on the inner StackPanel as MARGIN, not on the
+                     ScrollViewer: Avalonia SUBTRACTS ScrollViewer.Padding from the scroll
+                     Extent (content wanted 1092, Extent came out 1028 = 1092 − 64 padding),
+                     so the last 64px (top 40 + bottom 24) were unreachable — the long-
+                     standing "can't scroll to the bottom" bug. Margin is part of the
+                     content's desired size, so the Extent now matches and the bottom is
+                     reachable on every page. -->
                 <ScrollViewer x:Name="DetailScroller"
-                              HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Hidden"
-                              Padding="24,40,24,24">
-                    <StackPanel Spacing="20">
+                              HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Hidden">
+                    <StackPanel Spacing="20" Margin="24,40,24,24">
 
                         <!-- header -->
                         <TextBlock x:Name="PageTitle" Text="開始遊戲" FontSize="24" FontWeight="Bold"
@@ -1122,7 +1138,7 @@
                     <lg:LiquidGlassSurface x:Name="MenuGlass" CornerRadius="16" IsHitTestVisible="False"
                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                            RefractionHeight="10" RefractionAmount="26"
-                                           ChromaticAberration="True" BlurRadius="0"
+                                           ChromaticAberration="True" BlurRadius="3"
                                            Vibrancy="1.0" Brightness="0"
                                            TintColor="#00000000" SurfaceColor="#1CFFFFFF"
                                            HighlightEnabled="True" HighlightOpacity="0.55"

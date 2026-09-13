@@ -126,6 +126,13 @@ public partial class MainWindow : Window
             }
         };
 
+        // Sidebar hover highlight: quick slide between rows + a fade on enter/leave.
+        HoverPill.Transitions = new Transitions
+        {
+            new DoubleTransition { Property = Canvas.TopProperty, Duration = TimeSpan.FromMilliseconds(200), Easing = new CubicEaseOut() },
+            new DoubleTransition { Property = OpacityProperty,    Duration = TimeSpan.FromMilliseconds(140), Easing = new CubicEaseOut() },
+        };
+
         Opened += (_, _) =>
         {
             // Hydrate settings from disk before any handler can fire back.
@@ -159,12 +166,38 @@ public partial class MainWindow : Window
             UpdateNavWeights(_selected);
             ShowPage(_selected);
 
+            WireSidebarHover();
+
             // Show the real running version on the 關於 card (was hardcoded "1.0.0").
             AboutVersionText.Text = UpdateChecker.CurrentVersion();
 
             // Best-effort launcher update check — fire-and-forget so a slow or dead
             // network never delays the window. Shows the bottom banner if newer.
             CheckForUpdatesAsync();
+
+            // TEMP DIAG — auto-measure the settings page scroll extent on startup.
+            var diag = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
+            diag.Tick += (_, __) =>
+            {
+                diag.Stop();
+                try
+                {
+                    for (int i = 0; i < 4; i++) { var p = PageOf(i); p.IsVisible = i == 3; p.Opacity = 1; }
+                    _currentPage = 3;
+                    PageTitle.Text = "設定";
+                    DetailScroller.UpdateLayout();
+                    var extBefore = DetailScroller.Extent.Height;
+                    var vpBefore = DetailScroller.Viewport.Height;
+                    var maxBefore = DetailScroller.ScrollBarMaximum.Y;
+                    DetailScroller.Offset = new Vector(0, 99999);
+                    var forced = DetailScroller.Offset.Y;
+                    System.IO.File.AppendAllText(@"C:\Temp\s1mp1e-scroll.log",
+                        $"DIAG settings ext={extBefore:F0} vp={vpBefore:F0} max={maxBefore:F0} forcedOff={forced:F0} " +
+                        $"pageSettingsBounds={PageSettings.Bounds.Height:F0} outerSP={((Control)DetailScroller.Content!).Bounds.Height:F0}\n");
+                }
+                catch (Exception ex) { try { System.IO.File.AppendAllText(@"C:\Temp\s1mp1e-scroll.log", "DIAG ERR " + ex.Message + "\n"); } catch { } }
+            };
+            diag.Start();
 
             // Every pop-up button opens the ONE shared liquid-glass menu, anchored to itself.
             foreach (var gs in this.GetVisualDescendants().OfType<GlassSelect>())
@@ -878,8 +911,20 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (Application.Current is null) return;
-            Application.Current.Resources["Accent"] = new SolidColorBrush(Color.Parse(hex));
+            var app = Application.Current;
+            if (app is null) return;
+            var brush = new SolidColorBrush(Color.Parse(hex));
+            // "Accent" is defined inside ThemeDictionaries (Light/Dark). Setting the plain
+            // Application resource gets SHADOWED by the active theme dictionary, so the
+            // colour picker did nothing. Write the override into BOTH theme dictionaries
+            // and into the window's own resources so it wins whatever the variant is.
+            foreach (var variant in new[] { Avalonia.Styling.ThemeVariant.Light, Avalonia.Styling.ThemeVariant.Dark })
+            {
+                if (app.Resources.ThemeDictionaries.TryGetValue(variant, out var prov)
+                    && prov is ResourceDictionary rd)
+                    rd["Accent"] = brush;
+            }
+            this.Resources["Accent"] = brush;
         }
         catch { }
     }
@@ -1452,6 +1497,7 @@ public partial class MainWindow : Window
             _scrollTimer?.Stop();
             _scrollTarget = double.NaN;
             ClearMotionBlur();
+            try { System.IO.File.AppendAllText(@"C:\Temp\s1mp1e-scroll.log", $"settle ext={DetailScroller.Extent.Height:F0} vp={DetailScroller.Viewport.Height:F0} max={DetailScroller.ScrollBarMaximum.Y:F0} off={DetailScroller.Offset.Y:F0} page={_currentPage}\n"); } catch {}
             return;
         }
         var t = 1.0 - Math.Exp(-ScrollDecay * dt);
@@ -2812,6 +2858,21 @@ public partial class MainWindow : Window
         try
         {
             var mods = await Task.Run(() => LocalModScanner.ScanAsync(mcDir, mcVer));
+
+            // Self-correct mod conflicts: auto-disable duplicate mod-ids that would
+            // hard-crash the game (keep newest, rename the rest to .disabled); the
+            // ambiguous ones become a warning. Re-scan once if anything was disabled
+            // so the list reflects the new state.
+            ConflictResult? conflicts = null;
+            try
+            {
+                var launchDir = ConflictScanner.LaunchModDir(mcDir, mcVer);
+                conflicts = await Task.Run(() => ConflictScanner.DetectAndFix(mods, launchDir));
+                if (conflicts.AutoDisabled > 0)
+                    mods = await Task.Run(() => LocalModScanner.ScanAsync(mcDir, mcVer));
+            }
+            catch (Exception ex) { LogCrash(ex); }
+
             _localModsAll = new List<LocalModVm>(mods.Count);
             foreach (var m in mods)
             {
@@ -2836,6 +2897,15 @@ public partial class MainWindow : Window
             LocalModStatus.Text = _localModsAll.Count == 0
                 ? "沒有偵測到本地模組 (mods/*.jar)"
                 : $"{_localModsAll.Count} 個模組 · {enabled} 個啟用";
+            if (conflicts is not null && (conflicts.AutoDisabled > 0 || conflicts.Warnings.Count > 0))
+            {
+                var parts = new List<string>();
+                if (conflicts.AutoDisabled > 0)
+                    parts.Add($"已自動停用 {conflicts.AutoDisabled} 個重複({string.Join("、", conflicts.Fixed)})");
+                if (conflicts.Warnings.Count > 0)
+                    parts.Add($"{conflicts.Warnings.Count} 個衝突需手動選:{string.Join("、", conflicts.Warnings)}");
+                LocalModStatus.Text += "  ⚠ " + string.Join(" · ", parts);
+            }
         }
         catch (Exception ex) { LogCrash(ex); LocalModStatus.Text = "掃描失敗"; }
     }
@@ -3013,6 +3083,34 @@ public partial class MainWindow : Window
             if (label is not null)
                 label.FontWeight = i == selected ? FontWeight.SemiBold : FontWeight.Normal;
         }
+    }
+
+    // Sidebar hover highlight — fades in on the hovered nav row, slides between rows
+    // while the pointer stays in the bar, fades out when it leaves (Minecraft-inventory
+    // feel). When appearing fresh it snaps to the row (no slide-from-last-position); when
+    // moving between rows it animates via the Canvas.Top transition.
+    private void WireSidebarHover()
+    {
+        foreach (var row in NavRows.Children.OfType<Border>())
+        {
+            row.PointerEntered += (s, _) =>
+            {
+                if (s is not Border b || !int.TryParse(b.Tag?.ToString(), out var idx)) return;
+                if (HoverPill.Opacity < 0.5)
+                {
+                    var tr = HoverPill.Transitions;      // appearing: snap into place, no slide
+                    HoverPill.Transitions = null;
+                    Canvas.SetTop(HoverPill, idx * RowStride);
+                    HoverPill.Transitions = tr;
+                }
+                else
+                {
+                    Canvas.SetTop(HoverPill, idx * RowStride);   // moving between rows: slide
+                }
+                HoverPill.Opacity = 1;
+            };
+        }
+        NavRows.PointerExited += (_, _) => HoverPill.Opacity = 0;
     }
 
     private void MovePill(int index, bool animate)

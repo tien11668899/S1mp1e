@@ -16,7 +16,9 @@ public sealed record LocalMod(
     string Name,
     string Description,
     byte[]? IconBytes,
-    bool Enabled);
+    bool Enabled,
+    string Loader = "",        // "fabric" | "forge" | "" (unknown) — which descriptor parsed
+    string? Version = null);   // literal version string, null if absent/placeholder
 
 /// <summary>
 /// Scans <c>&lt;mcRoot&gt;/mods</c> for Fabric jars (both <c>.jar</c> and the
@@ -104,6 +106,10 @@ public static class LocalModScanner
         var id   = root.TryGetProperty("id",          out var idp) ? idp.GetString() ?? "" : "";
         var name = root.TryGetProperty("name",        out var np)  ? np.GetString()  ?? id : id;
         var desc = root.TryGetProperty("description", out var dp)  ? dp.GetString()  ?? "" : "";
+        // Version for conflict detection. An unresolved Loom placeholder ("${version}")
+        // can't be compared, so treat it as unknown.
+        var ver  = root.TryGetProperty("version",     out var vp)  ? vp.GetString() : null;
+        if (ver != null && ver.Contains("${")) ver = null;
 
         byte[]? iconBytes = null;
         if (root.TryGetProperty("icon", out var ip))
@@ -128,7 +134,7 @@ public static class LocalModScanner
                 }
             }
         }
-        return new LocalMod(jarPath, id, name, desc, iconBytes, enabled);
+        return new LocalMod(jarPath, id, name, desc, iconBytes, enabled, "fabric", ver);
     }
 
     // Minimal Forge mods.toml sniffer — we don't parse TOML, just pull out the
@@ -150,8 +156,11 @@ public static class LocalModScanner
         var name = Pull(text, "displayName");
         var id   = Pull(text, "modId");
         var desc = Pull(text, "description");
+        var ver  = Pull(text, "version");
+        if (ver.Contains("${")) ver = "";      // ${file.jarVersion} placeholder → unknown
         if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(jarPath);
-        return new LocalMod(jarPath, id, name, desc, null, enabled);
+        return new LocalMod(jarPath, id, name, desc, null, enabled, "forge",
+                            string.IsNullOrEmpty(ver) ? null : ver);
     }
 
     /// <summary>Toggle a jar between enabled/disabled by renaming
