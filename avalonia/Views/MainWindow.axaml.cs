@@ -1496,57 +1496,12 @@ public partial class MainWindow : Window
             DetailScroller.Offset = new Vector(DetailScroller.Offset.X, _scrollTarget);
             _scrollTimer?.Stop();
             _scrollTarget = double.NaN;
-            ClearMotionBlur();
-            try { System.IO.File.AppendAllText(@"C:\Temp\s1mp1e-scroll.log", $"settle ext={DetailScroller.Extent.Height:F0} vp={DetailScroller.Viewport.Height:F0} max={DetailScroller.ScrollBarMaximum.Y:F0} off={DetailScroller.Offset.Y:F0} page={_currentPage}\n"); } catch {}
             return;
         }
         var t = 1.0 - Math.Exp(-ScrollDecay * dt);
         var step = diff * t;
         var next = cur + step;
         DetailScroller.Offset = new Vector(DetailScroller.Offset.X, next);
-
-        // Real directional motion blur — anisotropic Skia blur (X≈0, Y=sigmaY).
-        // The overlay draws a snapshot of the viewport through the blur filter.
-        var pxPerFrame = Math.Abs(step);
-        var sigmaY = Math.Min(14.0, pxPerFrame * 0.5);
-        if (sigmaY < 1.5) { ClearMotionBlur(); return; }
-        // Fade edge blur off within 90px of each boundary so first/last content
-        // isn't hidden in the fade band.
-        const double FadeRange = 90.0;
-        var offY = DetailScroller.Offset.Y;
-        var scrollable = extentY;
-        var topScale    = Math.Clamp(offY / FadeRange, 0, 1);
-        var bottomScale = Math.Clamp((scrollable - offY) / FadeRange, 0, 1);
-        ScrollMotionBlur?.SetEdgeScales(topScale, bottomScale);
-        _ = ApplyDirectionalBlurAsync(sigmaY);
-    }
-
-    private bool _snapshotting;
-    private async System.Threading.Tasks.Task ApplyDirectionalBlurAsync(double sigmaY)
-    {
-        if (_snapshotting || ScrollMotionBlur is null || DetailScroller is null) return;
-        _snapshotting = true;
-        try
-        {
-            var size = DetailScroller.Bounds.Size;
-            if (size.Width < 1 || size.Height < 1) return;
-            var pixSize = new PixelSize(
-                Math.Max(1, (int)size.Width),
-                Math.Max(1, (int)size.Height));
-            var rtb = new RenderTargetBitmap(pixSize, new Vector(96, 96));
-            rtb.Render(DetailScroller);
-            ScrollMotionBlur.SetSnapshot(rtb, sigmaY);
-        }
-        catch (Exception ex) { LogCrash(ex); }
-        finally { _snapshotting = false; }
-        await System.Threading.Tasks.Task.CompletedTask;
-    }
-
-    private void ClearMotionBlur()
-    {
-        // Scroll settled: strip snapshot + zero motion. Edge blur is motion-only
-        // now (no always-on) to avoid the layout-thrash loop that blocked scroll.
-        if (ScrollMotionBlur is not null) ScrollMotionBlur.SetSnapshot(null, 0);
     }
 
     // 皮膚 card 切換 → menu: 尋找 (mineskin gallery) / 導入 (file picker)

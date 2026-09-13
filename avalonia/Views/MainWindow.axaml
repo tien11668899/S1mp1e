@@ -1078,8 +1078,6 @@
 
                     </StackPanel>
                 </ScrollViewer>
-                <!-- Motion-blur overlay (anisotropic Skia blur, Y direction) -->
-                <ctl:MotionBlurLayer x:Name="ScrollMotionBlur" IsHitTestVisible="False"/>
                 </Grid>
             </Border>
         </Grid>
