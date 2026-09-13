@@ -172,7 +172,7 @@
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="CornerRadius" Value="27"/>
             <Setter Property="Height" Value="54"/>
-            <Setter Property="Padding" Value="26,0,30,0"/>
+            <Setter Property="Padding" Value="24,0,32,0"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -210,13 +210,13 @@
             <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="CornerRadius" Value="13"/>
-            <Setter Property="Padding" Value="15,5"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="16,4"/>
             <Setter Property="MinHeight" Value="0"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
         <Style Selector="Button.mini /template/ ContentPresenter">
-            <Setter Property="CornerRadius" Value="13"/>
+            <Setter Property="CornerRadius" Value="10"/>
         </Style>
         <!-- accent-filled small button (登入) -->
         <Style Selector="Button.accent">
@@ -224,14 +224,14 @@
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="18,7"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="20,8"/>
             <Setter Property="MinHeight" Value="0"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
         <Style Selector="Button.accent /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Accent}"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="CornerRadius" Value="10"/>
         </Style>
         <!-- destructive text button (登出) -->
         <Style Selector="Button.danger">
@@ -239,13 +239,13 @@
             <Setter Property="Foreground" Value="#FF453A"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="CornerRadius" Value="13"/>
-            <Setter Property="Padding" Value="15,5"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="16,4"/>
             <Setter Property="MinHeight" Value="0"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
         <Style Selector="Button.danger /template/ ContentPresenter">
-            <Setter Property="CornerRadius" Value="13"/>
+            <Setter Property="CornerRadius" Value="10"/>
         </Style>
         <!-- inline editable value field (Client ID / 離線名稱) -->
         <Style Selector="TextBox.field">
@@ -287,7 +287,7 @@
         <Style Selector="TextBlock.caption">
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Foreground" Value="{DynamicResource TextSub}"/>
-            <Setter Property="Margin" Value="2,0,0,-12"/>
+            <Setter Property="Margin" Value="4,0,0,-12"/>
         </Style>
 
         <!-- liquid toggle (custom): green-on, white knob, springy liquid slide -->
@@ -342,7 +342,7 @@
             <Setter Property="Template">
                 <ControlTemplate>
                     <Grid>
-                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="7"
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="10"
                                 Padding="{TemplateBinding Padding}">
                             <Grid ColumnDefinitions="*,Auto">
                                 <ContentControl Grid.Column="0"
@@ -363,7 +363,7 @@
                                IsLightDismissEnabled="True"
                                Placement="BottomEdgeAlignedRight">
                             <!-- liquid-glass popover: super-rounded translucent panel, soft shadow, glass sheen -->
-                            <Border x:Name="MenuRoot" Margin="0,6,6,12" MinWidth="124"
+                            <Border x:Name="MenuRoot" Margin="0,8,8,12" MinWidth="124"
                                     Background="{DynamicResource MenuBg}" CornerRadius="16"
                                     BorderThickness="1" BorderBrush="{DynamicResource CardBorder}"
                                     BoxShadow="0 10 30 0 #38000000"
@@ -378,7 +378,7 @@
                                             </LinearGradientBrush>
                                         </Border.Background>
                                     </Border>
-                                    <ItemsPresenter x:Name="PART_ItemsPresenter" Margin="5"
+                                    <ItemsPresenter x:Name="PART_ItemsPresenter" Margin="4"
                                                     ItemsPanel="{TemplateBinding ItemsPanel}"/>
                                 </Panel>
                             </Border>
@@ -399,7 +399,7 @@
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Template">
                 <ControlTemplate>
-                    <Border x:Name="Row" Background="Transparent" CornerRadius="9" Margin="3,1" Padding="8,7">
+                    <Border x:Name="Row" Background="Transparent" CornerRadius="10" Margin="4,4" Padding="8,8">
                         <Grid ColumnDefinitions="20,*">
                             <Path x:Name="Check" Grid.Column="0" Width="12" Height="10" Stretch="Uniform"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -438,7 +438,7 @@
             <Setter Property="HorizontalAlignment" Value="Right"/>
             <Setter Property="Template">
                 <ControlTemplate>
-                    <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="7"
+                    <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="10"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter Content="{TemplateBinding Content}"
                                           VerticalAlignment="Center" HorizontalAlignment="Right"/>
@@ -540,14 +540,14 @@
 <Grid x:Name="SidebarContent" Margin="12,48,12,12" RowDefinitions="Auto,Auto,*,Auto">
 
                     <!-- brand -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="9" Margin="8,0,0,16">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="8,0,0,16">
                         <Image Source="avares://S1mp1e/Assets/s1mp1e.png" Width="28" Height="28"/>
                         <TextBlock Text="S1mp1e" FontSize="15" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- search -->
-                    <Border Grid.Row="1" CornerRadius="16" Background="{DynamicResource FieldBg}"
+                    <Border Grid.Row="1" CornerRadius="10" Background="{DynamicResource FieldBg}"
                             Height="32" Margin="0,0,0,16">
                         <Grid ColumnDefinitions="Auto,*,Auto" Margin="12,0">
                             <Path Grid.Column="0" Width="14" Height="14" Stretch="Uniform"
@@ -556,7 +556,7 @@
                                   Data="M7,11.5 A4.5,4.5 0 1 0 7,2.5 A4.5,4.5 0 0 0 7,11.5 Z M10.2,10.2 L15,15"/>
                             <TextBox Grid.Column="1" x:Name="SearchBox" Classes="search" PlaceholderText="搜尋"
                                      Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"
-                                     Margin="7,0,4,0" TextChanged="OnSearchChanged"/>
+                                     Margin="8,0,4,0" TextChanged="OnSearchChanged"/>
                             <Path Grid.Column="2" Width="12" Height="15" Stretch="Uniform"
                                   Stroke="{DynamicResource TextSub}" StrokeThickness="1.5"
                                   StrokeLineCap="Round" StrokeJoin="Round"
@@ -577,7 +577,7 @@
                                  highlight — the interior stays clear and colourless. -->
                             <lg:LiquidGlassSurface x:Name="SelPill"
                                                    lg:LiquidGlassBackdrop.IsExcludedFromCapture="True"
-                                                   Width="212" Height="40" CornerRadius="9"
+                                                   Width="212" Height="40" CornerRadius="10"
                                                    Canvas.Left="0" Canvas.Top="0"
                                                    RefractionHeight="7" RefractionAmount="14"
                                                    ChromaticAberration="False" BlurRadius="0"
@@ -591,9 +591,9 @@
 
                         <StackPanel x:Name="NavRows" Spacing="4">
                             <!-- 開始遊戲 -->
-                            <Border Classes="navrow" Height="40" CornerRadius="9" Background="Transparent"
+                            <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="0">
-                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                                     <Border Width="26" Height="26" CornerRadius="7" Background="{DynamicResource Accent}">
                                         <Image Source="avares://S1mp1e/Assets/Icons/play.fill.png" Width="16" Height="16"/>
                                     </Border>
@@ -604,9 +604,9 @@
                                 </StackPanel>
                             </Border>
                             <!-- 模組 -->
-                            <Border Classes="navrow" Height="40" CornerRadius="9" Background="Transparent"
+                            <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="1">
-                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                                     <Border Width="26" Height="26" CornerRadius="7" Background="#FF9F0A">
                                         <Image Source="avares://S1mp1e/Assets/Icons/cube.fill.png" Width="16" Height="16"/>
                                     </Border>
@@ -615,9 +615,9 @@
                                 </StackPanel>
                             </Border>
                             <!-- 帳號 -->
-                            <Border Classes="navrow" Height="40" CornerRadius="9" Background="Transparent"
+                            <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="2">
-                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                                     <Border Width="26" Height="26" CornerRadius="7" Background="#8E8E93">
                                         <Image Source="avares://S1mp1e/Assets/Icons/person.crop.circle.fill.png" Width="16" Height="16"/>
                                     </Border>
@@ -628,9 +628,9 @@
                                 </StackPanel>
                             </Border>
                             <!-- 設定 -->
-                            <Border Classes="navrow" Height="40" CornerRadius="9" Background="Transparent"
+                            <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="3">
-                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                                     <Border Width="26" Height="26" CornerRadius="7" Background="#8E8E93">
                                         <Image Source="avares://S1mp1e/Assets/Icons/gear.png" Width="16" Height="16"/>
                                     </Border>
@@ -663,7 +663,7 @@
 
                         <!-- (2) LOGGED-IN: full chip -->
                         <Border x:Name="AccountChip" Opacity="0" IsVisible="False"
-                                CornerRadius="9" Background="Transparent"
+                                CornerRadius="10" Background="Transparent"
                                 PointerPressed="OnAccountChipPressed" Cursor="Hand">
                             <Grid ColumnDefinitions="36,*,Auto" Margin="4,0">
                                 <Ellipse x:Name="ChipAvatar" Grid.Column="0" Width="30" Height="30" VerticalAlignment="Center">
@@ -672,7 +672,7 @@
                                                     Stretch="UniformToFill"/>
                                     </Ellipse.Fill>
                                 </Ellipse>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,0,0">
                                     <TextBlock x:Name="ChipName" Text="尚未登入" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{DynamicResource TextMain}"/>
                                     <TextBlock x:Name="ChipSub" Text="離線模式" FontSize="11"
@@ -719,7 +719,7 @@
                         <Border CornerRadius="12" BorderThickness="1"
                                 BorderBrush="{DynamicResource CardBorder}" Background="{DynamicResource CardBg}">
                             <StackPanel>
-                                <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                     <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/square.stack.3d.up.fill.png" Width="18" Height="18"/></Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Text="版本" FontSize="13" Foreground="{DynamicResource TextMain}"/>
@@ -734,7 +734,7 @@
 
                                 <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
 
-                                <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                     <Border Grid.Column="0" Classes="tile" Background="#34C759">
                                         <Image Source="avares://S1mp1e/Assets/Icons/star.fill.png" Width="18" Height="18"/>
                                     </Border>
@@ -749,7 +749,7 @@
                                 <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
 
                                 <!-- install status + on-demand download of the selected version -->
-                                <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                     <Border Grid.Column="0" Classes="tile" Background="#FF9F0A">
                                         <TextBlock Text="↓" FontSize="17" FontWeight="Bold" Foreground="White"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -773,7 +773,8 @@
                                  (click "瀏覽模組" while querying → go to browse; click "查詢模組"
                                  while browsing → go to query). Same edge-only optics as the
                                  sidebar SelPill. -->
-                            <lg:LiquidGlassSurface x:Name="ModModeToggle"
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                            <lg:LiquidGlassSurface x:Name="ModModeToggle" Grid.Column="0"
                                                    lg:LiquidGlassBackdrop.IsExcludedFromCapture="True"
                                                    HorizontalAlignment="Left"
                                                    Width="140" Height="34" CornerRadius="10"
@@ -791,13 +792,22 @@
                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                            Foreground="{DynamicResource TextMain}"/>
                             </lg:LiquidGlassSurface>
+                                <Border x:Name="UpdateAllBtn" Grid.Column="2" IsVisible="False"
+                                        Height="34" CornerRadius="10" Padding="16,0" Cursor="Hand"
+                                        Background="{DynamicResource Accent}" VerticalAlignment="Center"
+                                        PointerPressed="OnUpdateAllMods">
+                                    <TextBlock x:Name="UpdateAllLabel" Text="全部更新"
+                                               FontSize="12.5" FontWeight="SemiBold" Foreground="White"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
                             <!-- Search bar (~360 wide, pill) + sort dropdown on the right.
                                  ModSortBox hides in browse mode (local mods don't sort by heat).
                                  The row's Margin.Top animates smaller in browse mode so the
                                  search box "moves up" per the design brief. -->
                             <Grid x:Name="ModSearchRow" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
                                 <Border Grid.Column="0" HorizontalAlignment="Left"
-                                        Width="360" Height="32" CornerRadius="16"
+                                        Width="360" Height="32" CornerRadius="10"
                                         Background="{DynamicResource FieldBg}">
                                     <Grid ColumnDefinitions="Auto,*" Margin="12,0">
                                         <Path Grid.Column="0" Width="14" Height="14" Stretch="Uniform"
@@ -807,7 +817,7 @@
                                         <TextBox Grid.Column="1" x:Name="ModSearchBox" Classes="search"
                                                  PlaceholderText="搜尋 Modrinth 模組"
                                                  Foreground="{DynamicResource TextMain}"
-                                                 Margin="7,0,0,0"
+                                                 Margin="8,0,0,0"
                                                  TextChanged="OnModSearchTextChanged"/>
                                     </Grid>
                                 </Border>
@@ -816,6 +826,14 @@
                                                  VerticalAlignment="Center" FontSize="13"
                                                  SelectionChanged="OnModSortChanged"/>
                             </Grid>
+
+                            <!-- Content-category filter chips (Modrinth facets). Built in code
+                                 (BuildCategoryChips); hidden in browse mode like the sort box. -->
+                            <ScrollViewer x:Name="ModCategoryScroller"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="ModCategoryChips" Orientation="Horizontal" Spacing="8"/>
+                            </ScrollViewer>
 
                             <!-- Two panes, crossfaded on toggle: ModrinthPane (query) and
                                  LocalBrowsePane (installed jars). No inner ScrollViewer /
@@ -838,7 +856,7 @@
                         <StackPanel x:Name="PageAccount" Spacing="20" IsVisible="False">
                             <!-- Shown when signed in: skin head + name only + switch/登出 -->
                             <Border x:Name="SignedInCard" Classes="card" IsVisible="False">
-                                <Grid Margin="16,14" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
+                                <Grid Margin="16,16" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="16">
                                     <Border Grid.Column="0" Width="56" Height="56" CornerRadius="10"
                                             ClipToBounds="True" Background="#22000000">
                                         <Image x:Name="PageSkinImage" Stretch="UniformToFill"/>
@@ -856,12 +874,12 @@
 
                             <!-- 皮膚 card (signed-in only) — full skin preview + 切換 -->
                             <Border x:Name="SkinCard" Classes="card" IsVisible="False">
-                                <Grid Margin="16,14" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
-                                    <Border Grid.Column="0" Width="52" Height="90" CornerRadius="8"
+                                <Grid Margin="16,16" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                                    <Border Grid.Column="0" Width="52" Height="90" CornerRadius="10"
                                             ClipToBounds="True" Background="#22000000">
                                         <Image x:Name="SkinBodyImage" Stretch="Uniform"/>
                                     </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                                         <TextBlock Text="皮膚" FontSize="13" Foreground="{DynamicResource TextMain}"/>
                                         <TextBlock Text="更換此帳號的 Minecraft 皮膚" FontSize="11"
                                                    Foreground="{DynamicResource TextSub}"/>
@@ -874,13 +892,13 @@
                             <!-- Login prompt: hidden once signed in -->
                             <Border x:Name="LoginPromptCard" Classes="card">
                                 <StackPanel>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#007AFF"><Image Source="avares://S1mp1e/Assets/Icons/person.crop.circle.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="登入 Microsoft 帳號" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="取得正版存檔、外觀與多人伺服器連線" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <Button x:Name="LoginBtn" Grid.Column="2" Classes="accent" Content="登入" VerticalAlignment="Center" Click="OnLogin"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#34C759"><Image Source="avares://S1mp1e/Assets/Icons/shield.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="不會看到你的密碼" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="登入在 Microsoft 官方網頁完成，S1mp1e 只取得授權權杖" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                     </Grid>
@@ -890,7 +908,7 @@
                             <!-- Offline caption+card only visible when NOT signed in. -->
                             <TextBlock x:Name="OfflineCaption" Classes="caption" Text="離線模式"/>
                             <Border x:Name="OfflineCard" Classes="card">
-                                <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                     <Border Grid.Column="0" Classes="tile" Background="#FF9F0A"><Image Source="avares://S1mp1e/Assets/Icons/person.crop.circle.fill.png" Width="18" Height="18"/></Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="離線名稱" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="不需登入即可進入單人與區域網路遊戲" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                     <TextBox x:Name="OfflineNameBox" Grid.Column="2" Classes="field" PlaceholderText="Player" VerticalAlignment="Center" LostFocus="OnOfflineNameChanged"/>
@@ -902,16 +920,16 @@
                             <TextBlock Classes="caption" Text="一般"/>
                             <Border Classes="card">
                                 <StackPanel>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#007AFF"><Image Source="avares://S1mp1e/Assets/Icons/folder.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲目錄" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock x:Name="McPathLabel" Text="%APPDATA%\.minecraft" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <Button Grid.Column="2" Classes="mini" Content="選擇…" VerticalAlignment="Center" Click="OnPickMcDir"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#34C759"><Image Source="avares://S1mp1e/Assets/Icons/gauge.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="記憶體配置" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="配置給 Java 的最大堆積記憶體" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <Slider x:Name="RamSlider" Width="140" Minimum="1" Maximum="16" Value="4"
                                                     TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
                                                     ValueChanged="OnRamChanged"/>
@@ -921,7 +939,7 @@
                                         </StackPanel>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#FF9F0A"><Image Source="avares://S1mp1e/Assets/Icons/macwindow.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="啟動遊戲後" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
                                         <ctl:GlassSelect x:Name="AfterLaunchBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
@@ -934,7 +952,7 @@
                             <Border Classes="card">
                                 <StackPanel>
                                     <!-- JVM 參數 -->
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*">
                                         <Border Grid.Column="0" Classes="tile" Background="#8E8E93" VerticalAlignment="Top">
                                             <TextBlock Text="⚙" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
@@ -946,12 +964,12 @@
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <!-- 遊戲解析度 -->
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#30B0C7">
                                             <TextBlock Text="◱" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲解析度" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="留空或 0 = 使用遊戲預設" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <TextBox x:Name="ResWidthBox" Classes="field" Width="66" Watermark="寬" LostFocus="OnResChanged"/>
                                             <TextBlock Text="×" VerticalAlignment="Center" Foreground="{DynamicResource TextSub}"/>
                                             <TextBox x:Name="ResHeightBox" Classes="field" Width="66" Watermark="高" LostFocus="OnResChanged"/>
@@ -959,12 +977,12 @@
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <!-- 自訂 Java 路徑 -->
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#FF9500">
                                             <TextBlock Text="☕" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="自訂 Java" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock x:Name="JavaPathLabel" Text="自動（依版本選擇）" FontSize="11" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis"/></StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <Button Classes="mini" Content="選擇…" Click="OnPickJava"/>
                                             <Button Classes="mini" Content="自動" Click="OnClearJava"/>
                                         </StackPanel>
@@ -975,27 +993,27 @@
                             <TextBlock Classes="caption" Text="外觀"/>
                             <Border Classes="card">
                                 <StackPanel>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#5E5CE6"><Image Source="avares://S1mp1e/Assets/Icons/circle.righthalf.fill.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="外觀" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
                                         <ctl:GlassSelect x:Name="ThemeBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="自動|淺色|深色" SelectionChanged="OnThemeChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#FF375F"><Image Source="avares://S1mp1e/Assets/Icons/paintbrush.fill.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="強調色" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
                                         <ctl:GlassSelect x:Name="AccentBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="藍色|紫色|粉紅色|橙色|綠色|石墨" SelectionChanged="OnAccentChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#BF5AF2"><Image Source="avares://S1mp1e/Assets/Icons/drop.triangle.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="液態玻璃" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="在介面啟用即時折射玻璃效果" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <ctl:LiquidToggle x:Name="GlassToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnGlassToggleChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#8E8E93"><Image Source="avares://S1mp1e/Assets/Icons/square.on.square.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="減少透明度" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="降低模糊與透明度，提升清晰度與效能" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <ctl:LiquidToggle x:Name="DemoToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnReduceToggleChanged"/>
@@ -1003,16 +1021,36 @@
                                 </StackPanel>
                             </Border>
 
+                            <TextBlock Classes="caption" Text="資料夾"/>
+                            <Border Classes="card">
+                                <StackPanel>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#0A84FF"><Image Source="avares://S1mp1e/Assets/Icons/folder.fill.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲資料夾" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="目前版本的 instance 目錄" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
+                                        <TextBlock Grid.Column="2" x:Name="OpenGameFolderBtn" Text="開啟" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" Cursor="Hand" VerticalAlignment="Center" PointerPressed="OnOpenGameFolder"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#8E8E93"><Image Source="avares://S1mp1e/Assets/Icons/macwindow.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="最新日誌" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="latest.log — 出問題時看這個" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
+                                        <TextBlock Grid.Column="2" x:Name="OpenLogBtn" Text="開啟" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" Cursor="Hand" VerticalAlignment="Center" PointerPressed="OnOpenLog"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <TextBlock Classes="caption" Text="關於"/>
                             <Border Classes="card">
                                 <StackPanel>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#34C759"><Image Source="avares://S1mp1e/Assets/Icons/square.stack.3d.up.fill.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="版本" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Text="1.0.0" FontSize="12.5" Foreground="{DynamicResource TextSub}" VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                            <TextBlock x:Name="AboutVersionText" Text="0.1.2" FontSize="12.5" Foreground="{DynamicResource TextSub}" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="CheckUpdateBtn" Text="檢查更新" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" Cursor="Hand" VerticalAlignment="Center" PointerPressed="OnCheckUpdateClick"/>
+                                        </StackPanel>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
-                                    <Grid Margin="16,10" ColumnDefinitions="Auto,*,Auto">
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#5E5CE6"><Image Source="avares://S1mp1e/Assets/Icons/sparkles.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="液態玻璃" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="由即時折射 UI 引擎驅動，隨系統淺色與深色" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <Path Grid.Column="2" Width="8" Height="12" Stretch="Uniform" Stroke="{DynamicResource TextSub}" StrokeThickness="1.7" StrokeLineCap="Round" StrokeJoin="Round" VerticalAlignment="Center" Data="M1,1 L6,6 L1,11"/>
@@ -1033,7 +1071,7 @@
         <!-- ================= TITLE BAR (drag + traffic lights) ================= -->
         <Grid x:Name="TitleBarRoot" VerticalAlignment="Top" Height="40" Background="Transparent"
               PointerPressed="OnTitleBarPressed" lg:LiquidGlassBackdrop.IsExcludedFromCapture="True">
-            <StackPanel x:Name="Traffic" Orientation="Horizontal" Spacing="8" Margin="14,0,0,0"
+            <StackPanel x:Name="Traffic" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0"
                         Background="Transparent" VerticalAlignment="Center" HorizontalAlignment="Left">
                 <Border Classes="tl close" Tapped="OnClose">
                     <Panel>
@@ -1061,7 +1099,7 @@
                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
                 Margin="0,0,24,24" Click="OnPlay"
                 lg:LiquidGlassBackdrop.IsExcludedFromCapture="True">
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <Path Width="17" Height="17" Stretch="Uniform" Fill="White" Data="M5,3 L19,11 L5,19 Z"/>
                 <TextBlock x:Name="PlayLabel" Text="Play" FontSize="19" FontWeight="SemiBold"
                            Foreground="White" VerticalAlignment="Center"/>
@@ -1091,7 +1129,7 @@
                                            HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
                                            ShadowEnabled="True" ShadowRadius="22"
                                            ShadowColor="#45000000" ShadowOpacity="1"/>
-                    <StackPanel x:Name="MenuItems" Margin="5"/>
+                    <StackPanel x:Name="MenuItems" Margin="4"/>
                 </Panel>
                 <!-- Mod detail sheet — same glass optics as MenuRoot but wider and
                      contains a translated description. Shown by clicking a local
@@ -1109,7 +1147,7 @@
                                            HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
                                            ShadowEnabled="True" ShadowRadius="24"
                                            ShadowColor="#55000000" ShadowOpacity="1"/>
-                    <Grid Margin="18" RowDefinitions="Auto,Auto,*"
+                    <Grid Margin="20" RowDefinitions="Auto,Auto,*"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                         <Grid Grid.Row="0" ColumnDefinitions="44,*" ColumnSpacing="12">
                             <Border Grid.Column="0" Width="44" Height="44" CornerRadius="10"
@@ -1146,11 +1184,11 @@
                                            HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
                                            ShadowEnabled="True" ShadowRadius="24"
                                            ShadowColor="#55000000" ShadowOpacity="1"/>
-                    <Grid Margin="18" RowDefinitions="Auto,Auto,*,Auto">
+                    <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto">
                         <TextBlock Grid.Row="0" Text="尋找皮膚"
                                    FontSize="16" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextMain}"/>
-                        <Rectangle Grid.Row="1" Height="1" Margin="0,10" Fill="{DynamicResource Divider}"/>
+                        <Rectangle Grid.Row="1" Height="1" Margin="0,8" Fill="{DynamicResource Divider}"/>
                         <ScrollViewer Grid.Row="2" MaxHeight="360"
                                       HorizontalScrollBarVisibility="Disabled"
                                       VerticalScrollBarVisibility="Auto">
@@ -1162,7 +1200,7 @@
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
                         </ScrollViewer>
-                        <TextBlock Grid.Row="3" x:Name="SkinGalleryStatus" Margin="0,10,0,0"
+                        <TextBlock Grid.Row="3" x:Name="SkinGalleryStatus" Margin="0,8,0,0"
                                    FontSize="11" Foreground="{DynamicResource TextSub}"
                                    Text="載入中…"/>
                     </Grid>
@@ -1174,17 +1212,17 @@
              Floats bottom-centre so it never fights the custom title-bar buttons. -->
         <Border x:Name="UpdateBanner" IsVisible="False"
                 HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                Margin="0,0,0,20" Padding="16,10" CornerRadius="16"
+                Margin="0,0,0,20" Padding="16,12" CornerRadius="16"
                 Background="{DynamicResource Accent}">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="24" OffsetX="0" OffsetY="6" Opacity="0.35" Color="Black"/>
             </Border.Effect>
-            <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
                 <TextBlock x:Name="UpdateBannerText" VerticalAlignment="Center"
                            Foreground="White" FontSize="13" FontWeight="SemiBold"
                            Text="有新版本"/>
                 <Button x:Name="UpdateBannerBtn" Content="更新" Click="OnUpdateClick"
-                        Padding="14,5" CornerRadius="10" Foreground="White"
+                        Padding="16,4" CornerRadius="10" Foreground="White"
                         Background="#33FFFFFF" BorderThickness="0" Cursor="Hand"/>
                 <TextBlock x:Name="UpdateBannerClose" Text="✕" Cursor="Hand"
                            VerticalAlignment="Center" Foreground="#CCFFFFFF" FontSize="12"

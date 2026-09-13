@@ -80,12 +80,16 @@ public static class ModrinthClient
     /// <summary>Search projects. Loader is a `categories` facet on Modrinth (NOT `loaders:`).</summary>
     public static async Task<IReadOnlyList<ModHitDto>> SearchAsync(
         string query, string mcVersion, string loader, ModSort sort,
-        int limit = 40, int offset = 0, CancellationToken ct = default)
+        int limit = 40, int offset = 0, CancellationToken ct = default, string? category = null)
     {
         mcVersion = EffectiveMc(mcVersion);
 
-        // Facets: project_type=mod AND versions=<mc> AND categories=<loader>
-        var facets = $"[[\"project_type:mod\"],[\"versions:{mcVersion}\"],[\"categories:{loader.ToLowerInvariant()}\"]]";
+        // Facets: project_type=mod AND versions=<mc> AND categories=<loader> [AND categories=<content category>].
+        // Modrinth ANDs across the outer groups and ORs within one, so a content-category
+        // filter (optimization/adventure/…) is its own group appended after the loader.
+        var facets = $"[[\"project_type:mod\"],[\"versions:{mcVersion}\"],[\"categories:{loader.ToLowerInvariant()}\"]"
+                   + (string.IsNullOrEmpty(category) ? "" : $",[\"categories:{category}\"]")
+                   + "]";
         var idx = sort switch
         {
             ModSort.Downloads => "downloads",

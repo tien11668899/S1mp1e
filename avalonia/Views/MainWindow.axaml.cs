@@ -159,6 +159,9 @@ public partial class MainWindow : Window
             UpdateNavWeights(_selected);
             ShowPage(_selected);
 
+            // Show the real running version on the 關於 card (was hardcoded "1.0.0").
+            AboutVersionText.Text = UpdateChecker.CurrentVersion();
+
             // Best-effort launcher update check — fire-and-forget so a slow or dead
             // network never delays the window. Shows the bottom banner if newer.
             CheckForUpdatesAsync();
@@ -208,6 +211,7 @@ public partial class MainWindow : Window
         PlayButton.IsVisible = index == 0;
         // First entry into Mods page → kick off a default search (empty query = trending).
         if (index == 1 && _mods.Count == 0) _ = RunSearchAsync();
+        if (index == 1) UpdateAllButtonState();
 
         // First-time or same page: snap.
         if (_currentPage < 0 || _currentPage == index)
@@ -749,8 +753,8 @@ public partial class MainWindow : Window
 
         var row = new Border
         {
-            CornerRadius = new CornerRadius(9),
-            Margin = new Thickness(3, 0),
+            CornerRadius = new CornerRadius(10),
+            Margin = new Thickness(4, 0),
             Padding = new Thickness(8, 4),
             Background = Brushes.Transparent,
             Cursor = new Avalonia.Input.Cursor(disabled ? Avalonia.Input.StandardCursorType.Arrow : Avalonia.Input.StandardCursorType.Hand),
@@ -1591,11 +1595,11 @@ public partial class MainWindow : Window
         _ = LoadSkinTilePreviewAsync(img, sk.TextureUrl);
         var tile = new Border
         {
-            Width = 96, Height = 116, Margin = new Thickness(6),
+            Width = 96, Height = 116, Margin = new Thickness(8),
             CornerRadius = new CornerRadius(10),
             Background = new SolidColorBrush(Color.Parse("#12FFFFFF")),
             Cursor = new Cursor(StandardCursorType.Hand),
-            Padding = new Thickness(6),
+            Padding = new Thickness(8),
             Child = img,
         };
         tile.PointerPressed += async (_, __) =>
@@ -1925,6 +1929,7 @@ public partial class MainWindow : Window
         ModModeToggleLabel.Text = goingBrowse ? "查詢模組" : "瀏覽模組";
         // Sort dropdown is only meaningful for Modrinth's `index=downloads/updated/...`.
         ModSortBox.IsVisible = !goingBrowse;
+        if (ModCategoryScroller is not null) ModCategoryScroller.IsVisible = !goingBrowse;
         ModSearchBox.PlaceholderText = goingBrowse ? "篩選本地模組" : "搜尋 Modrinth 模組";
         // Always re-scan on entering browse mode so newly-dropped jars, filename
         // changes and downloads made in a different mode all show up immediately.
@@ -1989,7 +1994,7 @@ public partial class MainWindow : Window
         {
             var iconTile = new Border
             {
-                Width = 40, Height = 40, CornerRadius = new CornerRadius(9),
+                Width = 40, Height = 40, CornerRadius = new CornerRadius(10),
                 Background = new SolidColorBrush(Color.Parse("#22000000")),
                 ClipToBounds = true,
             };
@@ -2067,7 +2072,7 @@ public partial class MainWindow : Window
             grid.Children.Add(btnCell);
             var row = new Border
             {
-                Padding = new Thickness(10, 8),
+                Padding = new Thickness(16, 8),
                 CornerRadius = new CornerRadius(10),
                 Margin = new Thickness(0, 4),
                 // BrushTransition needs a starting brush to interpolate FROM — null
@@ -2080,6 +2085,64 @@ public partial class MainWindow : Window
             return row;
         }, supportsRecycling: true);
         ModList.ItemsSource = _mods;
+        BuildCategoryChips();
+    }
+
+    // ---- content-category filter chips (Modrinth facets) ----
+    private static readonly (string Label, string? Id)[] ModCategories =
+    {
+        ("全部", null), ("最佳化", "optimization"), ("工具", "utility"),
+        ("冒險", "adventure"), ("裝飾", "decoration"), ("魔法", "magic"),
+        ("科技", "technology"), ("世界生成", "worldgen"), ("生物", "mobs"),
+        ("儲存", "storage"), ("食物", "food"), ("社交", "social"),
+    };
+    private string? _modCategory;                       // null = 全部
+    private readonly List<Border> _categoryChips = new();
+
+    private void BuildCategoryChips()
+    {
+        if (_categoryChips.Count > 0) return;           // build once
+        foreach (var (label, id) in ModCategories)
+        {
+            var t = new TextBlock
+            {
+                Text = label, FontSize = 12.5, FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            };
+            var chip = new Border
+            {
+                Height = 28, Padding = new Thickness(12, 0), CornerRadius = new CornerRadius(10),
+                Cursor = new Cursor(StandardCursorType.Hand), Child = t, Tag = id,
+            };
+            chip.PointerPressed += (_, __) => SelectCategory(id);
+            _categoryChips.Add(chip);
+            ModCategoryChips.Children.Add(chip);
+        }
+        StyleCategoryChips();
+    }
+
+    private void SelectCategory(string? id)
+    {
+        if (_modCategory == id) return;
+        _modCategory = id;
+        StyleCategoryChips();
+        _ = RunSearchAsync();
+    }
+
+    // Accent fill + white text on the selected chip; muted field otherwise. Re-read
+    // the theme brushes each call so an accent/theme change repaints correctly.
+    private void StyleCategoryChips()
+    {
+        IBrush? Res(string k) => this.TryFindResource(k, out var v) ? v as IBrush : null;
+        var accent = Res("Accent");
+        var field = Res("FieldBg");
+        var sub = Res("TextSub");
+        foreach (var chip in _categoryChips)
+        {
+            bool sel = (chip.Tag as string) == _modCategory;
+            chip.Background = sel ? accent : field;
+            if (chip.Child is TextBlock t) t.Foreground = sel ? Brushes.White : sub;
+        }
     }
 
     private void OnModSearchTextChanged(object? sender, TextChangedEventArgs e)
@@ -2139,7 +2202,7 @@ public partial class MainWindow : Window
         var ct = _searchCts.Token;
         try
         {
-            var hits = await ModrinthClient.SearchAsync(q, mc, loader, sort, limit: 40, offset: 0, ct);
+            var hits = await ModrinthClient.SearchAsync(q, mc, loader, sort, limit: 40, offset: 0, ct, category: _modCategory);
             if (ct.IsCancellationRequested) return;
             _mods.Clear();
             foreach (var h in hits)
@@ -2242,6 +2305,7 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() =>
             {
                 UpdateBannerText.Text = $"有新版本 v{info.Version}";
+                if (!string.IsNullOrWhiteSpace(info.Notes)) ToolTip.SetTip(UpdateBanner, info.Notes);
                 UpdateBanner.IsVisible = true;
             });
         }
@@ -2299,6 +2363,95 @@ public partial class MainWindow : Window
 
     private void OnUpdateDismiss(object? sender, PointerPressedEventArgs e)
         => UpdateBanner.IsVisible = false;
+
+    // 關於頁「檢查更新」— manual check with inline feedback on the label itself.
+    private async void OnCheckUpdateClick(object? sender, PointerPressedEventArgs e)
+    {
+        CheckUpdateBtn.Text = "檢查中…";
+        try
+        {
+            var info = await UpdateChecker.CheckAsync();
+            if (info is null) { CheckUpdateBtn.Text = "已是最新"; return; }
+            _pendingUpdate = info;
+            CheckUpdateBtn.Text = $"有新版 v{info.Version}";
+            UpdateBannerText.Text = $"有新版本 v{info.Version}";
+            if (!string.IsNullOrWhiteSpace(info.Notes)) ToolTip.SetTip(UpdateBanner, info.Notes);
+            UpdateBanner.IsVisible = true;
+        }
+        catch (Exception ex) { LogCrash(ex); CheckUpdateBtn.Text = "檢查失敗"; }
+    }
+
+    // The current version's per-instance game directory (.minecraft/instances/<mc>).
+    private string CurrentInstanceDir()
+    {
+        var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
+        return System.IO.Path.Combine(EffectiveMcDir(), "instances", mc);
+    }
+
+    private void OnOpenGameFolder(object? sender, PointerPressedEventArgs e)
+    {
+        try
+        {
+            var dir = CurrentInstanceDir();
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
+        }
+        catch (Exception ex) { LogCrash(ex); }
+    }
+
+    private void OnOpenLog(object? sender, PointerPressedEventArgs e)
+    {
+        try
+        {
+            var logs = System.IO.Path.Combine(CurrentInstanceDir(), "logs");
+            var latest = System.IO.Path.Combine(logs, "latest.log");
+            // Open latest.log directly if it exists; otherwise open the logs folder
+            // (nothing has launched this version yet), creating it so Explorer opens.
+            var target = System.IO.File.Exists(latest) ? latest : logs;
+            System.IO.Directory.CreateDirectory(logs);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch (Exception ex) { LogCrash(ex); }
+    }
+
+    // Show 全部更新 only when the current MC actually has downloaded mods; label the count.
+    private void UpdateAllButtonState()
+    {
+        try
+        {
+            if (UpdateAllBtn is null) return;
+            var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
+            int n = _cfg.DownloadedMods.Count(kv => kv.Value.Contains(mc));
+            UpdateAllLabel.Text = $"全部更新 · {n}";
+            UpdateAllBtn.IsVisible = n > 0;
+        }
+        catch { }
+    }
+
+    // Re-fetch the latest Modrinth build of every mod downloaded for the current MC.
+    // DownloadOneVersionAsync re-resolves the newest file and deletes the stale jar,
+    // so this is a true "update all" — same path a single row's 更新 button takes.
+    private async void OnUpdateAllMods(object? sender, PointerPressedEventArgs e)
+    {
+        var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
+        var loader = EffectiveLoader();
+        var ids = _cfg.DownloadedMods.Where(kv => kv.Value.Contains(mc)).Select(kv => kv.Key).ToList();
+        if (ids.Count == 0) return;
+        UpdateAllBtn.IsHitTestVisible = false;
+        int done = 0, ok = 0;
+        foreach (var pid in ids)
+        {
+            done++;
+            UpdateAllLabel.Text = $"更新中 {done}/{ids.Count}";
+            try { if (await DownloadOneVersionAsync(pid, mc, loader)) ok++; }
+            catch (Exception ex) { LogCrash(ex); }
+        }
+        UpdateAllLabel.Text = $"已更新 {ok}/{ids.Count}";
+        await Task.Delay(1600);
+        UpdateAllBtn.IsHitTestVisible = true;
+        UpdateAllButtonState();
+        if (_modModeIdx == 1) _ = RunLocalScanAsync();
+    }
 
     private string EffectiveMcDir() =>
         string.IsNullOrEmpty(_cfg.Settings.McPath)
@@ -2403,6 +2556,7 @@ public partial class MainWindow : Window
                 await FadeRingOutAsync(row);
                 row.ButtonLabel = "更新";        // stays clickable → re-fetch latest anytime
                 row.ButtonEnabled = true;
+                UpdateAllButtonState();          // reveal/count 全部更新 without needing a page re-nav
             }
             else
             {
@@ -2468,6 +2622,7 @@ public partial class MainWindow : Window
             }
             row.ButtonLabel = ok == 0 ? "全部失敗" : $"{ok} 版已下載";
             row.ButtonEnabled = ok == 0;
+            UpdateAllButtonState();
         }
         catch (Exception ex) { LogCrash(ex); row.ButtonLabel = "重試"; row.ButtonEnabled = true; }
     }
@@ -2527,7 +2682,7 @@ public partial class MainWindow : Window
             // [ Icon 40x40 ]   Name            [ Toggle ]
             var iconTile = new Border
             {
-                Width = 40, Height = 40, CornerRadius = new CornerRadius(9),
+                Width = 40, Height = 40, CornerRadius = new CornerRadius(10),
                 ClipToBounds = true,
                 Background = new SolidColorBrush(Color.Parse("#22000000")),
             };
@@ -2557,7 +2712,7 @@ public partial class MainWindow : Window
             };
             var delBtn = new Button
             {
-                Padding = new Thickness(6),
+                Padding = new Thickness(8),
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
@@ -2613,7 +2768,7 @@ public partial class MainWindow : Window
             // out below so a toggle-flip doesn't also pop the sheet.
             var row = new Border
             {
-                Padding = new Thickness(12, 10),
+                Padding = new Thickness(12, 12),
                 CornerRadius = new CornerRadius(10),
                 Margin = new Thickness(0, 4),
                 Background = Avalonia.Media.Brushes.Transparent,

@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace S1mp1e.Services;
 
 /// <summary>A newer release than the one running, resolved from GitHub.</summary>
-public record UpdateInfo(string Version, string HtmlUrl, string? SetupUrl);
+public record UpdateInfo(string Version, string HtmlUrl, string? SetupUrl, string? Notes = null);
 
 /// <summary>
 /// Checks GitHub Releases for a launcher update. Best-effort and non-blocking:
@@ -59,7 +59,10 @@ public static class UpdateChecker
                     }
                 }
             }
-            return new UpdateInfo(latest, htmlUrl, setup);
+            // Release notes (markdown body) → shown as the update banner's tooltip.
+            string? notes = root.TryGetProperty("body", out var b) ? b.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(notes) && notes!.Length > 600) notes = notes.Substring(0, 600) + "…";
+            return new UpdateInfo(latest, htmlUrl, setup, notes);
         }
         catch { return null; }
     }
