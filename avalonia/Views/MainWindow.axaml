@@ -1169,5 +1169,27 @@
                 </Panel>
             </Canvas>
         </Panel>
+
+        <!-- Auto-update banner: hidden until UpdateChecker finds a newer release.
+             Floats bottom-centre so it never fights the custom title-bar buttons. -->
+        <Border x:Name="UpdateBanner" IsVisible="False"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,0,20" Padding="16,10" CornerRadius="16"
+                Background="{DynamicResource Accent}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="24" OffsetX="0" OffsetY="6" Opacity="0.35" Color="Black"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <TextBlock x:Name="UpdateBannerText" VerticalAlignment="Center"
+                           Foreground="White" FontSize="13" FontWeight="SemiBold"
+                           Text="有新版本"/>
+                <Button x:Name="UpdateBannerBtn" Content="更新" Click="OnUpdateClick"
+                        Padding="14,5" CornerRadius="10" Foreground="White"
+                        Background="#33FFFFFF" BorderThickness="0" Cursor="Hand"/>
+                <TextBlock x:Name="UpdateBannerClose" Text="✕" Cursor="Hand"
+                           VerticalAlignment="Center" Foreground="#CCFFFFFF" FontSize="12"
+                           PointerPressed="OnUpdateDismiss"/>
+            </StackPanel>
+        </Border>
     </Panel>
 </Window>

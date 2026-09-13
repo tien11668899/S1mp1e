@@ -11,6 +11,9 @@
     <RootNamespace>S1mp1e</RootNamespace>
     <AssemblyName>S1mp1e</AssemblyName>
     <ApplicationIcon>Assets\s1mp1e.ico</ApplicationIcon>
+    <!-- Single source of truth for the app version. The GitHub release tag is
+         "v{Version}", and UpdateChecker compares this against the latest release. -->
+    <Version>0.1.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -159,6 +159,10 @@ public partial class MainWindow : Window
             UpdateNavWeights(_selected);
             ShowPage(_selected);
 
+            // Best-effort launcher update check — fire-and-forget so a slow or dead
+            // network never delays the window. Shows the bottom banner if newer.
+            CheckForUpdatesAsync();
+
             // Every pop-up button opens the ONE shared liquid-glass menu, anchored to itself.
             foreach (var gs in this.GetVisualDescendants().OfType<GlassSelect>())
                 gs.OpenRequested += (_, src) => ShowGlassMenu(src);
@@ -2223,6 +2227,78 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { LogCrash(ex); }
     }
+
+    // ---- launcher auto-update ----
+    private UpdateInfo? _pendingUpdate;
+
+    // Query GitHub for a newer release; reveal the bottom banner if one exists.
+    private async void CheckForUpdatesAsync()
+    {
+        try
+        {
+            var info = await UpdateChecker.CheckAsync();
+            if (info is null) return;
+            _pendingUpdate = info;
+            Dispatcher.UIThread.Post(() =>
+            {
+                UpdateBannerText.Text = $"有新版本 v{info.Version}";
+                UpdateBanner.IsVisible = true;
+            });
+        }
+        catch (Exception ex) { LogCrash(ex); }
+    }
+
+    // "更新": download the installer and run it, then quit so it can replace files
+    // in place and relaunch. No installer asset → just open the release page.
+    private async void OnUpdateClick(object? sender, RoutedEventArgs e)
+    {
+        var info = _pendingUpdate;
+        if (info is null) return;
+
+        if (string.IsNullOrEmpty(info.SetupUrl))
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(info.HtmlUrl) { UseShellExecute = true });
+            }
+            catch (Exception ex) { LogCrash(ex); }
+            return;
+        }
+
+        UpdateBannerBtn.IsEnabled = false;
+        UpdateBannerText.Text = $"下載更新 v{info.Version}…";
+        try
+        {
+            var setup = await UpdateChecker.DownloadSetupAsync(info.SetupUrl, info.Version);
+            if (setup is null)
+            {
+                UpdateBannerText.Text = "下載失敗,點更新開啟網頁";
+                _pendingUpdate = info with { SetupUrl = null };   // fall back to the page next click
+                UpdateBannerBtn.IsEnabled = true;
+                return;
+            }
+            // Silent per-user reinstall over the running app; Inno's Restart Manager
+            // closes us, upgrades, then the .iss [Run] entry relaunches. We also quit
+            // ourselves so nothing holds the exe locked.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(setup)
+            {
+                UseShellExecute = true,
+                Arguments = "/SILENT /NOCANCEL",
+            });
+            (Application.Current?.ApplicationLifetime
+                as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            LogCrash(ex);
+            UpdateBannerText.Text = "更新失敗";
+            UpdateBannerBtn.IsEnabled = true;
+        }
+    }
+
+    private void OnUpdateDismiss(object? sender, PointerPressedEventArgs e)
+        => UpdateBanner.IsVisible = false;
 
     private string EffectiveMcDir() =>
         string.IsNullOrEmpty(_cfg.Settings.McPath)
