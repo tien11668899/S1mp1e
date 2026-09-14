@@ -2,6 +2,7 @@ package dev.s1mp1e.client.module;
 
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
+import dev.s1mp1e.client.HudBounds;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
@@ -28,7 +29,9 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * {@code armorInventory[39-36] = [3]}. So a head-to-toe list has to walk the
  * array backwards.
  */
-public final class ArmorHudModule extends Module {
+public final class ArmorHudModule extends Module implements HudBounds {
+
+    private int lastW = 60, lastH = 18;   // last rendered footprint (post-scale), for the HUD editor
 
     /** Vertical pitch per row: 16 px icon + 2 px breathing room. */
     private static final int ROW_H   = 18;
@@ -97,6 +100,8 @@ public final class ArmorHudModule extends Module {
         int boxH = PAD * 2 + n * ROW_H;
 
         float s = (float) scale.doubleValue;
+        lastW = Math.round(boxW * s);
+        lastH = Math.round(boxH * s);
         GlStateManager.pushMatrix();
         GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
         GlStateManager.scale(s, s, 1f);
@@ -159,6 +164,15 @@ public final class ArmorHudModule extends Module {
 
         GlStateManager.popMatrix();
     }
+
+    // ---- HudBounds (for the HUD editor) ----
+    public int hudX() { return posX.intValue; }
+    public int hudY() { return posY.intValue; }
+    public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
+    public int hudW() { return lastW > 0 ? lastW : 60; }
+    public int hudH() { return lastH > 0 ? lastH : 18; }
+    public void hudResetPos() { posX.reset(); posY.reset(); }
+    public String hudLabel() { return name; }
 
     /** Remaining durability, or the stack size for things that cannot break. */
     private static String label(ItemStack stack) {

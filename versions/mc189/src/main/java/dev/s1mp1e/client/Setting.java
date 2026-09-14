@@ -32,43 +32,66 @@ public final class Setting {
     /** Inclusive bounds for {@link Type#INT} and {@link Type#DOUBLE}; else 0. */
     public double min, max;
 
-    private Setting(String name, Type type) {
+    // ---- factory defaults, captured so the config GUI can reset a setting ----
+    // Only the field matching {@link #type} is meaningful (same rule as the value
+    // fields). Set once by the factory; never mutated.
+    public final boolean defBool;
+    public final int     defInt;
+    public final double  defDouble;
+    public final int     defColor;
+    public final String  defMode;
+
+    private Setting(String name, Type type,
+                    boolean defBool, int defInt, double defDouble, int defColor, String defMode) {
         this.name = name;
         this.type = type;
+        this.defBool = defBool;
+        this.defInt = defInt;
+        this.defDouble = defDouble;
+        this.defColor = defColor;
+        this.defMode = defMode;
     }
 
     public static Setting bool(String name, boolean def) {
-        Setting s = new Setting(name, Type.BOOL);
+        Setting s = new Setting(name, Type.BOOL, def, 0, 0.0, 0, null);
         s.boolValue = def;
         return s;
     }
 
     public static Setting integer(String name, int def, int min, int max) {
-        Setting s = new Setting(name, Type.INT);
+        int d = (int) clamp(def, min, max);
+        Setting s = new Setting(name, Type.INT, false, d, 0.0, 0, null);
         s.min = min;
         s.max = max;
-        s.intValue = (int) clamp(def, min, max);
+        s.intValue = d;
         return s;
     }
 
     public static Setting number(String name, double def, double min, double max) {
-        Setting s = new Setting(name, Type.DOUBLE);
+        double d = clamp(def, min, max);
+        Setting s = new Setting(name, Type.DOUBLE, false, 0, d, 0, null);
         s.min = min;
         s.max = max;
-        s.doubleValue = clamp(def, min, max);
+        s.doubleValue = d;
         return s;
     }
 
     public static Setting color(String name, int argbDef) {
-        Setting s = new Setting(name, Type.COLOR);
+        Setting s = new Setting(name, Type.COLOR, false, 0, 0.0, argbDef, null);
         s.colorValue = argbDef;
         return s;
     }
 
     public static Setting mode(String name, String def, String... options) {
-        Setting s = new Setting(name, Type.MODE);
-        s.modes = (options == null || options.length == 0) ? new String[] { def } : options;
-        s.modeValue = s.isValidMode(def) ? def : s.modes[0];
+        String[] opts = (options == null || options.length == 0) ? new String[] { def } : options;
+        // Validate the default against the option list (mirror isValidMode without an instance yet).
+        String d = def;
+        boolean ok = false;
+        for (int i = 0; i < opts.length; i++) { if (opts[i].equals(def)) { ok = true; break; } }
+        if (!ok) d = opts[0];
+        Setting s = new Setting(name, Type.MODE, false, 0, 0.0, 0, d);
+        s.modes = opts;
+        s.modeValue = d;
         return s;
     }
 
@@ -92,6 +115,14 @@ public final class Setting {
         modeValue = modes[(i + 1) % modes.length];
     }
 
+    /** Advances to the PREVIOUS option, wrapping. Used by the ClickGUI right-click. */
+    public void cycleModeBack() {
+        if (modes == null || modes.length == 0) return;
+        int i = indexOfMode(modeValue);
+        if (i < 0) i = 0;
+        modeValue = modes[(i - 1 + modes.length) % modes.length];
+    }
+
     public boolean isValidMode(String v) {
         return indexOfMode(v) >= 0;
     }
@@ -102,6 +133,17 @@ public final class Setting {
             if (v.equals(modes[i])) return i;
         }
         return -1;
+    }
+
+    /** Restore the value the factory was given. Used by the config GUI's reset. */
+    public void reset() {
+        switch (type) {
+            case BOOL:   boolValue  = defBool;  break;
+            case INT:    setInt(defInt);        break;
+            case DOUBLE: setDouble(defDouble);  break;
+            case COLOR:  colorValue = defColor; break;
+            case MODE:   setMode(defMode);      break;
+        }
     }
 
     /** 0..1 position of the current value inside [min,max]; 0 for non-numerics. */

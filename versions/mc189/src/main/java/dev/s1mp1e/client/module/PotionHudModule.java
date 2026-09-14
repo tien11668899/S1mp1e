@@ -8,6 +8,7 @@ import java.util.List;
 
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
+import dev.s1mp1e.client.HudBounds;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
@@ -33,7 +34,9 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * returns a HashMap's values view, whose iteration order is unstable — sorting
  * by id keeps the list from reshuffling itself frame to frame.
  */
-public final class PotionHudModule extends Module {
+public final class PotionHudModule extends Module implements HudBounds {
+
+    private int lastW = 80, lastH = 22;   // last rendered footprint (post-scale), for the HUD editor
 
     private static final int PAD = 3;
     /** Grey used for the timer, matching vanilla's inventory effect list. */
@@ -116,6 +119,8 @@ public final class PotionHudModule extends Module {
         int boxH = PAD * 2 + n * lineH;
 
         float s = (float) scale.doubleValue;
+        lastW = Math.round(boxW * s);
+        lastH = Math.round(boxH * s);
         GlStateManager.pushMatrix();
         GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
         GlStateManager.scale(s, s, 1f);
@@ -152,6 +157,15 @@ public final class PotionHudModule extends Module {
 
         GlStateManager.popMatrix();
     }
+
+    // ---- HudBounds (for the HUD editor) ----
+    public int hudX() { return posX.intValue; }
+    public int hudY() { return posY.intValue; }
+    public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
+    public int hudW() { return lastW > 0 ? lastW : 80; }
+    public int hudH() { return lastH > 0 ? lastH : 22; }
+    public void hudResetPos() { posX.reset(); posY.reset(); }
+    public String hudLabel() { return name; }
 
     /** Stable ordering for a HashMap-backed effect collection. */
     private static final Comparator<PotionEffect> ID_ORDER = new Comparator<PotionEffect>() {

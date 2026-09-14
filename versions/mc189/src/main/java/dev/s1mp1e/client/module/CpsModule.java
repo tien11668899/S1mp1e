@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
+import dev.s1mp1e.client.HudBounds;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.client.event.MouseEvent;
@@ -37,7 +38,9 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * also runs at HIGHEST priority so it still observes a press that some other
  * mod later cancels.
  */
-public final class CpsModule extends Module {
+public final class CpsModule extends Module implements HudBounds {
+
+    private int lastW = 40, lastH = 9;   // last rendered footprint, for the HUD editor
 
     /** Width of the rolling window, in milliseconds. */
     private static final long WINDOW_MS = 1000L;
@@ -122,6 +125,8 @@ public final class CpsModule extends Module {
         if (showRight.boolValue) {
             text = String.valueOf(left) + " | " + String.valueOf(right) + " CPS";
         }
+        lastW = mc.fontRendererObj.getStringWidth(text);
+        lastH = mc.fontRendererObj.FONT_HEIGHT;
 
         // The hotbar glass pass leaves a tinted colour on the stack; reset so
         // the setting's colour is what actually lands on screen.
@@ -136,6 +141,15 @@ public final class CpsModule extends Module {
         mc.fontRendererObj.drawString(text, (float) posX.intValue, (float) posY.intValue,
                                       color.colorValue, shadow.boolValue);
     }
+
+    // ---- HudBounds (for the HUD editor) ----
+    public int hudX() { return posX.intValue; }
+    public int hudY() { return posY.intValue; }
+    public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
+    public int hudW() { return lastW > 0 ? lastW : 40; }
+    public int hudH() { return lastH > 0 ? lastH : 9; }
+    public void hudResetPos() { posX.reset(); posY.reset(); }
+    public String hudLabel() { return name; }
 
     /** Drop stamps that fell out of the window and return what is left. */
     private static int prune(ArrayDeque<Long> stamps, long now) {

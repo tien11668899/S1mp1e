@@ -28,6 +28,7 @@ public class LauncherSettings
     [JsonPropertyName("res_width")]           public int    ResWidth           { get; set; }            // 0 = MC default
     [JsonPropertyName("res_height")]          public int    ResHeight          { get; set; }
     [JsonPropertyName("java_path")]           public string JavaPath           { get; set; } = "";      // "" = auto
+    [JsonPropertyName("menu_key")]            public int    MenuKey            { get; set; } = 54;      // LWJGL RShift; the in-game config-GUI open key
 }
 
 /// One saved MC account (mirrors Rust's <c>Account</c>). The tokens are the raw

@@ -852,6 +852,8 @@ public partial class MainWindow : Window
             // persisted, so it reset to 自動 on every launch).
             if (ThemeBox is not null)
                 ThemeBox.SelectedIndex = s.Theme switch { "light" => 1, "dark" => 2, _ => 0 };
+            if (MenuKeyBox is not null)
+                SetGlassSelect(MenuKeyBox, S1mp1eModConfig.LabelFor(s.MenuKey));
             if (Application.Current is not null)
                 Application.Current.RequestedThemeVariant = s.Theme switch
                 {
@@ -942,6 +944,20 @@ public partial class MainWindow : Window
         if (_hydrating) return;   // don't persist while ApplyLoadedConfig is populating
         _cfg.Settings.Theme = box.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "auto" };
         SaveCfg();
+    }
+
+    // The in-game config-GUI open key (1.8.9 client). Writes launcher settings AND the
+    // per-instance modules.json the mod reads (LWJGL keycode). The in-game rebind writes
+    // the same field, so either path works.
+    private void OnMenuKeyChanged(object? sender, EventArgs e)
+    {
+        if (_hydrating) return;
+        var label = (sender as GlassSelect)?.SelectedText ?? MenuKeyBox.SelectedText ?? "Right Shift";
+        int code = 54;
+        foreach (var c in S1mp1eModConfig.KeyChoices) if (c.Label == label) { code = c.Code; break; }
+        _cfg.Settings.MenuKey = code;
+        SaveCfg();
+        try { S1mp1eModConfig.WriteMenuKey(CurrentInstanceDir(), code); } catch (Exception ex) { LogCrash(ex); }
     }
 
     // MC versions >= 1.13 only work through Fabric in this launcher (Forge modding

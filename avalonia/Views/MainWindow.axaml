@@ -1003,6 +1003,17 @@
                                             <Button Classes="mini" Content="自動" Click="OnClearJava"/>
                                         </StackPanel>
                                     </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <!-- 遊戲內設定選單開啟鍵 (1.8.9 客戶端模組) -->
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#5E5CE6">
+                                            <TextBlock Text="⌨" FontSize="14" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲內選單鍵" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="1.8.9 遊戲中按此鍵開啟模組設定" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
+                                        <ctl:GlassSelect x:Name="MenuKeyBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
+                                                         Options="Right Shift|Right Ctrl|Right Alt|Insert|Home|End|Page Up|`  (grave)|\  |F6|F10"
+                                                         SelectionChanged="OnMenuKeyChanged"/>
+                                    </Grid>
                                 </StackPanel>
                             </Border>
 

@@ -7,9 +7,13 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import org.lwjgl.input.Keyboard;
+import dev.s1mp1e.client.gui.S1mp1eConfigScreen;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * One rebindable key per module, so the suite is usable before a settings GUI
@@ -32,6 +36,13 @@ public final class KeybindHandler {
 
     private final List<Entry> entries = new ArrayList<Entry>();
 
+    /** module name -> its vanilla toggle KeyBinding, so the config GUI can rebind it. */
+    private static final Map<String, KeyBinding> BINDINGS = new HashMap<String, KeyBinding>();
+    public static KeyBinding bindingFor(String moduleName) { return BINDINGS.get(moduleName); }
+
+    /** Edge-detect state for the menu-open key. */
+    private boolean menuWasDown;
+
     private static final class Entry {
         final KeyBinding key;
         final Module     module;
@@ -44,6 +55,7 @@ public final class KeybindHandler {
             KeyBinding kb = new KeyBinding("key.s1mp1e." + slug(m.name), KEY_NONE, CATEGORY);
             ClientRegistry.registerKeyBinding(kb);
             entries.add(new Entry(kb, m));
+            BINDINGS.put(m.name, kb);
         }
     }
 
@@ -53,7 +65,18 @@ public final class KeybindHandler {
         // polling in both phases would consume a press twice.
         if (e.phase != TickEvent.Phase.END) return;
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc == null || mc.thePlayer == null) return;
+        if (mc == null) return;
+
+        // Menu-open key (default RightShift, launcher/GUI configurable). Edge-detected so
+        // a held key opens once; polled before the in-game guard so it works from menus too.
+        int mkc = S1mp1eConfig.getMenuKey();
+        boolean md = mkc > 0 && Keyboard.isKeyDown(mkc);
+        if (md && !menuWasDown && mc.currentScreen == null) {
+            mc.displayGuiScreen(new S1mp1eConfigScreen());
+        }
+        menuWasDown = md;
+
+        if (mc.thePlayer == null) return;
 
         for (int i = 0; i < entries.size(); i++) {
             Entry en = entries.get(i);

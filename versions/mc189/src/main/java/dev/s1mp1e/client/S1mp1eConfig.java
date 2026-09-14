@@ -19,6 +19,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
 import net.minecraft.client.Minecraft;
+import org.lwjgl.input.Keyboard;
 
 /**
  * Persists module state to {@code .minecraft/config/s1mp1e/modules.json}.
@@ -49,6 +50,12 @@ public final class S1mp1eConfig {
      */
     private static String lastWritten;
 
+    /** Key that opens the in-game config GUI. Default RightShift; the launcher and
+     *  the in-GUI rebind both persist a new value into this same modules.json. */
+    private static int menuKey = Keyboard.KEY_RSHIFT;   // LWJGL2 code 0x36 = 54
+    public static int getMenuKey() { return menuKey; }
+    public static void setMenuKey(int code) { menuKey = code; save(); }
+
     private S1mp1eConfig() {}
 
     // ---- paths -----------------------------------------------------------
@@ -73,6 +80,11 @@ public final class S1mp1eConfig {
             reader = new InputStreamReader(new FileInputStream(f), UTF8);
             JsonElement root = new JsonParser().parse(reader);
             if (root == null || !root.isJsonObject()) return;
+
+            JsonElement mk = root.getAsJsonObject().get("menuKey");
+            if (mk != null && mk.isJsonPrimitive()) {
+                try { menuKey = mk.getAsInt(); } catch (Throwable ignored) {}
+            }
 
             JsonElement modulesEl = root.getAsJsonObject().get("modules");
             if (modulesEl == null || !modulesEl.isJsonObject()) return;
@@ -244,6 +256,7 @@ public final class S1mp1eConfig {
 
         JsonObject root = new JsonObject();
         root.addProperty("version", Integer.valueOf(1));
+        root.addProperty("menuKey", Integer.valueOf(menuKey));
         root.add("modules", modules);
         return root;
     }
