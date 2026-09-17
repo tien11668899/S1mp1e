@@ -80,6 +80,59 @@ public final class GlassWidgets {
         resetColorCache();
     }
 
+    /** Smooth (non-jagged) rounded-rect fill via a triangle fan with real corner arcs.
+     *  Colours can't use the white-only glass shader, so this gives clean rounded
+     *  toggles/sliders/swatches without the stair-stepping of {@link #fillRound}. */
+    public static void fillRoundSmooth(float x0, float y0, float x1, float y1, int argb, float r) {
+        r = Math.min(r, Math.min((x1 - x0) / 2f, (y1 - y0) / 2f));
+        if (r < 0.75f) { drawRect(x0, y0, x1, y1, argb); resetColorCache(); return; }
+        float a = (argb >>> 24) / 255f, cr = (argb >> 16 & 255) / 255f,
+              cg = (argb >> 8 & 255) / 255f, cb = (argb & 255) / 255f;
+        GlStateManager.disableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlpha();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GL11.glColor4f(cr, cg, cb, a);
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glVertex2f((x0 + x1) / 2f, (y0 + y1) / 2f);
+        // Perimeter walked TL→BL→BR→TR — the SAME front-facing winding as gradient()/
+        // GlassRenderer.batchQuad()/Gui.drawRect. The GUI pass runs with GL_CULL_FACE on,
+        // so a reversed (back-facing) fan would be culled to nothing.
+        arc(x0 + r, y0 + r, r, 270f, 180f);   // top-left
+        arc(x0 + r, y1 - r, r, 180f,  90f);   // bottom-left
+        arc(x1 - r, y1 - r, r,  90f,   0f);   // bottom-right
+        arc(x1 - r, y0 + r, r,   0f, -90f);   // top-right
+        GL11.glVertex2f(x0 + r, y0);          // close back to the first perimeter point
+        GL11.glEnd();
+        // Leave GL_BLEND enabled (MC's expected baseline, as GlassRenderer.endBatch does) so
+        // translucent FontRenderer text drawn right after still alpha-blends during panel fades.
+        GlStateManager.enableAlpha();
+        GlStateManager.enableTexture2D();
+        resetColorCache();
+    }
+
+    /** Soft edge shadow beneath a rounded control — the "very faint edge shadow under the
+     *  glass" Apple grounds controls with. A few expanding, low-alpha rounded fills offset
+     *  slightly down; the control drawn on top hides the inner darkening so only a soft
+     *  halo shows around/under it. {@code strength} scales the overall darkness (~0..1). */
+    public static void dropShadow(float x0, float y0, float x1, float y1, float radius, float strength) {
+        float dy = 1.2f;
+        for (int i = 4; i >= 1; i--) {
+            float e = i * 1.35f;                          // outward expansion per layer
+            int a = clampByte(strength * 0.06f);
+            if (a <= 0) continue;
+            fillRoundSmooth(x0 - e, y0 - e + dy, x1 + e, y1 + e + dy, (a << 24), radius + e);
+        }
+    }
+
+    private static void arc(float cx, float cy, float r, float aDeg, float bDeg) {
+        int seg = 7;
+        for (int i = 0; i <= seg; i++) {
+            double t = Math.toRadians(aDeg + (bDeg - aDeg) * i / seg);
+            GL11.glVertex2f(cx + (float) Math.cos(t) * r, cy + (float) Math.sin(t) * r);
+        }
+    }
+
     /** 1px inner border. */
     public static void border(float x0, float y0, float x1, float y1, int argb) {
         drawRect(x0, y0, x1, y0 + 1, argb);
@@ -115,7 +168,8 @@ public final class GlassWidgets {
         vtx(wr, x1, y0, tr);
         t.draw();
         GlStateManager.shadeModel(GL11.GL_FLAT);
-        GlStateManager.disableBlend();
+        // Leave GL_BLEND enabled (MC's expected baseline) so translucent text/glass drawn
+        // right after still blends — matching GlassRenderer.endBatch and fillRoundSmooth.
         GlStateManager.enableAlpha();
         GlStateManager.enableTexture2D();
         resetColorCache();
@@ -129,22 +183,20 @@ public final class GlassWidgets {
 
     // ---- text ----
 
-    /** Draw text with shadow at panel alpha; skips when the effective alpha < 8
-     *  (FontRenderer treats alpha 0 as opaque, so very-faint text must be dropped). */
+    /** Draw text (PingFang via {@link GlassFont}) with shadow at panel alpha; skips when
+     *  the effective alpha is negligible. */
     public static void label(String s, float x, float y, int rgb, float alpha) {
-        int a = clampByte(alpha);
-        if (a < 8) return;
-        mc().fontRendererObj.drawStringWithShadow(s, x, y, (a << 24) | (rgb & 0xFFFFFF));
+        if (clampByte(alpha) < 8) return;
+        GlassFont.draw(s, x, y, rgb & 0xFFFFFF, alpha, true);
     }
 
     public static void labelNoShadow(String s, float x, float y, int rgb, float alpha) {
-        int a = clampByte(alpha);
-        if (a < 8) return;
-        mc().fontRendererObj.drawString(s, Math.round(x), Math.round(y), (a << 24) | (rgb & 0xFFFFFF), false);
+        if (clampByte(alpha) < 8) return;
+        GlassFont.draw(s, x, y, rgb & 0xFFFFFF, alpha, false);
     }
 
-    public static int strW(String s) { return mc().fontRendererObj.getStringWidth(s); }
-    public static int fontH() { return mc().fontRendererObj.FONT_HEIGHT; }
+    public static int strW(String s) { return Math.round(GlassFont.width(s)); }
+    public static int fontH() { return Math.round(GlassFont.height()); }
 
     // ---- misc ----
 
@@ -166,6 +218,43 @@ public final class GlassWidgets {
     }
 
     // ---- scissor (GUI px → physical px, bottom-left origin) ----
+
+    /** iOS-26 "scroll edge effect": a progressive blur + adaptive dim that dissolves list
+     *  content toward the edge. Re-grab the finished UI FIRST ({@code SceneCapture.forceGrab()}),
+     *  then call this per list edge. {@code topEdge=true} → strongest at y0. {@code strength}
+     *  (0..1) fades the whole effect in as the list scrolls. No-op without the blur program. */
+    public static void edgeFade(float x0, float y0, float x1, float y1, boolean topEdge,
+                                float radius, float dim, float strength) {
+        if (strength <= 0.01f || !GlassProgram.blurUsable() || !SceneCapture.hasBackdrop()) return;
+        // Raw GL only inside the push/pop region — GlStateManager here would desync its
+        // cache against what glPopAttrib restores (mirrors MenuBackdrop.draw's discipline).
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
+                        | GL11.GL_CURRENT_BIT | GL11.GL_TEXTURE_BIT);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, SceneCapture.texture());
+        GL11.glColor4f(1f, 1f, 1f, strength > 1f ? 1f : strength);   // vColor.a = effect strength
+        GlassProgram.bind(GlassProgram.BLUR);
+        GlassProgram.setEdgeBlur(radius, dim);
+        // texcoord.y = 0 at the dissolve EDGE, 1 at the inner boundary (drives the shader ramp)
+        float tyTop = topEdge ? 0f : 1f;
+        float tyBot = topEdge ? 1f : 0f;
+        GL11.glBegin(GL11.GL_QUADS);            // front-facing TL→BL→BR→TR
+        GL11.glTexCoord2f(0f, tyTop); GL11.glVertex2f(x0, y0);
+        GL11.glTexCoord2f(0f, tyBot); GL11.glVertex2f(x0, y1);
+        GL11.glTexCoord2f(1f, tyBot); GL11.glVertex2f(x1, y1);
+        GL11.glTexCoord2f(1f, tyTop); GL11.glVertex2f(x1, y0);
+        GL11.glEnd();
+        GlassProgram.unbind();
+        GL11.glDepthMask(true);
+        GL11.glPopAttrib();
+        GlStateManager.bindTexture(0);
+        resetColorCache();
+    }
 
     public static void beginScissor(float x0, float y0, float x1, float y1) {
         ScaledResolution sr = new ScaledResolution(mc());

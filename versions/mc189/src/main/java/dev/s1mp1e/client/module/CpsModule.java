@@ -125,8 +125,8 @@ public final class CpsModule extends Module implements HudBounds {
         if (showRight.boolValue) {
             text = String.valueOf(left) + " | " + String.valueOf(right) + " CPS";
         }
-        lastW = mc.fontRendererObj.getStringWidth(text);
-        lastH = mc.fontRendererObj.FONT_HEIGHT;
+        lastW = Math.round(dev.s1mp1e.client.gui.GlassFont.width(text));
+        lastH = Math.round(dev.s1mp1e.client.gui.GlassFont.height());
 
         // The hotbar glass pass leaves a tinted colour on the stack; reset so
         // the setting's colour is what actually lands on screen.
@@ -138,7 +138,7 @@ public final class CpsModule extends Module implements HudBounds {
         GlStateManager.color(1f, 1f, 1f, 1f);
         // FontRenderer promotes an all-zero alpha to opaque, so a packed ARGB
         // value from the colour setting can be handed over as-is.
-        mc.fontRendererObj.drawString(text, (float) posX.intValue, (float) posY.intValue,
+        dev.s1mp1e.client.gui.GlassFont.drawARGB(text, (float) posX.intValue, (float) posY.intValue,
                                       color.colorValue, shadow.boolValue);
     }
 

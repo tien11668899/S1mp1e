@@ -41,12 +41,13 @@ public final class ColorWidget extends Widget {
     public void draw(int mouseX, int mouseY, float pt, float alphaF) {
         int a = Math.round(alphaF * 255f);
         float sx0 = swatchX0();
+        GlassWidgets.dropShadow(sx0, y0, x1, y1, 3f, alphaF);
         // checker behind, then colour on top (to show transparency)
         checker(sx0, y0, x1, y1, a);
         int cur = s.colorValue;
         int ca = ((cur >>> 24) & 0xFF);
         if (ca == 0) ca = 255;
-        GlassWidgets.fillRound(sx0, y0, x1, y1, (Math.round(ca * alphaF) << 24) | (cur & 0xFFFFFF), 3f);
+        GlassWidgets.fillRoundSmooth(sx0, y0, x1, y1, (Math.round(ca * alphaF) << 24) | (cur & 0xFFFFFF), 3f);
         GlassWidgets.border(sx0, y0, x1, y1, (Math.round(a * 0.3f) << 24) | 0xFFFFFF);
     }
 
@@ -74,7 +75,7 @@ public final class ColorWidget extends Widget {
         int rgb = rgbNow();
         String hex = String.format("#%02X%02X%02X %d%%", (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF,
                                     Math.round(alpha / 255f * 100f));
-        GlassWidgets.fillRound(alX, alY + alH + 6, alX + 14, alY + alH + 20, (0xFF << 24) | rgb, 3f);
+        GlassWidgets.fillRoundSmooth(alX, alY + alH + 6, alX + 14, alY + alH + 20, (0xFF << 24) | rgb, 3f);
         GlassWidgets.label(hex, alX + 20, alY + alH + 6 + (14 - GlassWidgets.fontH()) / 2f, 0xF5F5F7, alphaF);
     }
 

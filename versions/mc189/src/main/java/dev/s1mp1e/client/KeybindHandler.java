@@ -42,6 +42,8 @@ public final class KeybindHandler {
 
     /** Edge-detect state for the menu-open key. */
     private boolean menuWasDown;
+    /** One-time global font swap guard. */
+    private boolean fontSwapped;
 
     private static final class Entry {
         final KeyBinding key;
@@ -66,6 +68,23 @@ public final class KeybindHandler {
         if (e.phase != TickEvent.Phase.END) return;
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null) return;
+
+        // Install the global PingFang font over mc.fontRendererObj once, as soon as the
+        // OTF is ready — so ALL vanilla text (chat, item names, GUIs…) matches the launcher.
+        if (!fontSwapped) {
+            try {
+                if (mc.fontRendererObj != null
+                        && dev.s1mp1e.client.gui.GlassFont.available()
+                        && !(mc.fontRendererObj instanceof dev.s1mp1e.client.gui.S1mp1eFontRenderer)) {
+                    mc.fontRendererObj = new dev.s1mp1e.client.gui.S1mp1eFontRenderer(mc);
+                    fontSwapped = true;
+                    System.out.println("[S1mp1e] global PingFang font installed");
+                }
+            } catch (Throwable t) {
+                fontSwapped = true;   // don't retry a failing construction every tick
+                System.out.println("[S1mp1e] font swap failed, keeping vanilla font: " + t);
+            }
+        }
 
         // Menu-open key (default RightShift, launcher/GUI configurable). Edge-detected so
         // a held key opens once; polled before the in-game guard so it works from menus too.

@@ -37,6 +37,7 @@ public final class GlassProgram {
     private static final int[] uModulate = new int[COUNT];
     private static final int[] uRadius   = new int[COUNT];
     private static final int[] uDim      = new int[COUNT];
+    private static final int[] uEdgeMode = new int[COUNT];
 
     /** 0 = untried, 1 = ready, -1 = failed (never retry) */
     private static int state = 0;
@@ -101,6 +102,7 @@ public final class GlassProgram {
             uModulate[kind] = GL20.glGetUniformLocation(p, "ColorModulator");
             uRadius[kind]   = GL20.glGetUniformLocation(p, "Radius");
             uDim[kind]      = GL20.glGetUniformLocation(p, "Dim");
+            uEdgeMode[kind] = GL20.glGetUniformLocation(p, "EdgeMode");
             return p;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] " + fshName + " unavailable: " + t);
@@ -122,10 +124,18 @@ public final class GlassProgram {
     /** True when this program samples the captured backdrop. */
     public static boolean needsBackdrop(int kind) { return kind == GLASS; }
 
-    /** Blur-specific uniforms; call right after {@link #bind}. */
+    /** Blur-specific uniforms; call right after {@link #bind}. Opaque full-screen backdrop. */
     public static void setBlur(float radiusPx, float dim) {
-        if (uRadius[BLUR] >= 0) GL20.glUniform1f(uRadius[BLUR], radiusPx);
-        if (uDim[BLUR]    >= 0) GL20.glUniform1f(uDim[BLUR],    dim);
+        if (uRadius[BLUR]   >= 0) GL20.glUniform1f(uRadius[BLUR], radiusPx);
+        if (uDim[BLUR]      >= 0) GL20.glUniform1f(uDim[BLUR],    dim);
+        if (uEdgeMode[BLUR] >= 0) GL20.glUniform1f(uEdgeMode[BLUR], 0f);
+    }
+
+    /** Scroll-edge blur: progressive blur + dim that ramps by vLocal.y, blended over content. */
+    public static void setEdgeBlur(float radiusPx, float dim) {
+        if (uRadius[BLUR]   >= 0) GL20.glUniform1f(uRadius[BLUR], radiusPx);
+        if (uDim[BLUR]      >= 0) GL20.glUniform1f(uDim[BLUR],    dim);
+        if (uEdgeMode[BLUR] >= 0) GL20.glUniform1f(uEdgeMode[BLUR], 1f);
     }
 
     // ---- helpers ----------------------------------------------------------

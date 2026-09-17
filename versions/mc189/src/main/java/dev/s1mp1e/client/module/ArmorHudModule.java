@@ -92,7 +92,7 @@ public final class ArmorHudModule extends Module implements HudBounds {
         int textW = BAR_W;
         for (int i = 0; i < n; i++) {
             labels[i] = label(rows[i]);
-            int w = fr.getStringWidth(labels[i]);
+            int w = Math.round(dev.s1mp1e.client.gui.GlassFont.width(labels[i]));
             if (w > textW) textW = w;
         }
 
@@ -135,7 +135,7 @@ public final class ArmorHudModule extends Module implements HudBounds {
         int textX = PAD + ICON_W + GAP;
         for (int i = 0; i < n; i++) {
             int iy = PAD + i * ROW_H;
-            fr.drawStringWithShadow(labels[i], (float) textX, (float) (iy + 1), color.colorValue);
+            dev.s1mp1e.client.gui.GlassFont.drawARGB(labels[i], (float) textX, (float) (iy + 1), color.colorValue, true);
 
             ItemStack stack = rows[i];
             if (stack.isItemStackDamageable() && stack.getMaxDamage() > 0) {

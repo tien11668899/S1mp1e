@@ -105,16 +105,16 @@ public final class PotionHudModule extends Module implements HudBounds {
 
             names.add(name);
             times.add(time);
-            int w = fr.getStringWidth(name);
+            int w = Math.round(dev.s1mp1e.client.gui.GlassFont.width(name));
             if (w > nameW) nameW = w;
-            w = fr.getStringWidth(time);
+            w = Math.round(dev.s1mp1e.client.gui.GlassFont.width(time));
             if (w > timeW) timeW = w;
         }
 
         int n = names.size();
         if (n == 0) return;
 
-        int lineH = fr.FONT_HEIGHT + 2;
+        int lineH = Math.round(dev.s1mp1e.client.gui.GlassFont.height()) + 2;
         int boxW = PAD * 2 + nameW + 6 + timeW;
         int boxH = PAD * 2 + n * lineH;
 
@@ -139,11 +139,12 @@ public final class PotionHudModule extends Module implements HudBounds {
 
         for (int i = 0; i < n; i++) {
             int y = PAD + i * lineH;
-            fr.drawStringWithShadow(names.get(i), (float) PAD, (float) y, color.colorValue);
+            dev.s1mp1e.client.gui.GlassFont.drawARGB(names.get(i), (float) PAD, (float) y, color.colorValue, true);
             String time = times.get(i);
             // right-aligned so the timers form a column no matter the name length
-            fr.drawStringWithShadow(time, (float) (boxW - PAD - fr.getStringWidth(time)),
-                                    (float) y, TIME_COLOR);
+            dev.s1mp1e.client.gui.GlassFont.drawARGB(time,
+                    (float) (boxW - PAD - Math.round(dev.s1mp1e.client.gui.GlassFont.width(time))),
+                    (float) y, TIME_COLOR, true);
         }
 
         // FontRenderer leaves its last colour on the register; anything drawn afterwards

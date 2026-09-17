@@ -38,10 +38,13 @@ public final class CrosshairModule extends Module {
     /** Segment count for the ring; enough that a 20 px circle has no visible facets. */
     private static final int CIRCLE_SEGMENTS = 48;
 
-    private final Setting shape    = add(Setting.mode("Shape", "Cross", "Cross", "Dot", "Circle"));
+    private final Setting shape    = add(Setting.mode("Shape", "Cross", "Cross", "T", "Dot", "Circle"));
     private final Setting size     = add(Setting.integer("Size", 4, 1, 20));
     private final Setting thick    = add(Setting.integer("Thickness", 1, 1, 5));
     private final Setting gap      = add(Setting.integer("Gap", 2, 0, 10));
+    private final Setting rotation = add(Setting.integer("Rotation", 0, 0, 45));
+    private final Setting centerDot = add(Setting.bool("Center Dot", false));
+    private final Setting dotSize  = add(Setting.integer("Dot Size", 2, 1, 6));
     private final Setting colour   = add(Setting.color("Colour", 0xFFFFFFFF));
     private final Setting outline  = add(Setting.bool("Outline", true));
     private final Setting outlineC = add(Setting.color("Outline Colour", 0xC0000000));
@@ -103,6 +106,7 @@ public final class CrosshairModule extends Module {
         final int s = this.size.intValue;
         final int t = this.thick.intValue;
         final int g = this.gap.intValue;
+        final int rot = this.rotation.intValue;
 
         // Blend on, alpha test off: the HUD runs with alphaFunc(GREATER, 0.1) and a
         // deliberately faint crosshair would otherwise be clipped away entirely.
@@ -123,7 +127,17 @@ public final class CrosshairModule extends Module {
             ring(cx, cy, inner, outer, colour);
         } else {
             int[][] rects = "Dot".equals(mode) ? dotRects(cx, cy, t)
+                          : "T".equals(mode)   ? tRects(cx, cy, s, t, g)
                                                : crossRects(cx, cy, s, t, g);
+            // Rotation spins the arms about the exact centre (Dot is rotationally
+            // symmetric, so skip the matrix cost there).
+            boolean rotated = rot != 0 && !"Dot".equals(mode);
+            if (rotated) {
+                GlStateManager.pushMatrix();
+                GlStateManager.translate(cx, cy, 0f);
+                GlStateManager.rotate(rot, 0f, 0f, 1f);
+                GlStateManager.translate(-cx, -cy, 0f);
+            }
             // Two passes: every outline first, then every fill. With gap 0 the four
             // arms touch, and a per-arm outline drawn inline would paint over the
             // neighbouring arm's fill.
@@ -137,7 +151,35 @@ public final class CrosshairModule extends Module {
                 int[] r = rects[i];
                 Gui.drawRect(r[0], r[1], r[2], r[3], colour);
             }
+            if (rotated) GlStateManager.popMatrix();
         }
+
+        // Optional centre dot, drawn upright on top of whatever shape is active.
+        if (this.centerDot.boolValue && !"Dot".equals(mode)) {
+            int[][] d = dotRects(cx, cy, this.dotSize.intValue);
+            if (drawOutline) {
+                for (int i = 0; i < d.length; i++) {
+                    int[] r = d[i];
+                    Gui.drawRect(r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, oColour);
+                }
+            }
+            for (int i = 0; i < d.length; i++) {
+                int[] r = d[i];
+                Gui.drawRect(r[0], r[1], r[2], r[3], colour);
+            }
+        }
+    }
+
+    /** T-crosshair: left + right + down arms (the up arm is dropped, opening upward). */
+    private static int[][] tRects(int cx, int cy, int s, int t, int g) {
+        int half = t / 2;
+        int bandY0 = cy - half, bandY1 = bandY0 + t;
+        int bandX0 = cx - half, bandX1 = bandX0 + t;
+        return new int[][] {
+            { cx - g - s, bandY0, cx - g,     bandY1 },   // left
+            { cx + g,     bandY0, cx + g + s, bandY1 },   // right
+            { bandX0, cy + g,     bandX1, cy + g + s }    // down
+        };
     }
 
     /** Filled square of side {@code t}; size and gap have no meaning for a dot. */
