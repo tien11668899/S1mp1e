@@ -26,7 +26,7 @@ public class LiquidToggle : ToggleButton
     private static readonly Thickness On = new(31, 0, 0, 0);    // 61 - 2 - 28
     private const double KnobW = 28;   // oval: wider than tall, dominates the track
     private const double KnobH = 20;
-    private const double Dur = 480;
+    private const double Dur = 300;   // snappier, closer to the in-game 260ms jelly
 
     // Peak "glass blob": the resting oval scaled up PROPORTIONALLY (same ratio),
     // centred on the track (no upward lift — it grows symmetrically about the centre).

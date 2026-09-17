@@ -43,7 +43,9 @@
                     <SolidColorBrush x:Key="Divider"    Color="#0F000000"/>
                     <SolidColorBrush x:Key="TextMain"   Color="#1D1D1F"/>
                     <SolidColorBrush x:Key="TextSub"    Color="#636366"/>
-                    <SolidColorBrush x:Key="Accent"     Color="#007AFF"/>
+                    <SolidColorBrush x:Key="Accent"        Color="#007AFF"/>
+                    <SolidColorBrush x:Key="AccentHover"   Color="#2A90FF"/>
+                    <SolidColorBrush x:Key="AccentPressed" Color="#0060DF"/>
                     <SolidColorBrush x:Key="FieldBg"    Color="#12000000"/>
                     <SolidColorBrush x:Key="ToggleOff"  Color="#E3E3E6"/>
                     <!-- liquid-glass pop-up menu -->
@@ -68,7 +70,9 @@
                     <SolidColorBrush x:Key="Divider"    Color="#14FFFFFF"/>
                     <SolidColorBrush x:Key="TextMain"   Color="#F5F5F7"/>
                     <SolidColorBrush x:Key="TextSub"    Color="#98989D"/>
-                    <SolidColorBrush x:Key="Accent"     Color="#0A84FF"/>
+                    <SolidColorBrush x:Key="Accent"        Color="#0A84FF"/>
+                    <SolidColorBrush x:Key="AccentHover"   Color="#3D9BFF"/>
+                    <SolidColorBrush x:Key="AccentPressed" Color="#0068D6"/>
                     <SolidColorBrush x:Key="FieldBg"    Color="#1FFFFFFF"/>
                     <SolidColorBrush x:Key="ToggleOff"  Color="#39393D"/>
                     <!-- liquid-glass pop-up menu -->
@@ -181,13 +185,13 @@
         <Style Selector="Button.play /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Accent}"/>
             <Setter Property="CornerRadius" Value="27"/>
-            <Setter Property="BoxShadow" Value="0 6 18 0 #38007AFF"/>
+            <Setter Property="BoxShadow" Value="0 6 18 0 #33000000"/>
         </Style>
         <Style Selector="Button.play:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#2A90FF"/>
+            <Setter Property="Background" Value="{DynamicResource AccentHover}"/>
         </Style>
         <Style Selector="Button.play:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="#0060DF"/>
+            <Setter Property="Background" Value="{DynamicResource AccentPressed}"/>
         </Style>
 
         <!-- borderless search text field (sits inside the capsule) -->
@@ -284,6 +288,14 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="{DynamicResource CardBorder}"/>
             <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+            <!-- soft edge shadow so cards read as grounded glass, not flat fills (design rule 4) -->
+            <Setter Property="BoxShadow" Value="0 3 12 0 #18000000"/>
+            <Setter Property="Transitions">
+                <Transitions><BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.16"/></Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.card:pointerover">
+            <Setter Property="BoxShadow" Value="0 5 18 0 #22000000"/>
         </Style>
         <!-- section header: 20 above (the page Spacing), 8 below — the -12 cancels the
              container's 20 so the header sits close to the card it labels, Apple-style. -->
@@ -489,12 +501,18 @@
         <!-- Buttons: bg + fg crossfade on hover / press so the accent-tint pop
              doesn't snap. Also covers the ContentPresenter (button subtree). -->
         <Style Selector="Button.mini, Button.accent, Button.danger, Button.play, Button.chev">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="Background" Duration="0:0:0.14"/>
                     <BrushTransition Property="Foreground" Duration="0:0:0.14"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.13" Easing="CubicEaseOut"/>
                 </Transitions>
             </Setter>
+        </Style>
+        <!-- tactile "liquid" press: a small springy shrink -->
+        <Style Selector="Button.mini:pressed, Button.accent:pressed, Button.danger:pressed, Button.play:pressed, Button.chev:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.96)"/>
         </Style>
         <Style Selector="Button.mini /template/ ContentPresenter, Button.accent /template/ ContentPresenter, Button.danger /template/ ContentPresenter, Button.play /template/ ContentPresenter">
             <Setter Property="Transitions">
@@ -945,14 +963,9 @@
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#34C759"><Image Source="avares://S1mp1e/Assets/Icons/gauge.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="記憶體配置" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="配置給 Java 的最大堆積記憶體" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <Slider x:Name="RamSlider" Width="140" Minimum="1" Maximum="16" Value="4"
-                                                    TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
-                                                    ValueChanged="OnRamChanged"/>
-                                            <TextBlock Text="{Binding #RamSlider.Value, StringFormat='{}{0:0} GB'}"
-                                                       FontSize="12.5" MinWidth="42"
-                                                       Foreground="{DynamicResource TextSub}" VerticalAlignment="Center"/>
-                                        </StackPanel>
+                                        <ctl:GlassSlider Grid.Column="2" x:Name="RamSlider" Width="214" Minimum="1" Maximum="16" Value="4"
+                                                         TickFrequency="1" Unit=" GB" VerticalAlignment="Center"
+                                                         ValueChanged="OnRamChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
@@ -1089,6 +1102,26 @@
 
                     </StackPanel>
                 </ScrollViewer>
+                <!-- iOS-26 scroll-edge fade: content dissolves into the pane at the top/bottom
+                     edges as it scrolls. Opacity is driven by scroll offset in code. -->
+                <Border x:Name="ScrimTop" VerticalAlignment="Top" Height="30" Opacity="0"
+                        IsHitTestVisible="False" Background="{DynamicResource DetailBg}">
+                    <Border.OpacityMask>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                            <GradientStop Offset="0" Color="White"/>
+                            <GradientStop Offset="1" Color="Transparent"/>
+                        </LinearGradientBrush>
+                    </Border.OpacityMask>
+                </Border>
+                <Border x:Name="ScrimBottom" VerticalAlignment="Bottom" Height="30" Opacity="0"
+                        IsHitTestVisible="False" Background="{DynamicResource DetailBg}">
+                    <Border.OpacityMask>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                            <GradientStop Offset="0" Color="Transparent"/>
+                            <GradientStop Offset="1" Color="White"/>
+                        </LinearGradientBrush>
+                    </Border.OpacityMask>
+                </Border>
                 </Grid>
             </Border>
         </Grid>

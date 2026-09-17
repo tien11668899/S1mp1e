@@ -147,6 +147,11 @@ public partial class MainWindow : Window
                 OnDetailScrollWheel,
                 RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
                 handledEventsToo: true);
+            if (DetailScroller is not null)
+            {
+                DetailScroller.ScrollChanged += (_, _) => UpdateEdgeScrims();
+                UpdateEdgeScrims();
+            }
 
             // Edge-blur snapshot refresh is driven ONLY by the scroll tween tick
             // (see OnScrollTick). Hooking PropertyChanged/LayoutUpdated causes
@@ -174,30 +179,6 @@ public partial class MainWindow : Window
             // Best-effort launcher update check — fire-and-forget so a slow or dead
             // network never delays the window. Shows the bottom banner if newer.
             CheckForUpdatesAsync();
-
-            // TEMP DIAG — auto-measure the settings page scroll extent on startup.
-            var diag = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
-            diag.Tick += (_, __) =>
-            {
-                diag.Stop();
-                try
-                {
-                    for (int i = 0; i < 4; i++) { var p = PageOf(i); p.IsVisible = i == 3; p.Opacity = 1; }
-                    _currentPage = 3;
-                    PageTitle.Text = "設定";
-                    DetailScroller.UpdateLayout();
-                    var extBefore = DetailScroller.Extent.Height;
-                    var vpBefore = DetailScroller.Viewport.Height;
-                    var maxBefore = DetailScroller.ScrollBarMaximum.Y;
-                    DetailScroller.Offset = new Vector(0, 99999);
-                    var forced = DetailScroller.Offset.Y;
-                    System.IO.File.AppendAllText(@"C:\Temp\s1mp1e-scroll.log",
-                        $"DIAG settings ext={extBefore:F0} vp={vpBefore:F0} max={maxBefore:F0} forcedOff={forced:F0} " +
-                        $"pageSettingsBounds={PageSettings.Bounds.Height:F0} outerSP={((Control)DetailScroller.Content!).Bounds.Height:F0}\n");
-                }
-                catch (Exception ex) { try { System.IO.File.AppendAllText(@"C:\Temp\s1mp1e-scroll.log", "DIAG ERR " + ex.Message + "\n"); } catch { } }
-            };
-            diag.Start();
 
             // Every pop-up button opens the ONE shared liquid-glass menu, anchored to itself.
             foreach (var gs in this.GetVisualDescendants().OfType<GlassSelect>())
@@ -915,7 +896,12 @@ public partial class MainWindow : Window
         {
             var app = Application.Current;
             if (app is null) return;
-            var brush = new SolidColorBrush(Color.Parse(hex));
+            var c = Color.Parse(hex);
+            var brush = new SolidColorBrush(c);
+            // Derived shades so hover/pressed/accented controls track the chosen accent
+            // instead of the old hardcoded blues.
+            var hover = new SolidColorBrush(Lighten(c, 0.12));
+            var pressed = new SolidColorBrush(Darken(c, 0.16));
             // "Accent" is defined inside ThemeDictionaries (Light/Dark). Setting the plain
             // Application resource gets SHADOWED by the active theme dictionary, so the
             // colour picker did nothing. Write the override into BOTH theme dictionaries
@@ -924,12 +910,28 @@ public partial class MainWindow : Window
             {
                 if (app.Resources.ThemeDictionaries.TryGetValue(variant, out var prov)
                     && prov is ResourceDictionary rd)
+                {
                     rd["Accent"] = brush;
+                    rd["AccentHover"] = hover;
+                    rd["AccentPressed"] = pressed;
+                }
             }
             this.Resources["Accent"] = brush;
+            this.Resources["AccentHover"] = hover;
+            this.Resources["AccentPressed"] = pressed;
         }
         catch { }
     }
+
+    private static Color Lighten(Color c, double f) => Color.FromArgb(c.A,
+        (byte)Math.Clamp(c.R + (255 - c.R) * f, 0, 255),
+        (byte)Math.Clamp(c.G + (255 - c.G) * f, 0, 255),
+        (byte)Math.Clamp(c.B + (255 - c.B) * f, 0, 255));
+
+    private static Color Darken(Color c, double f) => Color.FromArgb(c.A,
+        (byte)Math.Clamp(c.R * (1 - f), 0, 255),
+        (byte)Math.Clamp(c.G * (1 - f), 0, 255),
+        (byte)Math.Clamp(c.B * (1 - f), 0, 255));
 
     // ---- settings: live theme switch (自動 / 淺色 / 深色) ----
     private void OnThemeChanged(object? sender, EventArgs e)
@@ -941,6 +943,9 @@ public partial class MainWindow : Window
             2 => ThemeVariant.Dark,
             _ => ThemeVariant.Default,
         };
+        // Re-apply the glass/transparency tint after the variant actually settles, so
+        // the reduce-transparency shade doesn't lag a live theme switch.
+        Avalonia.Threading.Dispatcher.UIThread.Post(ApplyGlassPref);
         if (_hydrating) return;   // don't persist while ApplyLoadedConfig is populating
         _cfg.Settings.Theme = box.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "auto" };
         SaveCfg();
@@ -1167,12 +1172,27 @@ public partial class MainWindow : Window
         }
     }
 
+    // iOS-26 scroll-edge fade: the top/bottom scrims dissolve content into the pane,
+    // fading in with how far the detail list is scrolled from each edge.
+    private void UpdateEdgeScrims()
+    {
+        if (DetailScroller is null) return;
+        var y = DetailScroller.Offset.Y;
+        var max = DetailScroller.ScrollBarMaximum.Y;
+        const double ramp = 26;
+        if (ScrimTop is not null) ScrimTop.Opacity = Math.Clamp(y / ramp, 0, 1);
+        if (ScrimBottom is not null) ScrimBottom.Opacity = max <= 0.5 ? 0 : Math.Clamp((max - y) / ramp, 0, 1);
+    }
+
     // ---- settings: general ----
-    private void OnRamChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    private void OnRamChanged(object? sender, EventArgs e)
     {
         if (_hydrating) return;
-        _cfg.Settings.RamMb = (int)Math.Round(e.NewValue) * 1024;
-        SaveCfg();
+        if (sender is GlassSlider gs)
+        {
+            _cfg.Settings.RamMb = (int)Math.Round(gs.Value) * 1024;
+            SaveCfg();
+        }
     }
     private async void OnPickMcDir(object? sender, RoutedEventArgs e)
     {
