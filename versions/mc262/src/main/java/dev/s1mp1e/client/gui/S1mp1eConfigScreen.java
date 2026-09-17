@@ -309,6 +309,7 @@ public final class S1mp1eConfigScreen extends Screen {
         for (Widget w : settingWidgets)
             if (w.editing() && !w.captures() && !GlassWidgets.inside(mx, my, w.x0, w.y0, w.x1, w.y1)) w.loseFocus();
         for (Widget w : settingWidgets) if (w.captures()) { w.mouseClickedPrecise(event.x(), event.y(), btn); return true; }
+        for (Widget w : moduleToggles) if (w.captures()) { w.mouseClickedPrecise(event.x(), event.y(), btn); return true; }
         // Tab switch: slide the highlight now, but fade the page out first — extractRenderState()
         // swaps to the new tab once pageFade hits 0, then fades it back in.
         for (int i = 0; i < 3; i++) if (hit(tabRect[i], mx, my)) {
@@ -318,7 +319,7 @@ public final class S1mp1eConfigScreen extends Screen {
         if (GlassWidgets.inside(mx, my, px0, listY0, railX1, listY1)) {
             int rows = Math.min(modules.size(), modRowRect.length);
             for (int i = 0; i < rows; i++) {
-                if (moduleToggles.get(i).mouseClicked(mx, my, btn)) return true;
+                if (moduleToggles.get(i).mouseClickedPrecise(event.x(), event.y(), btn)) return true;
                 if (hit(modRowRect[i], mx, my)) { selectModule(modules.get(i)); return true; }
             }
             return true;
@@ -339,11 +340,13 @@ public final class S1mp1eConfigScreen extends Screen {
 
     @Override public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
         for (Widget w : settingWidgets) w.mouseDraggedPrecise(event.x(), event.y(), event.button());
+        for (Widget w : moduleToggles) w.mouseDraggedPrecise(event.x(), event.y(), event.button());
         return true;
     }
 
     @Override public boolean mouseReleased(MouseButtonEvent event) {
-        for (Widget w : settingWidgets) w.mouseReleased();
+        for (Widget w : settingWidgets) w.mouseReleased(event.button());
+        for (Widget w : moduleToggles) w.mouseReleased(event.button());
         return super.mouseReleased(event);
     }
 

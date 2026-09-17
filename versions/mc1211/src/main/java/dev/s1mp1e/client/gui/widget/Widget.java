@@ -16,6 +16,8 @@ public abstract class Widget {
     public boolean mouseClickedPrecise(double mx, double my, int btn) { return mouseClicked((int) mx, (int) my, btn); }
     public void mouseDraggedPrecise(double mx, double my, int btn) { mouseDragged((int) mx, (int) my, btn); }
     public void mouseReleased() {}
+    /** The screen routes releases here; only the button a gesture can start with (left) ends one. */
+    public void mouseReleased(int btn) { if (btn == 0) mouseReleased(); }
     /** Called on every widget once a press has been routed, so one-press state can't leak into the next press. */
     public void clickDispatched() {}
     /** True while this widget owns keyboard focus (text/hex entry). The screen routes
