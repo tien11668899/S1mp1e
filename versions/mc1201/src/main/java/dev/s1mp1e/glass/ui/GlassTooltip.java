@@ -86,10 +86,16 @@ public final class GlassTooltip {
             tooltipY = screenH - tooltipHeight - 6;
         }
 
-        // Grab the GUI drawn so far (slots, items, dimmer) as the refraction
-        // backdrop. Tooltips draw LAST, so the framebuffer does not yet contain
-        // this tooltip -> no self-ghosting.
-        SceneCapture.grab();
+        // Flush every GUI draw buffered so far (slot items, counts, durability, the dim) to the framebuffer
+        // BEFORE we grab it and paint the raw-GL panel — otherwise that un-flushed batch flushes AFTER the
+        // panel and hides it behind the items, and the refraction backdrop misses them too.
+        context.draw();
+
+        // Grab the GUI drawn so far (dim, panel, slots, ITEMS) as the refraction backdrop. grabNow (not the
+        // deduped grab): in a container screen the panel grabbed its own backdrop BEFORE the items were
+        // drawn, so a deduped grab here would fold onto that stale copy and the tooltip would refract the
+        // background instead of the items. The tooltip's own glass is drawn just below -> no self-ghosting.
+        SceneCapture.grabNow();
 
         // ---- panel geometry: content box + PADDING 3 -----------------------
         int x0 = tooltipX - PADDING;
@@ -126,6 +132,11 @@ public final class GlassTooltip {
         int a = textAlphaByte();
         if (a >= 8) {
             int col = (a >= 252) ? 0xFFFFFFFF : ((a << 24) | 0xFFFFFF);
+            // Lift the text onto the tooltip Z-layer (vanilla uses +400) so it sorts ABOVE the item models
+            // (Z~150) when the buffered text finally flushes; the @Inject that calls us cancelled vanilla's
+            // own +400, so we re-apply it here or the item icons depth-test over the letters.
+            context.getMatrices().push();
+            context.getMatrices().translate(0f, 0f, 400f);
             int ty = tooltipY;
             for (int i = 0; i < lines.size(); i++) {
                 // 1.20: TextRenderer.drawWithShadow -> DrawContext.drawTextWithShadow
@@ -134,6 +145,7 @@ public final class GlassTooltip {
                 if (i == 0) ty += 2; // vanilla's title gap
                 ty += 10;
             }
+            context.getMatrices().pop();
         }
         RenderSystem.enableDepthTest();
         return true;

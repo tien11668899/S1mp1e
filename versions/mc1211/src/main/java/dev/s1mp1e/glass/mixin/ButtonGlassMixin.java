@@ -2,12 +2,12 @@ package dev.s1mp1e.glass.mixin;
 
 import java.util.WeakHashMap;
 
+import dev.s1mp1e.client.gui.ScreenOpenFade;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -48,8 +48,8 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  *       widgets evict themselves and coexisting buttons never cross-wire.</li>
  *   <li><b>Screen open/close opacity.</b> The Forge line snapped buttons in with
  *       the screen (opacity = the widget's own alpha, no ramp). Here a single
- *       shared {@link Fade} eases the capsule opacity 0&rarr;1 over
- *       {@link #OPEN_FADE_MS} (150 ms — the same duration {@code ScreenFade}'s
+ *       shared {@link ScreenOpenFade} (also used by the glass option sliders) eases the
+ *       capsule opacity 0&rarr;1 over 150 ms (the same duration {@code ScreenFade}'s
  *       cross-dissolve uses), restarting from 0 whenever {@code currentScreen}
  *       changes, so a newly opened screen's buttons fade in while the outgoing
  *       frame dissolves out and the screen close reads as the buttons fading with
@@ -62,7 +62,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * <p><b>1.17.1 status: FULLY FUNCTIONAL.</b> The capsule + both fade channels draw
  * through the core-legal {@link GlassRenderer#button}. Note the opacity channel
  * references {@code ScreenFade}'s 150 ms only as a shared timing constant
- * ({@link #OPEN_FADE_MS}); it does NOT call {@code ScreenFade}, so the button fade
+ * (150 ms); it does NOT call {@code ScreenFade}, so the button fade
  * works even though {@code ScreenFade}'s own dissolve draw is stubbed on 1.17.1.
  */
 @Mixin(ClickableWidget.class)
@@ -72,17 +72,11 @@ public abstract class ButtonGlassMixin {
     private static final float LIFT_ON = 0.81f;
     /** Hover ease duration — the container hover-pill fade (HOVER_FADE_S 0.10). */
     private static final float HOVER_FADE_MS = 100f;
-    /** Screen open/close opacity ease — the 150 ms ScreenFade cross-dissolve uses. */
-    private static final float OPEN_FADE_MS = 150f;
 
     /** Per-widget hover-lift fade; WeakHashMap auto-evicts discarded widgets. */
     private static final WeakHashMap<ClickableWidget, Fade> s1mp1e$hoverFades =
             new WeakHashMap<ClickableWidget, Fade>();
 
-    /** One shared capsule-opacity fade, restarted whenever the screen changes. */
-    private static final Fade s1mp1e$openFade = new Fade(0f, OPEN_FADE_MS);
-    /** The screen the opacity fade is currently keyed to (identity compare). */
-    private static Screen s1mp1e$lastScreen;
 
     @Shadow protected float alpha;
     @Shadow public boolean active;
@@ -139,17 +133,11 @@ public abstract class ButtonGlassMixin {
         fade.to(over ? 1f : 0f);
         float lift = LIFT_ON * fade.value();
 
-        // Screen open/close opacity ramp. Restart the shared fade from 0 on every
-        // screen change (identity compare, so a resize's reused instance never
-        // restarts it), then ease 0->1 over OPEN_FADE_MS. Endpoint 1.0 keeps a
-        // settled button's opacity at the widget's own alpha, exactly the Forge port.
-        Screen screen = mc.currentScreen;
-        if (screen != s1mp1e$lastScreen) {
-            s1mp1e$lastScreen = screen;
-            s1mp1e$openFade.snap(0f);
-            s1mp1e$openFade.to(1f);
-        }
-        float opacity = this.alpha * s1mp1e$openFade.value();
+        // Screen open/close opacity ramp: ScreenOpenFade, shared with the glass option
+        // sliders so both restart together (identity compare, so a resize's reused
+        // instance never restarts it). Endpoint 1.0 keeps a settled button's opacity
+        // at the widget's own alpha, exactly the Forge port.
+        float opacity = this.alpha * ScreenOpenFade.value(mc.currentScreen);
 
         GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
 

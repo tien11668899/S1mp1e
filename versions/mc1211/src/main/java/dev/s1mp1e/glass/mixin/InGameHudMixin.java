@@ -6,8 +6,11 @@ import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
 import dev.s1mp1e.glass.render.ScreenFade;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.hud.InGameHud;
+import net.minecraft.client.render.DiffuseLighting;
+import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -41,10 +44,13 @@ public abstract class InGameHudMixin {
     private int    s1mp1e$lastSlot = -1;
     private long   s1mp1e$lastNanos;
 
-    // Backdrop: earliest point in the HUD pass.
+    // Backdrop: earliest point in the HUD pass. grabNow (not the time-deduped grab)
+    // so the hotbar owns a fresh WORLD backdrop every frame — at the high frame rate
+    // of a paused screen the dedup would skip this and leave the hotbar sampling a
+    // stale/post-dim backdrop from a later stage, which showed as flicker + dark edges.
     @Inject(method = "render", at = @At("HEAD"))
     private void s1mp1e$grab(DrawContext context, RenderTickCounter tickDelta, CallbackInfo ci) {
-        SceneCapture.grab();
+        SceneCapture.grabNow();
     }
 
     /**
@@ -108,30 +114,75 @@ public abstract class InGameHudMixin {
         RenderSystem.applyModelViewMatrix();
     }
 
-    // Replace the vanilla hotbar with the glass bar.
-    // 1.21: renderHotbar was reordered/retyped to (DrawContext, RenderTickCounter)
-    // (method_1759) — was (float, DrawContext) in 1.20.1. The injected handler must
-    // mirror the new param order/type for the mixin to bind.
+    // The XP LEVEL number ("30"): vanilla draws it centred at scaledHeight-35, just above the XP bar. The
+    // user wants it up on the health/food row and centred (it then sits in the gap between the health bar
+    // on the left and the food bar on the right). That row's logical top is scaledHeight-39, lifted by
+    // DECO_LIFT — so we cancel vanilla's renderExperienceLevel and redraw the number at exactly that visual
+    // row, screen-centred, keeping vanilla's look (black 4-way outline + green centre, no shadow).
+    //
+    // The guard replicates vanilla's private shouldRenderExperience() inline — player.getJumpingMount()==null
+    // && interactionManager.hasExperienceBar() (both PUBLIC, so Loom remaps them; a @Shadow of the private
+    // method would need a mixin-refmap entry that the AP does not emit, and would bind in dev but break in
+    // the intermediary-mapped production jar).
+    @Inject(method = "renderExperienceLevel", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$xpLevelAtStatusRow(DrawContext context, RenderTickCounter counter, CallbackInfo ci) {
+        ci.cancel();   // we fully own the level number now
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null || mc.interactionManager == null) return;
+        if (mc.player.getJumpingMount() != null) return;          // riding: vanilla shows the jump bar, no XP
+        if (!mc.interactionManager.hasExperienceBar()) return;    // creative/spectator: no XP bar
+        int level = mc.player.experienceLevel;
+        if (level <= 0) return;
+        String s = Integer.toString(level);
+        TextRenderer tr = mc.textRenderer;
+        int x = (context.getScaledWindowWidth() - tr.getWidth(s)) / 2;
+        int y = context.getScaledWindowHeight() - 39 - DECO_LIFT;   // health/food visual row
+        context.drawText(tr, s, x + 1, y,     0,        false);
+        context.drawText(tr, s, x - 1, y,     0,        false);
+        context.drawText(tr, s, x,     y + 1, 0,        false);
+        context.drawText(tr, s, x,     y - 1, 0,        false);
+        context.drawText(tr, s, x,     y,     0x80FF20, false);
+    }
+
+    // Replace the vanilla hotbar with the glass bar (scaled by SCALE about
+    // bottom-centre) AND redraw the item stacks so they sit INSIDE our scaled frame.
+    //
+    // Two scale passes, SEQUENCED (never overlapping) — the fix for both the size and
+    // the black-item bugs on 1.21.1:
+    //   * GLASS FRAME under RenderSystem.getModelViewStack() scaled (GlassRenderer's
+    //     raw-GL shader reads its uniforms from there), then POP it.
+    //   * ITEMS under context.getMatrices() scaled, with RS model-view back at IDENTITY.
+    // 1.21.1's DrawContext.drawItem composes BOTH stacks, so scaling both at once
+    // double-scaled items to ~1.32× ("物品變大了"); scaling ONLY RS left the FIRST item
+    // black (the first vanilla draw after our raw-GL glass inherited corrupted state that
+    // pushing+scaling the DrawContext matrix around the item draw primes away). Sequencing
+    // gives a clean 1.15× for both AND primes the state so no item goes black.
+    // Plus: context.draw() flushes before the raw-GL glass and after the items;
+    // setShader re-establishes the item shader; enableGuiDepthLighting restores the GUI
+    // diffuse light (else 3D block models render flat black). 1.21: renderHotbar is
+    // (DrawContext, RenderTickCounter) (method_1759).
     @Inject(method = "renderHotbar", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$glassHotbar(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || !SceneCapture.hasBackdrop()) return;
+        if (mc.player == null) return;
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         int center = mc.getWindow().getScaledWidth() / 2;
         int bottom = mc.getWindow().getScaledHeight() - LIFT;
+        int stripX0 = center - 91, stripY0 = bottom - 22;
+        int stripX1 = center + 91, stripY1 = bottom;
 
-        // 1.17.1: RenderSystem.pushMatrix/translatef/scalef/popMatrix are gone.
-        // Mutate the model-view MatrixStack, then applyModelViewMatrix() so the
-        // change reaches the shader used by the item redraw below.
+        // ---- pass 1: glass frame under the RS model-view scale ----
         org.joml.Matrix4fStack mv = RenderSystem.getModelViewStack();
         mv.pushMatrix();
         mv.translate(center, bottom, 0);
         mv.scale(SCALE, SCALE, 1f);
         mv.translate(-center, -bottom, 0);
         RenderSystem.applyModelViewMatrix();
+        boolean screenOpen = mc.currentScreen != null;   // suppress the shadow ring while a screen dims the bg
+        if (screenOpen) dev.s1mp1e.glass.render.GlassProgram.setShadowScale(0f);
         try {
-            int stripX0 = center - 91, stripY0 = bottom - 22;
-            int stripX1 = center + 91, stripY1 = bottom;
+            context.draw(); // flush pending HUD draws before our raw-GL glass
 
             GlassRenderer.glass(stripX0, stripY0, stripX1, stripY1,
                                 GlassRenderer.PAD_PILL, 1.0f, 0f, 1.0f,
@@ -161,28 +212,36 @@ public abstract class InGameHudMixin {
             int pillY0 = bottom - 20,         pillY1 = bottom - 2;
             GlassRenderer.glass(pillX0, pillY0, pillX1, pillY1,
                                 6f, 1.0f, 0.12f, 1.0f, GlassRenderer.FROST_NONE);
-
-            s1mp1e$renderItems(mc, context, stripX0, stripY0);
         } finally {
+            if (screenOpen) dev.s1mp1e.glass.render.GlassProgram.setShadowScale(1f);
             mv.popMatrix();
-            RenderSystem.applyModelViewMatrix();
+            RenderSystem.applyModelViewMatrix();   // RS model-view back to IDENTITY for the items
+        }
+
+        // ---- pass 2: items under the DrawContext matrix scale (RS is identity now) ----
+        net.minecraft.client.util.math.MatrixStack matrices = context.getMatrices();
+        matrices.push();
+        matrices.translate(center, bottom, 0);
+        matrices.scale(SCALE, SCALE, 1f);
+        matrices.translate(-center, -bottom, 0);
+        try {
+            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+            DiffuseLighting.enableGuiDepthLighting();
+            RenderSystem.setShaderColor(0f, 0f, 0f, 0f);   // cache-defeat -> force white so no item is tinted black
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            PlayerEntity player = mc.player;
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = player.getInventory().main.get(i);
+                if (stack.isEmpty()) continue;
+                int ix = stripX0 + 3 + i * 20, iy = stripY0 + 3;
+                context.drawItem(player, stack, ix, iy, 0);
+                context.drawItemInSlot(mc.textRenderer, stack, ix, iy);
+            }
+            context.draw();
+            DiffuseLighting.disableGuiDepthLighting();
+        } finally {
+            matrices.pop();
         }
         ci.cancel();
-    }
-
-    /** Redraw the hotbar item stacks the cancelled vanilla pass owned. */
-    private static void s1mp1e$renderItems(MinecraftClient mc, DrawContext context, int x0, int y0) {
-        PlayerEntity player = mc.player;
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = player.getInventory().main.get(i);
-            if (stack.isEmpty()) continue;
-            int ix = x0 + 3 + i * 20, iy = y0 + 3;
-            // 1.20: item + overlay drawing moved off ItemRenderer onto DrawContext.
-            // renderInGuiWithOverrides(player,stack,x,y,seed) -> drawItem(...);
-            // renderGuiItemOverlay(font,stack,x,y)          -> drawItemInSlot(...).
-            // DrawContext.drawItem sets up GUI diffuse lighting internally.
-            context.drawItem(player, stack, ix, iy, 0);
-            context.drawItemInSlot(mc.textRenderer, stack, ix, iy);
-        }
     }
 }

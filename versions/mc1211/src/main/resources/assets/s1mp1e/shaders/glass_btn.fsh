@@ -18,7 +18,7 @@ const float RIM_A         = 0.38;
 const float RIM_PX        = 2.5;
 const float SHADOW_EXPAND = 14.0;
 const float SHADOW_FACTOR = 0.10;
-const vec2  SHADOW_OFFSET = vec2(0.0, 2.0);
+const vec2  SHADOW_OFFSET = vec2(0.0, 1.0);   // subtle — a 2px drop made capsules read low
 
 void main() {
     vec2  fw     = fwidth(vLocal);

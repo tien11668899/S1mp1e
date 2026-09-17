@@ -141,6 +141,9 @@ public abstract class InGameHudItemNameMixin {
 
         int hw = Math.round(s1mp1e$nameW.value()) + 6;
 
+        // Flush pending HUD draws before the raw-GL glass, so no deferred content flushes
+        // later with our glass state (which was turning the name text black).
+        context.draw();
         // frosted capsule: pad 10, corner 1.0, no lift, follows the width spring
         GlassRenderer.glass(cx - hw, y - 4, cx + hw, y + 13, 10f, 1.0f, 0f, a,
                             GlassRenderer.FROST_PANEL);
@@ -162,5 +165,8 @@ public abstract class InGameHudItemNameMixin {
             context.drawTextWithShadow(font, s1mp1e$nameCur, cx - strWidth / 2, y,
                                 (na << 24) | 0xFFFFFF);
         }
+        // Flush the name text NOW so it renders in the clean post-glass state instead of
+        // deferring to a later flush that inherited our raw-GL glass state (→ black text).
+        context.draw();
     }
 }

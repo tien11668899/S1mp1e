@@ -3,13 +3,19 @@
   "package": "dev.s1mp1e.glass.mixin",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "InGameHudMixin", "ButtonGlassMixin",
+    "InGameHudMixin", "ButtonGlassMixin", "SliderGlassMixin",
     "MinecraftClientFadeMixin", "ScreenFadeMixin", "InGameHudFadeMixin",
     "ScreenTooltipMixin", "InGameHudTooltipGhostMixin", "InGameHudItemNameMixin",
     "HandledScreenGlassMixin", "MinecraftClientContainerGhostMixin", "InGameHudPanelGhostMixin",
     "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin",
-    "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin", "RecipeToggleGlassMixin",
-    "CreativeGlassMixin"
+    "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin",
+    "RecipeToggleGlassMixin", "CreativeGlassMixin",
+    "MouseClickMixin", "CrosshairMixin",
+    "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin", "HeldItemSwingMixin",
+    "SpriteContentsAccessor",
+    "HandPositionMixin", "FovMultiplierMixin", "ZoomFovMixin", "LightmapGammaMixin",
+    "InGameHudEffectMixin", "FontSmoothMixin", "MouseZoomSensitivityMixin",
+    "ForeignZoomKeyBlockMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

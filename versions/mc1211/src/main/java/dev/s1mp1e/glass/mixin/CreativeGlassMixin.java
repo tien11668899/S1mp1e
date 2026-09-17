@@ -80,9 +80,16 @@ public abstract class CreativeGlassMixin {
             s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
         }
 
+        // Flush the deferred screen darkening into the framebuffer first (see the
+        // HandledScreenGlassMixin note) so the glass lands on top of the dim and the
+        // grab captures world+dim as the backdrop.
+        self.draw();
+
         // Backdrop = world + dim (+ any tab sprites already painted this frame),
-        // grabbed the instant before the glass draw.
-        SceneCapture.grab();
+        // grabbed the instant before the glass draw. grabNow (not the deduped grab) so
+        // the creative panel deterministically owns its backdrop every frame; the HUD
+        // hotbar already grabbed WORLD earlier this frame and drew from it.
+        SceneCapture.grabNow();
 
         if (!s1mp1e$opened) {
             // Fresh screen instance: snap the open fade and cancel any in-flight

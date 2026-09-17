@@ -144,9 +144,19 @@ public abstract class HandledScreenGlassMixin {
 
         int gl = this.x, gt = this.y, xs = this.backgroundWidth, ys = this.backgroundHeight;
 
-        // Backdrop = world + dim (renderBackground already ran this frame), grabbed
-        // the instant before any glass draws.
-        SceneCapture.grab();
+        // 1.20+: the screen darkening from super.renderBackground is a DEFERRED
+        // DrawContext fill queued before this drawBackground call; it would otherwise
+        // flush AFTER our immediate-GL glass and dim the 30%-grey slot lattice into
+        // invisibility (the bright panel survives, the faint lattice does not — this is
+        // the post-1.17 regression, since ≤1.17 drew the dim immediately). Flush it into
+        // the framebuffer now so the glass + lattice land ON TOP of the dim, and so the
+        // grab below captures world+dim as the backdrop the panel refracts.
+        context.draw();
+
+        // Backdrop = world + dim, grabbed the instant before any glass draws. grabNow
+        // (not the deduped grab) so the panel deterministically owns a world+dim backdrop
+        // every frame; the recipe book / tooltip then fold onto it via grab() within 3ms.
+        SceneCapture.grabNow();
 
         long now = System.nanoTime();
         if (!s1mp1e$opened) {

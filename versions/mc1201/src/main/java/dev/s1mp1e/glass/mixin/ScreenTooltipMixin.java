@@ -1,13 +1,17 @@
 package dev.s1mp1e.glass.mixin;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.ui.GlassTooltip;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.item.TooltipData;
 import net.minecraft.text.OrderedText;
+import net.minecraft.text.Text;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -68,6 +72,31 @@ public abstract class ScreenTooltipMixin {
         int screenH = mc.getWindow().getScaledHeight();
         DrawContext context = (DrawContext) (Object) this;
         if (GlassTooltip.draw(context, lines, x, y, screenW, screenH, textRenderer)) {
+            ci.cancel();
+        }
+    }
+
+    /**
+     * The INVENTORY ITEM tooltip path. {@code drawItemTooltip} → {@code getTooltipFromItem} →
+     * {@code drawTooltip(TextRenderer, List<Text>, Optional<TooltipData>, int, int)} (method_51437), which
+     * builds {@code TooltipComponent}s directly and never routes through {@code drawOrderedTooltip} — so the
+     * hook above misses it and item tooltips stayed vanilla-flat. Hook it here too: for the normal case
+     * (no {@code TooltipData} — i.e. not a bundle/map preview) convert the lines to {@code OrderedText} and
+     * draw the glass tooltip, cancelling vanilla. Bundle/map previews (data present) fall through to vanilla.
+     */
+    @Inject(method = "drawTooltip("
+                   + "Lnet/minecraft/client/font/TextRenderer;Ljava/util/List;Ljava/util/Optional;II)V",
+            at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$glassItemTooltip(TextRenderer textRenderer, List<Text> text, Optional<TooltipData> data,
+                                         int x, int y, CallbackInfo ci) {
+        if (data.isPresent()) return;   // bundle/map preview -> let vanilla draw it
+        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        List<OrderedText> lines = new ArrayList<OrderedText>(text.size());
+        for (Text t : text) lines.add(t.asOrderedText());
+        DrawContext context = (DrawContext) (Object) this;
+        if (GlassTooltip.draw(context, lines, x, y,
+                mc.getWindow().getScaledWidth(), mc.getWindow().getScaledHeight(), textRenderer)) {
             ci.cancel();
         }
     }

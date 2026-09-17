@@ -100,6 +100,8 @@ public final class GlassRenderer {
         if (kind == GlassProgram.GLASS && !GlassProgram.usable())    return false;
         if (kind == GlassProgram.LINE  && !GlassProgram.lineUsable()) return false;
         if (kind == GlassProgram.BTN   && !GlassProgram.btnUsable())  return false;
+        if (kind == GlassProgram.ROUND && !GlassProgram.roundUsable()) return false;
+        if (kind == GlassProgram.EDGE  && !GlassProgram.edgeUsable()) return false;
         batchTex = GlassProgram.needsBackdrop(kind);
         if (batchTex && !SceneCapture.hasBackdrop()) return false;
 
@@ -110,10 +112,11 @@ public final class GlassRenderer {
         RenderSystem.depthMask(false);
         if (batchTex) {
             // Bind our SceneCapture backdrop to unit 0 so the shader's Sampler0
-            // (uniform = 0, set in GlassProgram.bind) reads it. bindTexture binds
-            // to the active unit, so select GL_TEXTURE0 first. (Not setShaderTexture:
-            // that feeds MC's own shader system, not our standalone program's sampler.)
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            // (uniform = 0, set in GlassProgram.bind) reads it. Select GL_TEXTURE0
+            // THROUGH RenderSystem (not raw GL13.glActiveTexture) so its active-unit
+            // cache stays in sync — otherwise the next item model's lightmap bind
+            // (unit 2) lands on the wrong unit and the item samples a black lightmap.
+            RenderSystem.activeTexture(GL13.GL_TEXTURE0);
             RenderSystem.bindTexture(SceneCapture.texture());
         }
         GlassProgram.bind(kind); // sets ProjMat/ModelViewMat/Sampler0/ScreenSize/ColorModulator
@@ -206,9 +209,19 @@ public final class GlassRenderer {
         RenderSystem.enableCull();
         RenderSystem.depthMask(true);
         if (batchTex) {
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            // Resync unit 0 THROUGH RenderSystem (not raw GL13) so its active-unit AND
+            // texture caches match real GL — else items drawn after us sample our backdrop
+            // (invisible) or bind their lightmap to the wrong unit (black). bind 0 defeats
+            // the no-op-when-cache-equal short circuit.
+            RenderSystem.activeTexture(GL13.GL_TEXTURE0);
             RenderSystem.bindTexture(0);
         }
+        // Leave RenderSystem's shader colour at WHITE so the first vanilla draw after our
+        // glass (the leftmost hotbar item, the held-item-name text) is not tinted black by
+        // a stale ColorModulator. Cache-defeat: a bare white set no-ops when the cache
+        // already reads white while real GL is not, so force the write with a 0 set first.
+        RenderSystem.setShaderColor(0f, 0f, 0f, 0f);
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         batchTex = false;
     }
 
@@ -241,5 +254,50 @@ public final class GlassRenderer {
                               float corner, float lift, float opacity, boolean enabled) {
         draw(GlassProgram.BTN, x0, y0, x1, y1, 10f,
              corner, 1f - lift, opacity, enabled ? 1f : 0.4f);
+    }
+
+    /**
+     * Solid/translucent COLOURED rounded rect with true AA SDF corners (no backdrop,
+     * never flickers). {@code radiusPx} is the corner radius in GUI px (clamped to the
+     * half-size); {@code argb} is the packed fill colour.
+     */
+    public static void roundRect(float x0, float y0, float x1, float y1, float radiusPx, int argb) {
+        if (!beginBatch(GlassProgram.ROUND)) return;
+        float half = Math.min(x1 - x0, y1 - y0) / 2f;
+        float corner = half <= 0f ? 0f : Math.min(1f, radiusPx / half);
+        GlassProgram.setCorner(corner);
+        float a = ((argb >>> 24) & 255) / 255f, r = ((argb >> 16) & 255) / 255f,
+              g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        batchQuad(x0, y0, x1, y1, 1f, r, g, b, a);   // pad=1 -> 1px AA margin for the SDF
+        endBatch();
+    }
+
+    /**
+     * One iOS-26 scroll-edge band: samples the captured composite and ramps a
+     * gaussian blur + dark fade strongest at the OUTER edge, feathering to sharp
+     * inside. {@code (x0,y0)-(x1,y1)} is the band rect in GUI px; when
+     * {@code outerIsTop} the band's top row (y0) is the outer/frame edge (v=0),
+     * otherwise the bottom row (y1) is. {@code alpha} is the whole-band opacity
+     * (open fade × scroll amount), carried in vertex BLUE per the knob contract.
+     */
+    public static void edgeBand(float x0, float y0, float x1, float y1,
+                                boolean outerIsTop, float radiusPx, float dim, float alpha) {
+        if (!beginBatch(GlassProgram.EDGE)) return;
+        GlassProgram.setEdge(radiusPx, dim);
+        float vTop = outerIsTop ? 0f : 1f;
+        float vBot = outerIsTop ? 1f : 0f;
+        // edge.fsh reads only vColor.b (opacity) and vLocal (= UV0); u is unused,
+        // v carries the 0(outer)->1(inner) ramp. Cull is off, so winding is free.
+        vertEdge(x0, y0, 0f, vTop, alpha);
+        vertEdge(x0, y1, 0f, vBot, alpha);
+        vertEdge(x1, y1, 1f, vBot, alpha);
+        vertEdge(x0, y0, 0f, vTop, alpha);
+        vertEdge(x1, y1, 1f, vBot, alpha);
+        vertEdge(x1, y0, 1f, vTop, alpha);
+        endBatch();
+    }
+
+    private static void vertEdge(float x, float y, float u, float v, float opacity) {
+        vert(x, y, u, v, 1f, 1f, opacity, 1f);
     }
 }

@@ -6,8 +6,10 @@ import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
 import dev.s1mp1e.glass.render.ScreenFade;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.hud.InGameHud;
+import net.minecraft.client.render.DiffuseLighting;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.player.PlayerEntity;
@@ -15,6 +17,7 @@ import net.minecraft.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -43,10 +46,12 @@ public abstract class InGameHudMixin {
     private int    s1mp1e$lastSlot = -1;
     private long   s1mp1e$lastNanos;
 
-    // Backdrop: earliest point in the HUD pass.
+    // Backdrop: earliest point in the HUD pass. grabNow (NOT the time-deduped grab) so the HUD glass owns
+    // a fresh WORLD backdrop every frame — at the high frame rate of an in-world HUD the 3ms dedup would
+    // skip the grab and leave the glass sampling a stale/post-dim backdrop from a later stage → flicker.
     @Inject(method = "render", at = @At("HEAD"))
     private void s1mp1e$grab(DrawContext context, float tickDelta, CallbackInfo ci) {
-        SceneCapture.grab();
+        SceneCapture.grabNow();
     }
 
     /**
@@ -105,6 +110,19 @@ public abstract class InGameHudMixin {
         context.getMatrices().pop();
     }
 
+    // The XP LEVEL number ("30") is drawn INSIDE renderExperienceBar in 1.20.1 (no separate
+    // renderExperienceLevel method as in 1.21). Vanilla puts it at scaledHeight-35, just above the bar; we
+    // want it up on the health/food row (scaledHeight-39) so it sits centred in the gap between the health
+    // bar (left) and food bar (right). renderExperienceBar's only drawText calls ARE the level (its 4-way
+    // outline + green centre), so redirecting drawText here retargets exactly those. The surrounding matrix
+    // is already lifted by DECO_LIFT, so this logical Y lands on the lifted status-bar row.
+    @Redirect(method = "renderExperienceBar",
+              at = @At(value = "INVOKE",
+                       target = "Lnet/minecraft/client/gui/DrawContext;drawText(Lnet/minecraft/client/font/TextRenderer;Ljava/lang/String;IIIZ)I"))
+    private int s1mp1e$xpLevelToStatusRow(DrawContext ctx, TextRenderer font, String text, int x, int y, int color, boolean shadow) {
+        return ctx.drawText(font, text, x, ctx.getScaledWindowHeight() - 39, color, shadow);
+    }
+
     // Replace the vanilla hotbar with the glass bar (scaled by SCALE about
     // bottom-centre) AND redraw the item stacks so they sit INSIDE our scaled
     // frame instead of the vanilla-position ones.
@@ -122,36 +140,34 @@ public abstract class InGameHudMixin {
         // If no backdrop grabbed yet (first frame / pipeline race), TRY to grab
         // right here — better late than never. GlassRenderer will silently skip
         // its draw if the backdrop still isn't ready.
-        if (!SceneCapture.hasBackdrop()) SceneCapture.grab();
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         int center = mc.getWindow().getScaledWidth() / 2;
         int bottom = mc.getWindow().getScaledHeight() - LIFT;
         int stripX0 = center - 91, stripY0 = bottom - 22;
         int stripX1 = center + 91, stripY1 = bottom;
 
-        MatrixStack matrices = context.getMatrices();
-        MatrixStack mv       = RenderSystem.getModelViewStack();
+        // TWO passes, SEQUENCED (never overlapping) — the fix for items rendering BIGGER than the bar.
+        // 1.20.1's DrawContext.drawItem composes BOTH the ctx matrix AND the RenderSystem model-view, so
+        // scaling BOTH at once (the old code) rendered items at SCALE² ≈ 1.32× while the glass frame (drawn
+        // by GlassRenderer, which reads ONLY the RS model-view) was 1.15× → items overflowed the bar cells.
+        //   * pass 1: GLASS frame + selector under the RS model-view scale, then POP it back to identity.
+        //   * pass 2: ITEMS under the ctx-matrix scale, with the RS model-view back at IDENTITY.
+        // Each is scaled exactly 1.15× once, so items now fit the frame — matching the 1.21.1 build.
+        MatrixStack mv = RenderSystem.getModelViewStack();
 
-        // TWO stacks need the same scale:
-        //   * RenderSystem.getModelViewStack — used by GlassRenderer's raw-GL
-        //     shader (ProjMat/ModelViewMat uniforms read from RenderSystem).
-        //   * context.getMatrices — used by DrawContext.drawItem for item render.
-        // Push+scale BOTH so glass frame and items enlarge together and stay
-        // pixel-aligned inside the same coordinate space.
-        matrices.push();
-        matrices.translate(center, bottom, 0);
-        matrices.scale(SCALE, SCALE, 1f);
-        matrices.translate(-center, -bottom, 0);
+        // ---- pass 1: glass frame + moving selector under the RS model-view scale ----
         mv.push();
         mv.translate(center, bottom, 0);
         mv.scale(SCALE, SCALE, 1f);
         mv.translate(-center, -bottom, 0);
         RenderSystem.applyModelViewMatrix();
+        boolean screenOpen = mc.currentScreen != null;   // suppress the shadow ring while a screen dims the bg
+        if (screenOpen) dev.s1mp1e.glass.render.GlassProgram.setShadowScale(0f);
         try {
-            context.draw();
+            context.draw();   // flush pending HUD draws before the raw-GL glass
             GlassRenderer.glass(stripX0, stripY0, stripX1, stripY1,
-                                GlassRenderer.PAD_PILL, 1.0f, 0f, 1.0f,
-                                GlassRenderer.FROST_PANEL);
+                                GlassRenderer.PAD_PILL, 1.0f, 0f, 1.0f, GlassRenderer.FROST_PANEL);
 
             int   slot        = mc.player.getInventory().selectedSlot;
             float slotCenterX = center - 80f + slot * 20f;
@@ -177,11 +193,23 @@ public abstract class InGameHudMixin {
             int pillY0 = bottom - 20,         pillY1 = bottom - 2;
             GlassRenderer.glass(pillX0, pillY0, pillX1, pillY1,
                                 6f, 1.0f, 0.12f, 1.0f, GlassRenderer.FROST_NONE);
+        } finally {
+            if (screenOpen) dev.s1mp1e.glass.render.GlassProgram.setShadowScale(1f);
+            mv.pop();
+            RenderSystem.applyModelViewMatrix();   // RS model-view back to IDENTITY for the items
+        }
 
-            // Items drawn INSIDE the same scaled matrix as the strip — vanilla
-            // pitch (20px, i.e. stripX0+3 + i*20 for each slot's left edge) so
-            // they line up exactly with the glass frame's 9 slot cells.
+        // ---- pass 2: items under the DrawContext matrix scale (RS is identity now) ----
+        MatrixStack matrices = context.getMatrices();
+        matrices.push();
+        matrices.translate(center, bottom, 0);
+        matrices.scale(SCALE, SCALE, 1f);
+        matrices.translate(-center, -bottom, 0);
+        try {
             RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+            DiffuseLighting.enableGuiDepthLighting();
+            RenderSystem.setShaderColor(0f, 0f, 0f, 0f);   // cache-defeat -> force white so no item tints black
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
             PlayerEntity player = mc.player;
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = player.getInventory().main.get(i);
@@ -191,10 +219,9 @@ public abstract class InGameHudMixin {
                 context.drawItemInSlot(mc.textRenderer, stack, ix, iy);
             }
             context.draw();
+            DiffuseLighting.disableGuiDepthLighting();
         } finally {
             matrices.pop();
-            mv.pop();
-            RenderSystem.applyModelViewMatrix();
         }
         ci.cancel();
     }

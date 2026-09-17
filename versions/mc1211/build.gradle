@@ -42,3 +42,12 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+
+// Dev runs only: force-load the GUI mixin targets at startup so a broken injection fails immediately.
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+        }
+    }
+}

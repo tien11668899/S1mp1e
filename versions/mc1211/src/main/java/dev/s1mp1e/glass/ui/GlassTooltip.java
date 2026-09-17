@@ -86,10 +86,21 @@ public final class GlassTooltip {
             tooltipY = screenH - tooltipHeight - 6;
         }
 
-        // Grab the GUI drawn so far (slots, items, dimmer) as the refraction
-        // backdrop. Tooltips draw LAST, so the framebuffer does not yet contain
-        // this tooltip -> no self-ghosting.
-        SceneCapture.grab();
+        // Flush EVERY GUI draw buffered so far (slot items, stack counts, durability bars, the dim) to
+        // the framebuffer before we touch it. Two reasons: (a) the refraction backdrop grabbed next must
+        // actually contain those pixels, and (b) our panel is immediate raw GL — anything still sitting in
+        // the DrawContext batch would otherwise flush AFTER the panel and paint over it. That un-flushed
+        // batch is exactly why the tooltip was hiding behind the item icons it overlaps.
+        context.draw();
+
+        // Grab the GUI drawn so far (dim, container panel, slots, ITEMS) as the refraction backdrop, and
+        // do it with grabNow() rather than the de-duplicated grab(): in a container screen the panel grabs
+        // its own backdrop BEFORE the slots/items are drawn (world + dim only), so a deduped grab() here
+        // would just fold onto that stale copy and the tooltip would refract the background instead of the
+        // items sitting right behind it. grabNow() forces a fresh full-frame copy AFTER the context.draw()
+        // above flushed the items — so the glass samples the actual inventory. The tooltip's own glass is
+        // drawn just below this point, so it is never in the capture -> no self-ghosting.
+        SceneCapture.grabNow();
 
         // ---- panel geometry: content box + PADDING 3 -----------------------
         int x0 = tooltipX - PADDING;
@@ -126,6 +137,12 @@ public final class GlassTooltip {
         int a = textAlphaByte();
         if (a >= 8) {
             int col = (a >= 252) ? 0xFFFFFFFF : ((a << 24) | 0xFFFFFF);
+            // Lift the text onto the tooltip Z-layer. Vanilla's drawTooltip translates +400 here so the
+            // tooltip sorts ABOVE the item models (drawn at Z~150) when the buffered text finally flushes;
+            // because our @Inject cancels that vanilla method, we must re-apply the same lift ourselves —
+            // otherwise the item icons the tooltip overlaps depth-test over the letters.
+            context.getMatrices().push();
+            context.getMatrices().translate(0f, 0f, 400f);
             int ty = tooltipY;
             for (int i = 0; i < lines.size(); i++) {
                 // 1.20: TextRenderer.drawWithShadow -> DrawContext.drawTextWithShadow
@@ -134,6 +151,7 @@ public final class GlassTooltip {
                 if (i == 0) ty += 2; // vanilla's title gap
                 ty += 10;
             }
+            context.getMatrices().pop();
         }
         RenderSystem.enableDepthTest();
         return true;

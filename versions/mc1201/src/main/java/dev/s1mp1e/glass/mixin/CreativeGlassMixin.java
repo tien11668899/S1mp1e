@@ -80,9 +80,10 @@ public abstract class CreativeGlassMixin {
             s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
         }
 
-        // Backdrop = world + dim (+ any tab sprites already painted this frame),
-        // grabbed the instant before the glass draw.
-        SceneCapture.grab();
+        // Backdrop = world + dim (+ any tab sprites already painted this frame), grabbed the instant before
+        // the glass draw. grabNow (not the deduped grab) so a high-frame-rate paused screen can't skip it
+        // and leave the panel sampling a stale backdrop → flicker.
+        SceneCapture.grabNow();
 
         if (!s1mp1e$opened) {
             // Fresh screen instance: snap the open fade and cancel any in-flight

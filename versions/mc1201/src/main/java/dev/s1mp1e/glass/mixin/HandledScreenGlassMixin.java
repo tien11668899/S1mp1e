@@ -138,9 +138,15 @@ public abstract class HandledScreenGlassMixin {
 
         int gl = this.x, gt = this.y, xs = this.backgroundWidth, ys = this.backgroundHeight;
 
-        // Backdrop = world + dim (renderBackground already ran this frame), grabbed
-        // the instant before any glass draws.
-        SceneCapture.grab();
+        // Backdrop for the refraction. REUSE the bright, UNDIMMED world capture already taken this frame —
+        // by the in-world HUD (grabNow at InGameHud.render HEAD) and, in the survival inventory, by the
+        // recipe book (which renders BEFORE us and grabs while the screen-dim is still a DEFERRED fill).
+        // We must NOT force a fresh grabNow here: the recipe book's result-item draws FLUSH that deferred dim
+        // into the framebuffer before we run, so a forced grab would capture the DIMMED world and this panel
+        // would render darker than the recipe book. Reusing the same undimmed capture makes both panels match
+        // and stay bright. The HUD refreshes the capture every frame, so it is never stale; only grab if
+        // nothing has been captured yet (first frame / pipeline race).
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         long now = System.nanoTime();
         if (!s1mp1e$opened) {
