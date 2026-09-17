@@ -1,0 +1,28 @@
+{
+  "required": true,
+  "package": "dev.s1mp1e.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "HudDriverMixin",
+    "MenuKeyMixin",
+    "MouseClickMixin",
+    "CrosshairHideMixin",
+    "EffectsHideMixin",
+    "FoodCaptureMixin",
+    "XpLevelMixin",
+    "GameRendererHurtTiltMixin",
+    "LivingEntityRendererFlashMixin",
+    "HeldItemSwingMixin",
+    "HandPositionMixin",
+    "FovMultiplierMixin",
+    "ZoomFovMixin",
+    "LightmapGammaMixin",
+    "MouseZoomSensitivityMixin",
+    "FontSmoothMixin",
+    "FontTextureSmoothMixin",
+    "ForeignZoomKeyBlockMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

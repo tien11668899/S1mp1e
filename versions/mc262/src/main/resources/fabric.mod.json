@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "s1mp1e",
+  "version": "${version}",
+  "name": "S1mp1e",
+  "description": "S1mp1e liquid-glass client for Minecraft 26.2 (Fabric).",
+  "authors": [
+    "S1mp1e"
+  ],
+  "license": "ARR",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.seagull.liquidglass.client.LiquidGlassClient"
+    ]
+  },
+  "mixins": [
+    "liquidglass.mixins.json",
+    "s1mp1e.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~26.2",
+    "java": ">=21"
+  }
+}

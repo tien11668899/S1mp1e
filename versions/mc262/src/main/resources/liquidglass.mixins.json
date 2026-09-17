@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "package": "com.seagull.liquidglass.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "GuiGraphicsExtractorAccessor",
+    "HudHotbarMixin",
+    "GuiRendererGrabMixin",
+    "InventoryGlassMixin",
+    "ContainerCloseGhostMixin",
+    "AbstractContainerScreenAccessor",
+    "ContainerScreensGlassMixin",
+    "RecipeBookGlassMixin",
+    "RecipeButtonGlassMixin",
+    "RecipeTabGlassMixin",
+    "ButtonGlassMixin",
+    "TabGlassMixin",
+    "SliderGlassMixin",
+    "TooltipGlassMixin",
+    "ClientTextTooltipMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
