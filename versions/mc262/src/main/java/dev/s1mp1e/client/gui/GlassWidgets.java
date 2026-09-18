@@ -208,7 +208,7 @@ public final class GlassWidgets {
             //    BOTTOM show refraction bands. A capsule band of half-height bandH < lh spanning [lx0, lx1] always
             //    lies inside the lens capsule: for a band-cap point at angle θ, its distance² to the lens cap centre
             //    is lh² − 2·bandH·(1−cosθ)·(lh−bandH) ≤ lh².
-            float bandH = Math.min(trackHalfH * 1.15f, lh * 0.76f);
+            float bandH = Math.min(trackHalfH * 0.95f, lh * 0.76f);   // clip to the track: the overhang shows glass, not track colour
             float bx0 = Math.max(trackX0, lx0), bx1 = Math.min(trackX1, lx1);
             if (bx1 - bx0 > 0.5f) {
                 fillRound(g, bx0, cy - bandH, bx1, cy + bandH, scaleAlpha(colRight, glassA), bandH);

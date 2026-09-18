@@ -35,8 +35,12 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 public final class ToggleWidget extends Widget {
     public interface BoolBind { boolean get(); void set(boolean v); }
     private static final int OFF_TRACK = 0x78788A, ON_TRACK = 0x34C759;
-    private static final float REST_RATIO = 1.4f;   // knob w/h at rest (launcher 28/20)
-    private static final float LENS_SCALE = 1.75f;  // lens size vs the rest knob: ~1.4x the TRACK height, as in the reference
+    private static final float REST_RATIO = 1.55f;  // rest knob w/h (measured iOS-26: a wide lozenge, 0.85× track tall)
+    // The lens is a symmetric BALLOON that OVERHANGS the track (measured from the reference clips): at peak it grows
+    // to 1.55× wide and 1.65× tall vs the rest knob → 2.05× track-height wide, 1.40× track-height tall (overhangs the
+    // track top & bottom), ratio ~1.47, corner easing from a capsule to ~0.90. Both axes grow, not width alone.
+    private static final float LENS_W_MUL = 1.55f, LENS_H_MUL = 1.65f, LENS_CORNER = 0.90f;
+    private static final float SWITCH_MORPH_IN = 0.085f;   // solid→glass SNAP (measured ~85 ms; slider keeps its own 0.13)
     private static final float REFORM_AT  = 0.08f;  // travel left (fraction of the throw) when the lens starts re-forming
     private static final float PRESS_GROW = 1.12f;  // finger down, not yet moving: the white knob swells a little
     private static final float DRAG_SLOP_PX  = 4f;  // pointer travel before a press counts as a drag
@@ -44,7 +48,7 @@ public final class ToggleWidget extends Widget {
     private static final float VEL_MAX = 8f;        // release speed cap, in throws per second
     private final BoolBind bind;
     private final Motion.Spring travel;             // 0 = off .. 1 = on
-    private final Motion.Spring lift = new Motion.Spring(Motion.MORPH_IN_S, 0f);   // 0 = white knob, 1 = glass lens
+    private final Motion.Spring lift = new Motion.Spring(SWITCH_MORPH_IN, 0f);   // 0 = white knob, 1 = glass lens
     private final Motion.Spring press = new Motion.Spring(Motion.MORPH_IN_S, 0f);  // 0 = rest size, 1 = pressed swell
     private final Motion.Clock clock = new Motion.Clock();
     private boolean lifted;
@@ -62,7 +66,7 @@ public final class ToggleWidget extends Widget {
     private void flipTo(float goal) {
         travel.retarget(goal);
         lifted = true;
-        lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
+        lift.tune(SWITCH_MORPH_IN, 0f).retarget(1f);
     }
 
     private void setValue(boolean nv) {
@@ -73,7 +77,7 @@ public final class ToggleWidget extends Widget {
     }
 
     /** Knob half-sizes and centre travel for the current bounds (the geometry draw() uses). */
-    private float knobHalfH() { return ((y1 - y0) - 4f) / 2f; }
+    private float knobHalfH() { return 0.85f * (y1 - y0) / 2f; }   // rest knob 0.85× the track height (measured)
     private float knobHalfW() { return knobHalfH() * REST_RATIO; }
     private float travelX0() { return x0 + 2f + knobHalfW(); }
     private float travelX1() { return x1 - 2f - knobHalfW(); }
@@ -113,7 +117,8 @@ public final class ToggleWidget extends Widget {
         // knob → liquid-glass lens → knob, centred on its travelling position
         float cx = travelX0() + span() * pos;
         int band = HudGlass.lerpArgb(0x8C000000 | OFF_TRACK, 0xFF000000 | ON_TRACK, pos);   // the track the lens sees
-        GlassWidgets.knobLens(g, cx, cy, baseW * swell, baseH * swell, morph, LENS_SCALE, x0, x1, r, Float.NaN, band, band, alpha);
+        GlassWidgets.knobLens(g, cx, cy, baseW * swell, baseH * swell, morph, LENS_W_MUL, LENS_H_MUL, LENS_CORNER,
+                              x0, x1, r, Float.NaN, band, band, alpha);
     }
 
     @Override public boolean mouseClickedPrecise(double mx, double my, int btn) {
@@ -146,7 +151,7 @@ public final class ToggleWidget extends Widget {
             }
             lastDragNano = System.nanoTime();
             lifted = true;
-            lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
+            lift.tune(SWITCH_MORPH_IN, 0f).retarget(1f);
         }
         float pos = Motion.clamp01((float) ((mx - grabDX - travelX0()) / span()));
         long now = System.nanoTime();
@@ -185,7 +190,7 @@ public final class ToggleWidget extends Widget {
         travel.settleMonotonic();                        // never swing back past the side it committed to
         setValue(nv);
         lifted = true;
-        lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
+        lift.tune(SWITCH_MORPH_IN, 0f).retarget(1f);
         dragged = false;
     }
 

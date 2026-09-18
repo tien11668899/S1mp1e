@@ -305,46 +305,17 @@
             <Setter Property="Margin" Value="4,0,0,-12"/>
         </Style>
 
-        <!-- liquid toggle (custom): green-on, white knob, springy liquid slide -->
+        <!-- liquid toggle (custom): green-on track, white knob that morphs into a real refracting
+             liquid-glass lens while it slides (built in code — see LiquidToggle.cs) -->
         <Style Selector="ctl|LiquidToggle">
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="ClipToBounds" Value="False"/>
             <Setter Property="Template">
                 <ControlTemplate>
-                    <!-- oversized transparent host (64x52): the blob's max size (54x34) fits fully
-                         inside it, so it can pop/grow WITHOUT overflowing anything = never clipped.
-                         The 46x28 track sits centred in it. -->
-                    <Panel Width="74" Height="48" HorizontalAlignment="Left" VerticalAlignment="Center"
-                           ClipToBounds="False">
-                        <!-- flat oval track (48x24, narrower so the knob dominates) -->
-                        <Border x:Name="Track" Width="48" Height="24" CornerRadius="12"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Background="{DynamicResource ToggleOff}">
-                            <Border.Transitions>
-                                <Transitions>
-                                    <BrushTransition Property="Background" Duration="0:0:0.22"/>
-                                </Transitions>
-                            </Border.Transitions>
-                        </Border>
-                        <!-- knob: OVAL (28x20, wider, fills most of the track) -->
-                        <Border x:Name="Knob" Width="28" Height="20" CornerRadius="16"
-                                BorderThickness="1.2" BorderBrush="#CCFFFFFF"
-                                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0"
-                                BoxShadow="0 2 7 0 #50000000">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="28%,0%" EndPoint="72%,100%">
-                                    <GradientStop Color="#FFFFFFFF" Offset="0"/>
-                                    <GradientStop Color="#F2FFFFFF" Offset="0.5"/>
-                                    <GradientStop Color="#DCFFFFFF" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Border.Background>
-                        </Border>
-                    </Panel>
+                    <Panel x:Name="PART_Root" Width="74" Height="48"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" ClipToBounds="False"/>
                 </ControlTemplate>
             </Setter>
-        </Style>
-        <Style Selector="ctl|LiquidToggle:checked /template/ Border#Track">
-            <Setter Property="Background" Value="#34C759"/>
         </Style>
 
         <!-- macOS pop-up button: value + blue up/down chevron, borderless -->
