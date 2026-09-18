@@ -965,7 +965,7 @@
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="記憶體配置" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="配置給 Java 的最大堆積記憶體" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <ctl:GlassSlider Grid.Column="2" x:Name="RamSlider" Width="214" Minimum="1" Maximum="16" Value="4"
                                                          TickFrequency="1" Unit=" GB" VerticalAlignment="Center"
-                                                         ValueChanged="OnRamChanged"/>
+                                                         ValueChanged="OnRamChanged" ValueCommitted="OnRamCommitted"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">

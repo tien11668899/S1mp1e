@@ -1189,10 +1189,12 @@ public partial class MainWindow : Window
     {
         if (_hydrating) return;
         if (sender is GlassSlider gs)
-        {
-            _cfg.Settings.RamMb = (int)Math.Round(gs.Value) * 1024;
-            SaveCfg();
-        }
+            _cfg.Settings.RamMb = (int)Math.Round(gs.Value) * 1024;   // saved once the drag/typing is finished
+    }
+    private void OnRamCommitted(object? sender, EventArgs e)
+    {
+        if (_hydrating) return;
+        SaveCfg();
     }
     private async void OnPickMcDir(object? sender, RoutedEventArgs e)
     {
