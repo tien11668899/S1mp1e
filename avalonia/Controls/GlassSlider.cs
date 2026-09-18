@@ -6,23 +6,28 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
+using LiquidGlassAvaloniaUI;
 
 namespace S1mp1e.Controls;
 
 /// <summary>
 /// Glass slider, the launcher twin of the in-game liquid-glass slider: a thin track with an accent fill and
-/// a white capsule thumb that turns into a clear glass LENS while held — a rounded rectangle 1.48× wider and
-/// 1.58× taller than the capsule, stretching wider and flatter at constant area as you drag faster (all
+/// a white capsule thumb that turns into a clear liquid-glass LENS while held — a rounded rectangle 1.48× wider
+/// and 1.58× taller than the capsule, stretching wider and flatter at constant area as you drag faster (all
 /// measured from the user's iOS 26 recordings). Plus <b>click the value to type an exact number</b> (Enter
 /// commits, Esc cancels, clamped to [Minimum,Maximum] and snapped to TickFrequency).
+///
+/// The lens is REAL glass: a <see cref="LiquidGlassSurface"/> that refracts and slightly magnifies whatever is
+/// behind it — the track, the accent line and the card — with a clear interior, refraction at the rim, a rim
+/// highlight and a soft shadow. Nothing is painted dark inside it; on the dark theme it only looks dark because
+/// the card behind it is.
 ///
 /// Feel (<see cref="GlassMotion"/>): while dragging, the thumb follows the pointer 1:1 and keeps the offset
 /// you grabbed it at; the value snaps to TickFrequency underneath. Past either end the thumb rubber-bands.
 /// On release it settles onto the snapped value on a critically damped spring with no bounce. A click on bare
-/// track or a typed value glides there. The dark theme gets the dark lens of the dark recording, the light
-/// theme the clear lens with a grey rim of the light one.
+/// track or a typed value glides there.
 ///
-/// Exposes Minimum/Maximum/Value/TickFrequency/Unit and raises the plain <see cref="ValueChanged"/> event.
+/// Exposes Minimum/Maximum/Value/TickFrequency/Unit and raises <see cref="ValueChanged"/> / <see cref="ValueCommitted"/>.
 /// </summary>
 public class GlassSlider : ContentControl
 {
@@ -73,18 +78,47 @@ public class GlassSlider : ContentControl
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Center;
 
-        _surface = new GlassSliderSurface(this) { VerticalAlignment = VerticalAlignment.Stretch };
+        // track layer (draws the track + fill, takes the input), the glass lens over it, the white pill on top
+        var lensHost = new Canvas
+        {
+            IsHitTestVisible = false,
+            ClipToBounds = true,       // the glass composite must not paint outside its host (see the sidebar pill)
+            Margin = new Thickness(-GlassSliderSurface.HostPadX, -GlassSliderSurface.HostPadY,
+                                   -GlassSliderSurface.HostPadX, -GlassSliderSurface.HostPadY),
+        };
+        var lens = new LiquidGlassSurface { IsHitTestVisible = false, IsVisible = false };
+        LiquidGlassBackdrop.SetIsExcludedFromCapture(lens, true);
+        lensHost.Children.Add(lens);
+
+        var pillHost = new Canvas
+        {
+            IsHitTestVisible = false,
+            ClipToBounds = false,
+            Margin = lensHost.Margin,
+        };
+        LiquidGlassBackdrop.SetIsExcludedFromCapture(pillHost, true);   // the lens must not refract the pill
+        var rim = new Border { IsHitTestVisible = false, Background = null, BorderThickness = new Thickness(1), IsVisible = false };
+        var pill = new Border { IsHitTestVisible = false, Background = Brushes.White };
+        pillHost.Children.Add(rim);
+        pillHost.Children.Add(pill);
+
+        _surface = new GlassSliderSurface(this, lens, rim, pill) { VerticalAlignment = VerticalAlignment.Stretch };
         _surface.Bind(GlassSliderSurface.AccentProperty, this.GetResourceObservable("Accent"));
         _value.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextSub"));
+
+        var track = new Panel { ClipToBounds = false };
+        track.Children.Add(_surface);
+        track.Children.Add(lensHost);
+        track.Children.Add(pillHost);
 
         var right = new Grid();
         right.Children.Add(_value);
         right.Children.Add(_edit);
 
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,Auto") };
-        Grid.SetColumn(_surface, 0);
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,Auto"), ClipToBounds = false };
+        Grid.SetColumn(track, 0);
         Grid.SetColumn(right, 2);
-        grid.Children.Add(_surface);
+        grid.Children.Add(track);
         grid.Children.Add(right);
         Content = grid;
 
@@ -172,9 +206,12 @@ public class GlassSlider : ContentControl
 }
 
 /// <summary>
-/// The track + thumb of <see cref="GlassSlider"/>, drawn directly (not composed from Borders) so the thumb can
-/// morph from a capsule into a rounded-rect lens with sub-pixel motion. It steps its springs on real frame
-/// time in <see cref="Render"/> and keeps requesting frames only while something is still moving.
+/// The track layer of <see cref="GlassSlider"/>: draws the track and accent fill, takes the pointer, runs the
+/// springs, and places the glass lens and the white pill (sibling layers above it) every frame.
+///
+/// All stepping happens in the animation-frame callback, never in <see cref="Render"/>: moving the lens and
+/// pill changes other controls' properties, and Avalonia throws if anything is invalidated during the render
+/// pass. Frames are requested only while something is still moving.
 /// </summary>
 internal sealed class GlassSliderSurface : Control
 {
@@ -187,8 +224,13 @@ internal sealed class GlassSliderSurface : Control
     private const double HW = 13, HH = 8.5;      // rest capsule 26×17 (iOS 111×72, 1.54 : 1)
     private const double TrackH = 4;
     private const double GrabSlop = 3;
+    /// <summary>Room around the track for the lens overhang and its shadow (the lens/pill hosts extend this far).</summary>
+    internal const double HostPadX = 26, HostPadY = 18;
 
     private readonly GlassSlider _owner;
+    private readonly LiquidGlassSurface _lens;
+    private readonly Border _rim;               // thin light rim over the lens (no fill)
+    private readonly Border _pill;
     private readonly GlassMotion.Clock _clock = new();
     private readonly GlassMotion.Spring _lift = new(GlassMotion.MorphInS, 0);    // 0 = white pill, 1 = glass lens
     private readonly GlassMotion.Spring _glide = new(GlassMotion.JumpS, 0);      // drawn ratio minus base, decays to 0
@@ -198,41 +240,90 @@ internal sealed class GlassSliderSurface : Control
     private bool _dragging, _rebase, _released, _lifted, _frameRequested;
     private double _dragT, _grabDX, _lastBase = double.NaN, _drawnT = double.NaN, _lastThumbX = double.NaN, _speed;
     private long _pressTicks, _holdUntilTicks;
+    private double _fx = double.NaN, _L;         // what Render draws: thumb centre x and lens amount
 
-    public GlassSliderSurface(GlassSlider owner)
+    public GlassSliderSurface(GlassSlider owner, LiquidGlassSurface lens, Border rim, Border pill)
     {
         _owner = owner;
-        ClipToBounds = false;          // the lens is taller than the row and may overhang it
+        _lens = lens;
+        _rim = rim;
+        _pill = pill;
+        ClipToBounds = false;
         Cursor = new Cursor(StandardCursorType.Hand);
-        ActualThemeVariantChanged += (_, _) => InvalidateVisual();   // dark lens ↔ light lens
+        ApplyTheme();
+        ActualThemeVariantChanged += (_, _) => { ApplyTheme(); InvalidateVisual(); };
     }
 
+    private bool Dark => ActualThemeVariant == ThemeVariant.Dark;
     private double TravelX0 => HW;
     private double Span => Math.Max(1, Bounds.Width - 2 * HW);
 
-    /// <summary>Something changed (value, range, press): repaint now and keep frames running until it has settled.
-    /// Only for callers OUTSIDE the render pass (input handlers, property changes).</summary>
-    internal void Kick()
+    /// <summary>Glass optics and pill styling per theme. The lens has no body colour of its own: a clear interior,
+    /// refraction in a band along the rim, a little magnification, a rim highlight and a soft shadow.</summary>
+    private void ApplyTheme()
     {
-        InvalidateVisual();
-        ScheduleFrame();
+        bool dark = Dark;
+        _lens.BackdropZoom = 1.18;
+        _lens.RefractionHeight = 7;
+        _lens.RefractionAmount = 12;
+        _lens.DepthEffect = true;
+        _lens.ChromaticAberration = false;
+        _lens.BlurRadius = 0;
+        _lens.Vibrancy = 1.0;
+        _lens.Brightness = 0;
+        _lens.TintColor = Color.FromArgb(0, 0, 0, 0);
+        // a faint lift so the clear glass reads as a surface; the refracted backdrop still shows straight through
+        _lens.SurfaceColor = dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF);
+        _lens.HighlightEnabled = true;
+        _lens.HighlightOpacity = 0.9;
+        _lens.HighlightWidth = 0.35;
+        _lens.HighlightBlurRadius = 0.25;
+        _lens.HighlightAngle = 60;
+        _lens.ShadowEnabled = true;
+        _lens.ShadowRadius = 8;
+        _lens.ShadowOffset = new Vector(0, 3);
+        _lens.ShadowColor = dark ? Color.FromArgb(0x8C, 0, 0, 0) : Color.FromArgb(0x40, 0, 0, 0);
+        _lens.ShadowOpacity = 1;
+
+        // the rim: light from above, dimmer toward the bottom (a grey lower edge on the light theme, as recorded)
+        _rim.BorderBrush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops = dark
+                ? new GradientStops { new GradientStop(Color.FromArgb(0x8C, 0xFF, 0xFF, 0xFF), 0),
+                                      new GradientStop(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF), 1) }
+                : new GradientStops { new GradientStop(Color.FromArgb(0xF0, 0xFF, 0xFF, 0xFF), 0),
+                                      new GradientStop(Color.FromArgb(0x33, 0x00, 0x00, 0x00), 1) },
+        };
+
+        _pill.BoxShadow = BoxShadows.Parse(dark ? "0 1 4 0 #40000000" : "0 1 4 0 #2E000000");
+        _pill.BorderBrush = dark ? null : new SolidColorBrush(Color.FromArgb(0x12, 0, 0, 0));
+        _pill.BorderThickness = new Thickness(dark ? 0 : 0.75);
     }
 
-    /// <summary>Ask for one more frame. Safe to call from <see cref="Render"/>: Avalonia throws if a visual is
-    /// invalidated during the render pass, so the invalidation happens in the animation-frame callback instead.</summary>
+    /// <summary>Something changed (value, range, press, size): keep frames coming until it has settled.</summary>
+    internal void Kick() => ScheduleFrame();
+
     private void ScheduleFrame()
     {
         if (_frameRequested) return;
         var top = TopLevel.GetTopLevel(this);
         if (top is null) return;
         _frameRequested = true;
-        top.RequestAnimationFrame(_ => { _frameRequested = false; InvalidateVisual(); });
+        top.RequestAnimationFrame(_ => { _frameRequested = false; Tick(); });
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        Kick();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == BoundsProperty) InvalidateVisual();
+        if (change.Property == BoundsProperty) Kick();
     }
 
     // ---- input ----
@@ -307,14 +398,14 @@ internal sealed class GlassSliderSurface : Control
         _owner.SetFromRatio(_dragT);
     }
 
-    // ---- motion + paint ----
-    public override void Render(DrawingContext ctx)
+    // ---- motion (animation-frame callback, outside the render pass) ----
+    private void Tick()
     {
         double w = Bounds.Width, h = Bounds.Height;
         if (w <= 0 || h <= 0) return;
         double dt = _clock.Tick();
         long now = Environment.TickCount64;
-        double span = Span, cy = h / 2;
+        double span = Span;
 
         // where the thumb sits: the raw pointer while dragging (rubber-banded past the ends), else the snapped value
         double baseT;
@@ -357,114 +448,69 @@ internal sealed class GlassSliderSurface : Control
         _stretch.Retarget(GlassMotion.StretchTarget(_speed, HW * 2)).Update(dt);
         var (sw, sh, sc) = GlassMotion.LensShape(_stretch.X);
 
-        Paint(ctx, w, cy, fx, L, sw, sh, sc);
+        _fx = fx;
+        _L = L;
+        PlaceThumb(fx, h / 2, L, sw, sh, sc);
+        InvalidateVisual();
 
         bool moving = _dragging || _lifted || _lift.X != 0 || _glide.X != 0 || _glide.V != 0
                       || Math.Abs(_stretch.X - 1) > 1e-3 || _speed > 0.5;
-        if (moving) ScheduleFrame();          // never InvalidateVisual() from inside Render
+        if (moving) ScheduleFrame();
         else { _speed = 0; _lastThumbX = double.NaN; _stretch.Snap(1); _clock.Reset(); }
     }
 
-    private void Paint(DrawingContext ctx, double w, double cy, double fx, double L, double sw, double sh, double sc)
+    /// <summary>Sizes and positions the glass lens and the white pill (both in hosts offset by HostPad).</summary>
+    private void PlaceThumb(double fx, double cy, double L, double sw, double sh, double sc)
     {
-        bool dark = ActualThemeVariant == ThemeVariant.Dark;
-        IBrush accent = Accent ?? new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));
-        var trackBrush = new SolidColorBrush(dark ? Color.FromArgb(0x4D, 0xFF, 0xFF, 0xFF)    // white @0.30, as in-game
-                                                  : Color.FromArgb(0x33, 0x78, 0x78, 0x80));  // iOS light system fill
-        double r = TrackH / 2;
+        double lw = HW * (1 + (sw - 1) * L), lh = HH * (1 + (sh - 1) * L);
+        double cr = lh * (1 + (sc - 1) * L);                 // capsule at rest → rounded rect when lifted
+        double left = fx - lw + HostPadX, top = cy - lh + HostPadY;
 
-        // track + accent fill (the fill's round end tucks under the pill at rest and reaches the lens centre when held)
+        bool showLens = L > 0.004;
+        _lens.IsVisible = showLens;                          // an invisible lens costs no backdrop captures
+        _rim.IsVisible = showLens;
+        if (showLens)
+        {
+            _lens.Width = lw * 2;
+            _lens.Height = lh * 2;
+            _lens.CornerRadius = new CornerRadius(cr);
+            _lens.Opacity = L;
+            Canvas.SetLeft(_lens, left);
+            Canvas.SetTop(_lens, top);
+            _rim.Width = lw * 2;
+            _rim.Height = lh * 2;
+            _rim.CornerRadius = new CornerRadius(cr);
+            _rim.Opacity = L;
+            Canvas.SetLeft(_rim, left);
+            Canvas.SetTop(_rim, top);
+        }
+
+        // the white pill fades out as the glass forms; squared so the two never sit at 50/50 together
+        double whiteA = (1 - L) * (1 - L);
+        _pill.IsVisible = whiteA > 0.004;
+        _pill.Width = lw * 2;
+        _pill.Height = lh * 2;
+        _pill.CornerRadius = new CornerRadius(cr);
+        _pill.Opacity = whiteA;
+        Canvas.SetLeft(_pill, left);
+        Canvas.SetTop(_pill, top);
+    }
+
+    // ---- paint: only the track and the accent fill; the lens refracts them ----
+    public override void Render(DrawingContext ctx)
+    {
+        double w = Bounds.Width, h = Bounds.Height;
+        if (w <= 0 || h <= 0) return;
+        double fx = double.IsNaN(_fx) ? TravelX0 + Span * _owner.Norm() : _fx;
+        double L = _L, cy = h / 2, r = TrackH / 2;
+
+        IBrush accent = Accent ?? new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));
+        var trackBrush = new SolidColorBrush(Dark ? Color.FromArgb(0x4D, 0xFF, 0xFF, 0xFF)    // white @0.30, as in-game
+                                                  : Color.FromArgb(0x33, 0x78, 0x78, 0x80));  // iOS light system fill
         ctx.DrawRectangle(trackBrush, null, new RoundedRect(new Rect(0, cy - r, w, TrackH), r));
+        // the fill's round end tucks under the pill at rest and reaches the lens centre when held
         double fillEnd = Math.Min(w, fx - (HW - TrackH) * (1 - L));
         if (fillEnd > TrackH)
             ctx.DrawRectangle(accent, null, new RoundedRect(new Rect(0, cy - r, Math.Max(TrackH, fillEnd), TrackH), r));
-
-        // the thumb: capsule at rest, rounded-rect lens when held
-        double lw = HW * (1 + (sw - 1) * L), lh = HH * (1 + (sh - 1) * L);
-        double cr = lh * (1 + (sc - 1) * L);
-        var lensRect = new Rect(fx - lw, cy - lh, lw * 2, lh * 2);
-        var lens = new RoundedRect(lensRect, cr);
-
-        if (L > 0.004)
-        {
-            using (ctx.PushOpacity(L))
-            {
-                // soft grounding shadow, then the glass body
-                ctx.DrawRectangle(new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)), null, lens,
-                    BoxShadows.Parse(dark ? "0 3 10 0 #59000000" : "0 4 12 0 #33000000"));
-                ctx.DrawRectangle(new SolidColorBrush(dark ? Color.FromArgb(0xCC, 0x12, 0x12, 0x14)
-                                                           : Color.FromArgb(0x8C, 0xFF, 0xFF, 0xFF)), null, lens);
-
-                // the track seen through the lens, a little magnified (thicker in the light lens, as recorded). The
-                // dark lens shows only the accent line: its body hides the grey track, as in the dark recording.
-                double bandH = Math.Min(r * (dark ? 1.15 : 1.4), lh * 0.76);
-                double bx0 = Math.Max(0, lensRect.Left), bx1 = Math.Min(w, lensRect.Right);
-                if (bx1 - bx0 > 0.5)
-                {
-                    using (ctx.PushClip(lens))
-                    {
-                        if (!dark)
-                            ctx.DrawRectangle(trackBrush, null, new RoundedRect(new Rect(bx0, cy - bandH, bx1 - bx0, bandH * 2), bandH));
-                        double split = Math.Min(bx1, Math.Max(bx0 + 2 * bandH, Math.Min(w, fx)));
-                        if (fx > bx0)
-                        {
-                            ctx.DrawRectangle(accent, null, new RoundedRect(new Rect(bx0, cy - bandH, split - bx0, bandH * 2), bandH));
-                            // where the line enters the lens it flares like a meniscus (the refraction at the rim)
-                            double fl = bandH * 2.4, fh = bandH * 1.65;
-                            if (lensRect.Left > 0 && split - bx0 > fl)
-                            {
-                                var flare = new StreamGeometry();
-                                using (var g = flare.Open())
-                                {
-                                    g.BeginFigure(new Point(bx0, cy - fh), true);
-                                    g.QuadraticBezierTo(new Point(bx0 + fl * 0.3, cy - bandH), new Point(bx0 + fl, cy - bandH));
-                                    g.LineTo(new Point(bx0 + fl, cy + bandH));
-                                    g.QuadraticBezierTo(new Point(bx0 + fl * 0.3, cy + bandH), new Point(bx0, cy + fh));
-                                    g.EndFigure(true);
-                                }
-                                ctx.DrawGeometry(accent, null, flare);
-                            }
-                        }
-                    }
-                }
-
-                // top sheen + rim: light from above, darker lower edge (the grey rim of the light recording)
-                var sheen = new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromArgb(dark ? (byte)0x2E : (byte)0x73, 0xFF, 0xFF, 0xFF), 0),
-                        new GradientStop(Color.FromArgb(0, 0xFF, 0xFF, 0xFF), 0.45),
-                        new GradientStop(Color.FromArgb(dark ? (byte)0x00 : (byte)0x10, 0, 0, 0), 1),
-                    },
-                };
-                ctx.DrawRectangle(sheen, null, lens);
-                var rim = new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops = dark
-                        ? new GradientStops { new GradientStop(Color.FromArgb(0x42, 0xFF, 0xFF, 0xFF), 0),
-                                              new GradientStop(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF), 1) }
-                        : new GradientStops { new GradientStop(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF), 0),
-                                              new GradientStop(Color.FromArgb(0x2A, 0x00, 0x00, 0x00), 1) },
-                };
-                ctx.DrawRectangle(null, new Pen(rim, 1), lens);
-            }
-        }
-
-        // the solid white pill, fading out as the lens forms (and back in as it re-forms); squared so the two layers
-        // never sit at 50/50 together, which reads as a flat grey knob on the dark theme
-        double whiteA = (1 - L) * (1 - L);
-        if (whiteA > 0.004)
-        {
-            using (ctx.PushOpacity(whiteA))
-            {
-                ctx.DrawRectangle(Brushes.White, dark ? null : new Pen(new SolidColorBrush(Color.FromArgb(0x12, 0, 0, 0)), 0.75),
-                    lens, BoxShadows.Parse(dark ? "0 1 4 0 #40000000" : "0 1 4 0 #2E000000"));
-            }
-        }
     }
 }
