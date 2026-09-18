@@ -275,7 +275,7 @@ internal sealed class GlassSliderSurface : Control
         // a faint lift so the clear glass reads as a surface; the refracted backdrop still shows straight through
         _lens.SurfaceColor = dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF);
         _lens.HighlightEnabled = true;
-        _lens.HighlightOpacity = 0.9;
+        _lens.HighlightOpacity = dark ? 0.35 : 0.45;           // a hint of specular, not an outline
         _lens.HighlightWidth = 0.35;
         _lens.HighlightBlurRadius = 0.25;
         _lens.HighlightAngle = 60;
@@ -291,10 +291,10 @@ internal sealed class GlassSliderSurface : Control
             StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
             EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
             GradientStops = dark
-                ? new GradientStops { new GradientStop(Color.FromArgb(0x8C, 0xFF, 0xFF, 0xFF), 0),
-                                      new GradientStop(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF), 1) }
-                : new GradientStops { new GradientStop(Color.FromArgb(0xF0, 0xFF, 0xFF, 0xFF), 0),
-                                      new GradientStop(Color.FromArgb(0x33, 0x00, 0x00, 0x00), 1) },
+                ? new GradientStops { new GradientStop(Color.FromArgb(0x42, 0xFF, 0xFF, 0xFF), 0),     // subtle, as before
+                                      new GradientStop(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF), 1) }
+                : new GradientStops { new GradientStop(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF), 0),
+                                      new GradientStop(Color.FromArgb(0x2A, 0x00, 0x00, 0x00), 1) },
         };
 
         _pill.BoxShadow = BoxShadows.Parse(dark ? "0 1 4 0 #40000000" : "0 1 4 0 #2E000000");
