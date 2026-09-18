@@ -189,12 +189,25 @@ public final class GlassWidgets {
 
         float glassA = alpha * m;
         if (glassA > 0.004f) {
-            // 1) refracted dark card (dark enough that the lens reads as clear DARK glass, as in the dark reference)
-            fillRound(g, lx0, ly0, lx1, ly1, (clampByte(glassA * 0.80f) << 24) | 0x121214, r);
+            // 1) REAL refracting lens: the world behind bent through the pill (glass_lens pipeline — clear, not
+            //    dark). Knobs: R = corner (full-capsule range, unlike glass()), G = 0xFF -> lift 0 so the rim stays
+            //    subtle (no selector amplification), B = opacity (fades in with morph), A = 0.65 -> a whisper of
+            //    frost so it reads as clear glass rather than a sharp mirror. Backdrop is grabbed before the GUI,
+            //    so it refracts the world/panorama; the track is then painted on top (step 2) as the magnified band.
+            boolean drewLens = false;
+            if (GlassPipeline.ensureReady() && GlassPipeline.lensUsable()) {
+                int lensCol = (clampByte(0.65f) << 24) | (clampByte(cornerKnob) << 16) | (0xFF << 8) | clampByte(glassA);
+                TextureSetup ts = TextureSetup.singleTexture(GlassPipeline.backdropView(), GlassPipeline.sampler());
+                add(g, new QuadState(GlassPipeline.lens(), ts, g.pose(), lx0, ly0, lx1, ly1, 10f, lensCol, scissor()));
+                drewLens = true;
+            } else {
+                // no glass pipeline / no backdrop: a faint frosted-white body, NEVER dark
+                fillRound(g, lx0, ly0, lx1, ly1, (clampByte(glassA * 0.34f) << 24) | 0xF2F3F5, r);
+            }
             // 2) the track through the lens, magnified, running edge to edge horizontally so only the TOP and
-            //    BOTTOM show dark refraction bands (an inset band read as a grey ring). A capsule band of half-height
-            //    bandH < lh spanning [lx0, lx1] always lies inside the lens capsule: for a band-cap point at angle θ,
-            //    its distance² to the lens cap centre is lh² − 2·bandH·(1−cosθ)·(lh−bandH) ≤ lh².
+            //    BOTTOM show refraction bands. A capsule band of half-height bandH < lh spanning [lx0, lx1] always
+            //    lies inside the lens capsule: for a band-cap point at angle θ, its distance² to the lens cap centre
+            //    is lh² − 2·bandH·(1−cosθ)·(lh−bandH) ≤ lh².
             float bandH = Math.min(trackHalfH * 1.15f, lh * 0.76f);
             float bx0 = Math.max(trackX0, lx0), bx1 = Math.min(trackX1, lx1);
             if (bx1 - bx0 > 0.5f) {
@@ -204,8 +217,10 @@ public final class GlassWidgets {
                     fillRound(g, bx0, cy - bandH, fx1, cy + bandH, scaleAlpha(colLeft, glassA), bandH);
                 }
             }
-            // 3) clear glass surface: rim + soft shadow, body kept faint so the lens stays clear rather than milky
-            capsule(g, lx0, ly0, lx1, ly1, cornerKnob, 0.10f, glassA * 0.65f, true);
+            // 3) outline: the lens shader already carries a faint Fresnel rim + soft shadow, so with a real lens we
+            //    add NOTHING extra (the old glass_btn milky capsule at 0.65 is what read as an over-strong outline).
+            //    Only the fallback path draws a light rim so the frosted-white body still has an edge.
+            if (!drewLens) capsule(g, lx0, ly0, lx1, ly1, cornerKnob, 0.10f, glassA * 0.40f, true);
         }
 
         // 4) the solid white knob, fading out as the lens forms (and back in as it re-forms)

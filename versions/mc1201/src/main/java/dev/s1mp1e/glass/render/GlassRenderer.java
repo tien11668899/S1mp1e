@@ -102,6 +102,7 @@ public final class GlassRenderer {
         if (kind == GlassProgram.BTN   && !GlassProgram.btnUsable())  return false;
         if (kind == GlassProgram.ROUND && !GlassProgram.roundUsable()) return false;
         if (kind == GlassProgram.EDGE  && !GlassProgram.edgeUsable()) return false;
+        if (kind == GlassProgram.LENS  && !GlassProgram.lensUsable()) return false;
         batchTex = GlassProgram.needsBackdrop(kind);
         if (batchTex && !SceneCapture.hasBackdrop()) return false;
 
@@ -254,6 +255,13 @@ public final class GlassRenderer {
                               float corner, float lift, float opacity, boolean enabled) {
         draw(GlassProgram.BTN, x0, y0, x1, y1, 10f,
              corner, 1f - lift, opacity, enabled ? 1f : 0.4f);
+    }
+
+    /** Refracting LENS (switch knob / slider thumb): full-capsule corner, samples the backdrop.
+     *  {@code corner} 0..1 of the half-size (1 = capsule), {@code frost} 1 = sharp, &lt;1 = softened. */
+    public static void lens(float x0, float y0, float x1, float y1,
+                            float corner, float lift, float opacity, float frost) {
+        draw(GlassProgram.LENS, x0, y0, x1, y1, 10f, corner, 1f - lift, opacity, frost);
     }
 
     /**

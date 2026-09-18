@@ -44,9 +44,11 @@ public final class GlassProgram {
     public static final int ROUND = 4;
     /** iOS-26 scroll-edge: progressive backdrop blur + dark fade, ramped by UV0.y. */
     public static final int EDGE  = 5;
+    /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
+    public static final int LENS  = 6;
 
-    private static final int COUNT = 6;
-    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge" };
+    private static final int COUNT = 7;
+    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens" };
 
     private static final int[] program    = new int[COUNT];
     private static final int[] uProj       = new int[COUNT];
@@ -79,6 +81,7 @@ public final class GlassProgram {
     public static boolean blurUsable() { return state == 1 && program[BLUR]  != 0; }
     public static boolean roundUsable(){ return state == 1 && program[ROUND] != 0; }
     public static boolean edgeUsable() { return state == 1 && program[EDGE]  != 0; }
+    public static boolean lensUsable() { return state == 1 && program[LENS]  != 0; }
 
     /** Build all four once. Returns false if this GPU can't run the glass path. */
     public static boolean ensureReady() {
@@ -177,7 +180,7 @@ public final class GlassProgram {
     public static void unbind() { GL20.glUseProgram(prevProg); }
 
     /** True when this program samples the captured backdrop. */
-    public static boolean needsBackdrop(int kind) { return kind == GLASS || kind == EDGE; }
+    public static boolean needsBackdrop(int kind) { return kind == GLASS || kind == EDGE || kind == LENS; }
 
     /** Blur-specific uniforms; call right after {@link #bind}. */
     public static void setBlur(float radiusPx, float dim) {

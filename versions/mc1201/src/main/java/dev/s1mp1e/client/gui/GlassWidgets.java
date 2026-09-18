@@ -129,8 +129,19 @@ public final class GlassWidgets {
 
         float glassA = alpha * m;
         if (glassA > 0.004f) {
-            fillRound(ctx, lx0, ly0, lx1, ly1, (clampByte(glassA * 0.80f) << 24) | 0x121214, r);
-            // the band runs edge to edge so only the top and bottom show dark refraction bands; a capsule band of
+            // REAL refracting lens: the world behind bent through the pill (LENS program — clear, not dark). It
+            // has a full-capsule corner (unlike glass()), lift 0 so the Fresnel rim stays subtle, frost 0.65 for a
+            // whisper of softening. Backdrop is grabbed before the GUI, so it refracts the world; the track is then
+            // painted on top (below) as the magnified band.
+            boolean drewLens = false;
+            if (GlassProgram.lensUsable() && SceneCapture.hasBackdrop()) {
+                GlassRenderer.lens(lx0, ly0, lx1, ly1, cornerKnob, 0f, glassA, 0.65f);
+                drewLens = true;
+            } else {
+                // no glass program / no backdrop: a faint frosted-white body, NEVER dark
+                fillRound(ctx, lx0, ly0, lx1, ly1, (clampByte(glassA * 0.34f) << 24) | 0xF2F3F5, r);
+            }
+            // the band runs edge to edge so only the top and bottom show refraction bands; a capsule band of
             // half-height bandH < lh spanning [lx0, lx1] always lies inside the lens capsule
             float bandH = Math.min(trackHalfH * 1.15f, lh * 0.76f);
             float bx0 = Math.max(trackX0, lx0), bx1 = Math.min(trackX1, lx1);
@@ -141,7 +152,10 @@ public final class GlassWidgets {
                     fillRound(ctx, bx0, cy - bandH, fx1, cy + bandH, scaleAlpha(colLeft, glassA), bandH);
                 }
             }
-            capsule(ctx, lx0, ly0, lx1, ly1, cornerKnob, 0.10f, glassA * 0.65f, true);
+            // outline: the lens shader already carries a faint Fresnel rim + soft shadow, so with a real lens we add
+            // NOTHING extra (the old glass_btn capsule at 0.65 read as an over-strong outline). Only the fallback
+            // draws a light rim so the frosted-white body still has an edge.
+            if (!drewLens) capsule(ctx, lx0, ly0, lx1, ly1, cornerKnob, 0.10f, glassA * 0.40f, true);
         }
 
         float whiteA = alpha * (1f - m);

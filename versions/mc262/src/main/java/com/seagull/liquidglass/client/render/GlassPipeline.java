@@ -27,6 +27,8 @@ import net.minecraft.resources.Identifier;
 
 public final class GlassPipeline {
    private static RenderPipeline glass;
+   /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
+   private static RenderPipeline lens;
    private static RenderPipeline line;
    private static RenderPipeline btn;
    /** Flat AA rounded rect (glass_round.fsh) — the 26.2 port of 1.21.1's ROUND program. */
@@ -48,6 +50,14 @@ public final class GlassPipeline {
 
    public static RenderPipeline glass() {
       return glass;
+   }
+
+   public static RenderPipeline lens() {
+      return lens;
+   }
+
+   public static boolean lensUsable() {
+      return state == 1 && lens != null && grabView != null && sampler != null;
    }
 
    public static RenderPipeline line() {
@@ -191,6 +201,29 @@ public final class GlassPipeline {
                }
             } catch (Throwable var9) {
                LiquidGlassClient.LOG.warn("[LiquidGlass] round pipeline unavailable: {}", var9.toString());
+            }
+
+            try {
+               RenderPipeline lensP = RenderPipeline.builder(new Snippet[0])
+                  .withLocation(Identifier.fromNamespaceAndPath("liquidglass", "pipeline/glass_lens"))
+                  .withBindGroupLayout(BindGroupLayouts.GLOBALS)
+                  .withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+                  .withBindGroupLayout(BindGroupLayouts.SAMPLER0)
+                  .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+                  .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+                  .withPrimitiveTopology(PrimitiveTopology.QUADS)
+                  .withVertexShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass"))
+                  .withFragmentShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass_lens"))
+                  .build();
+               CompiledRenderPipeline lensC = dev.precompilePipeline(lensP, src);
+               if (lensC != null && lensC.isValid()) {
+                  lens = lensP;
+                  LiquidGlassClient.LOG.info("[LiquidGlass] lens pipeline compiled (refracting knob / thumb)");
+               } else {
+                  LiquidGlassClient.LOG.warn("[LiquidGlass] lens pipeline invalid, knob/thumb falls back to frosted white");
+               }
+            } catch (Throwable varLens) {
+               LiquidGlassClient.LOG.warn("[LiquidGlass] lens pipeline unavailable: {}", varLens.toString());
             }
 
             try {
