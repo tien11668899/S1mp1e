@@ -46,7 +46,7 @@ public final class S1mp1eConfigScreen extends Screen {
     private static final float CHIP_H    = 18f;   // header chips (smaller so the header spacing reads right)
     private static final float LABEL_COL = 96f;  // 24·GRID  setting-name column width
     private static final float ROW_MOD = 32f, ROW_SET = 28f;   // 8·GRID / 7·GRID
-    private static final float TOGGLE_W = 32f, TOGGLE_H = 18f;  // track (lozenge knob) — sized to the label text
+    private static final float TOGGLE_W = 40f, TOGGLE_H = 18f;  // track ~2.25:1 (wide/flat, matched to the iOS-26 clips)
     private static final float ROW_PILL_M = 6f;                // module-row highlight margin (uniform L/R + inter-row gap)
     private static final float TAB_PILL_H = 20f;               // highlight pill height (centred in the 28px tab row)
 
