@@ -13,6 +13,8 @@ namespace LiquidGlassAvaloniaUI
     internal struct LiquidGlassDrawParameters
     {
         public CornerRadius CornerRadius { get; set; }
+        /// <summary>Superellipse exponent of the corners (2 = circular; ~2.8 = iOS continuous corner). See <see cref="LiquidGlassShapes"/>.</summary>
+        public double CornerExponent { get; set; }
 
         public double BackdropZoom { get; set; }
         public Vector BackdropOffset { get; set; }

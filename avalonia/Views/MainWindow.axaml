@@ -88,14 +88,6 @@
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
-            <!-- Kill Fluent's default accent selection/hover on ComboBox items; our custom
-                 item template draws the ✓ and a subtle rounded hover pill instead. -->
-            <SolidColorBrush x:Key="ComboBoxItemBackground"                  Color="Transparent"/>
-            <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver"       Color="Transparent"/>
-            <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed"           Color="Transparent"/>
-            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected"          Color="Transparent"/>
-            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="Transparent"/>
-            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed"   Color="Transparent"/>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -318,104 +310,6 @@
             </Setter>
         </Style>
 
-        <!-- macOS pop-up button: value + blue up/down chevron, borderless -->
-        <Style Selector="ComboBox.popup">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="8,4"/>
-            <Setter Property="MinHeight" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Grid>
-                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="10"
-                                Padding="{TemplateBinding Padding}">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <ContentControl Grid.Column="0"
-                                                Content="{TemplateBinding SelectionBoxItem}"
-                                                ContentTemplate="{TemplateBinding ItemTemplate}"
-                                                Foreground="{DynamicResource Accent}"
-                                                FontWeight="SemiBold"
-                                                VerticalAlignment="Center" HorizontalAlignment="Right"
-                                                Margin="0,0,8,0"/>
-                                <Path Grid.Column="1" VerticalAlignment="Center" Stretch="None"
-                                      Stroke="{DynamicResource Accent}" StrokeThickness="1.7"
-                                      StrokeLineCap="Round" StrokeJoin="Round"
-                                      Data="M0,4 L4,0.5 L8,4 M0,7.5 L4,11 L8,7.5"/>
-                            </Grid>
-                        </Border>
-                        <Popup x:Name="PART_Popup"
-                               IsOpen="{TemplateBinding IsDropDownOpen, Mode=TwoWay}"
-                               IsLightDismissEnabled="True"
-                               Placement="BottomEdgeAlignedRight">
-                            <!-- liquid-glass popover: super-rounded translucent panel, soft shadow, glass sheen -->
-                            <Border x:Name="MenuRoot" Margin="0,8,8,12" MinWidth="124"
-                                    Background="{DynamicResource MenuBg}" CornerRadius="16"
-                                    BorderThickness="1" BorderBrush="{DynamicResource CardBorder}"
-                                    BoxShadow="0 10 30 0 #38000000"
-                                    RenderTransformOrigin="88%,0%">
-                                <Panel>
-                                    <!-- faint top specular sheen -->
-                                    <Border CornerRadius="16" IsHitTestVisible="False">
-                                        <Border.Background>
-                                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                                                <GradientStop Color="#2EFFFFFF" Offset="0"/>
-                                                <GradientStop Color="#00FFFFFF" Offset="0.55"/>
-                                            </LinearGradientBrush>
-                                        </Border.Background>
-                                    </Border>
-                                    <ItemsPresenter x:Name="PART_ItemsPresenter" Margin="4"
-                                                    ItemsPanel="{TemplateBinding ItemsPanel}"/>
-                                </Panel>
-                            </Border>
-                        </Popup>
-                    </Grid>
-                </ControlTemplate>
-            </Setter>
-        </Style>
-        <Style Selector="ComboBox.popup:pointerover /template/ Border#Bg">
-            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
-        </Style>
-
-        <!-- pop-up MENU items: ✓ on the selected row, rounded hover pill, plain text colour -->
-        <Style Selector="ComboBox.popup ComboBoxItem">
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="MinHeight" Value="0"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextMain}"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Border x:Name="Row" Background="Transparent" CornerRadius="10" Margin="4,4" Padding="8,8">
-                        <Grid ColumnDefinitions="20,*">
-                            <Path x:Name="Check" Grid.Column="0" Width="12" Height="10" Stretch="Uniform"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                  Stroke="{DynamicResource TextMain}" StrokeThickness="1.8"
-                                  StrokeLineCap="Round" StrokeJoin="Round"
-                                  Data="M0,3.2 L3.4,6.6 L9,0" Opacity="0"/>
-                            <ContentPresenter Grid.Column="1"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              Foreground="{TemplateBinding Foreground}"
-                                              VerticalAlignment="Center"/>
-                        </Grid>
-                    </Border>
-                </ControlTemplate>
-            </Setter>
-        </Style>
-        <Style Selector="ComboBox.popup ComboBoxItem:selected /template/ Path#Check">
-            <Setter Property="Opacity" Value="1"/>
-        </Style>
-        <!-- kill the default accent selection bar: the row itself is never coloured on select -->
-        <Style Selector="ComboBox.popup ComboBoxItem:selected /template/ Border#Row">
-            <Setter Property="Background" Value="Transparent"/>
-        </Style>
-        <Style Selector="ComboBox.popup ComboBoxItem:selected:pointerover /template/ Border#Row">
-            <Setter Property="Background" Value="{DynamicResource MenuHover}"/>
-        </Style>
-        <Style Selector="ComboBox.popup ComboBoxItem:pointerover /template/ Border#Row">
-            <Setter Property="Background" Value="{DynamicResource MenuHover}"/>
-        </Style>
-
         <!-- macOS pop-up button (custom): value + blue chevron, borderless, opens the glass menu -->
         <Style Selector="ctl|GlassSelect">
             <Setter Property="Background" Value="Transparent"/>
@@ -578,17 +472,24 @@
                                                    lg:LiquidGlassBackdrop.IsExcludedFromCapture="True"
                                                    Width="212" Height="40" CornerRadius="10"
                                                    Canvas.Left="0" Canvas.Top="0"
-                                                   RefractionHeight="7" RefractionAmount="14"
+                                                   RefractionHeight="10" RefractionAmount="14"
                                                    ChromaticAberration="False" BlurRadius="0"
                                                    Vibrancy="1.0" Brightness="0"
-                                                   TintColor="#00000000" SurfaceColor="#08FFFFFF"
-                                                   HighlightEnabled="True" HighlightOpacity="0.55"
-                                                   HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
-                                                   ShadowEnabled="True" ShadowRadius="12"
-                                                   ShadowColor="#26000000" ShadowOpacity="1"/>
+                                                   TintColor="#00000000" SurfaceColor="#12FFFFFF"
+                                                   HighlightEnabled="True" HighlightOpacity="0.35"
+                                                   HighlightWidth="1.5" HighlightBlurRadius="1.2" HighlightAngle="45"
+                                                   ShadowEnabled="True" ShadowRadius="9"
+                                                   ShadowColor="#26000000" ShadowOpacity="1"
+                                           SnellRefraction="True"
+                                           SnellThickness="13.15"
+                                           SnellIor="1.4"
+                                           SnellOffset="55"
+                                           SnellDispersion="0.105"
+                                           BackdropZoom="1.0"
+                                           HighlightFalloff="0"/>
                         </Canvas>
 
-                        <StackPanel x:Name="NavRows" Spacing="4">
+                        <StackPanel x:Name="NavRows" lg:LiquidGlassBackdrop.IsExcludedFromCapture="True" Spacing="4">
                             <!-- 開始遊戲 -->
                             <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="0">
@@ -779,24 +680,32 @@
                                  while browsing → go to query). Same edge-only optics as the
                                  sidebar SelPill. -->
                             <Grid ColumnDefinitions="Auto,*,Auto">
-                            <lg:LiquidGlassSurface x:Name="ModModeToggle" Grid.Column="0"
+                            <lg:LiquidGlassInteractiveSurface x:Name="ModModeToggle" Grid.Column="0"
                                                    lg:LiquidGlassBackdrop.IsExcludedFromCapture="True"
                                                    HorizontalAlignment="Left"
                                                    Width="140" Height="34" CornerRadius="10"
-                                                   RefractionHeight="7" RefractionAmount="14"
-                                                   ChromaticAberration="False" BlurRadius="0"
+                                                   IsInteractive="True" InteractiveHighlightEnabled="True" InteractiveMaxScaleDip="4"
+                                                   RefractionHeight="12" RefractionAmount="24"
+                                                   ChromaticAberration="False" BlurRadius="1.5"
                                                    Vibrancy="1.0" Brightness="0"
-                                                   TintColor="#00000000" SurfaceColor="#12FFFFFF"
-                                                   HighlightEnabled="True" HighlightOpacity="0.5"
-                                                   HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
-                                                   ShadowEnabled="True" ShadowRadius="6"
-                                                   ShadowColor="#22000000" ShadowOpacity="1"
-                                                   PointerPressed="OnModModeToggle" Cursor="Hand">
+                                                   TintColor="#00000000" SurfaceColor="#14FFFFFF"
+                                                   HighlightEnabled="True" HighlightOpacity="0.3"
+                                                   HighlightWidth="1.5" HighlightBlurRadius="1.2" HighlightAngle="45"
+                                                   ShadowEnabled="True" ShadowRadius="9"
+                                                   ShadowColor="#26000000" ShadowOpacity="1"
+                                                   PointerPressed="OnModModeToggle" Cursor="Hand"
+                                           SnellRefraction="True"
+                                           SnellThickness="13.15"
+                                           SnellIor="1.4"
+                                           SnellOffset="55"
+                                           SnellDispersion="0.105"
+                                           BackdropZoom="1.0"
+                                           HighlightFalloff="0">
                                 <TextBlock x:Name="ModModeToggleLabel" Text="瀏覽模組"
                                            FontSize="12.5" FontWeight="SemiBold"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                            Foreground="{DynamicResource TextMain}"/>
-                            </lg:LiquidGlassSurface>
+                            </lg:LiquidGlassInteractiveSurface>
                                 <Border x:Name="UpdateAllBtn" Grid.Column="2" IsVisible="False"
                                         Height="34" CornerRadius="10" Padding="16,0" Cursor="Hand"
                                         Background="{DynamicResource Accent}" VerticalAlignment="Center"
@@ -1150,15 +1059,27 @@
                          surface tint to read as a panel over the acrylic settings pane. -->
                     <lg:LiquidGlassSurface x:Name="MenuGlass" CornerRadius="16" IsHitTestVisible="False"
                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                           RefractionHeight="10" RefractionAmount="26"
-                                           ChromaticAberration="True" BlurRadius="3"
+                                           RefractionHeight="5" RefractionAmount="8"
+                                           DepthEffect="True" ChromaticAberration="False" BlurRadius="1.5"
                                            Vibrancy="1.0" Brightness="0"
-                                           TintColor="#00000000" SurfaceColor="#1CFFFFFF"
-                                           HighlightEnabled="True" HighlightOpacity="0.55"
-                                           HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
-                                           ShadowEnabled="True" ShadowRadius="22"
-                                           ShadowColor="#45000000" ShadowOpacity="1"/>
-                    <StackPanel x:Name="MenuItems" Margin="4"/>
+                                           TintColor="#00000000" SurfaceColor="#552A2A2C"
+                                           HighlightEnabled="True" HighlightOpacity="0.3" HighlightFalloff="0"
+                                           HighlightWidth="1.5" HighlightBlurRadius="1.2" HighlightAngle="-70"
+                                           ShadowEnabled="True" ShadowRadius="9"
+                                           ShadowColor="#26000000" ShadowOpacity="1"
+                                           SnellRefraction="True"
+                                           SnellThickness="13.15"
+                                           SnellIor="1.4"
+                                           SnellOffset="55"
+                                           SnellDispersion="0.105"
+                                           BackdropZoom="1.0"/>
+                    <!-- hairline rim (dark: light top edge; light: darker contour) -->
+                    <Path x:Name="MenuRimPath" IsHitTestVisible="False" StrokeThickness="1" Fill="{x:Null}" Stretch="None"
+                          HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                    <!-- the items are laid out at their final size and REVEALED by this clip as the glass grows -->
+                    <Border x:Name="MenuClip" ClipToBounds="True">
+                        <StackPanel x:Name="MenuItems" Margin="4"/>
+                    </Border>
                 </Panel>
                 <!-- Mod detail sheet — same glass optics as MenuRoot but wider and
                      contains a translated description. Shown by clicking a local
@@ -1168,14 +1089,20 @@
                        RenderTransformOrigin="50%,50%">
                     <lg:LiquidGlassSurface CornerRadius="20" IsHitTestVisible="False"
                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                           RefractionHeight="10" RefractionAmount="26"
-                                           ChromaticAberration="True" BlurRadius="10"
+                                           RefractionHeight="12" RefractionAmount="24"
+                                           DepthEffect="True" ChromaticAberration="False" BlurRadius="1.5"
                                            Vibrancy="1.0" Brightness="0"
-                                           TintColor="#00000000" SurfaceColor="#28FFFFFF"
-                                           HighlightEnabled="True" HighlightOpacity="0.55"
-                                           HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
-                                           ShadowEnabled="True" ShadowRadius="24"
-                                           ShadowColor="#55000000" ShadowOpacity="1"/>
+                                           TintColor="#00000000" SurfaceColor="#552A2A2C"
+                                           HighlightEnabled="True" HighlightOpacity="0.3" HighlightFalloff="0"
+                                           HighlightWidth="1.5" HighlightBlurRadius="1.2" HighlightAngle="45"
+                                           ShadowEnabled="True" ShadowRadius="9"
+                                           ShadowColor="#26000000" ShadowOpacity="1"
+                                           SnellRefraction="True"
+                                           SnellThickness="13.15"
+                                           SnellIor="1.4"
+                                           SnellOffset="55"
+                                           SnellDispersion="0.105"
+                                           BackdropZoom="1.0"/>
                     <Grid Margin="20" RowDefinitions="Auto,Auto,*"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                         <Grid Grid.Row="0" ColumnDefinitions="44,*" ColumnSpacing="12">
@@ -1205,14 +1132,20 @@
                        IsVisible="False" RenderTransformOrigin="50%,50%">
                     <lg:LiquidGlassSurface CornerRadius="20" IsHitTestVisible="False"
                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                           RefractionHeight="10" RefractionAmount="26"
-                                           ChromaticAberration="True" BlurRadius="0"
+                                           RefractionHeight="12" RefractionAmount="24"
+                                           DepthEffect="True" ChromaticAberration="False" BlurRadius="1.5"
                                            Vibrancy="1.0" Brightness="0"
-                                           TintColor="#00000000" SurfaceColor="#1CFFFFFF"
-                                           HighlightEnabled="True" HighlightOpacity="0.55"
-                                           HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
-                                           ShadowEnabled="True" ShadowRadius="24"
-                                           ShadowColor="#55000000" ShadowOpacity="1"/>
+                                           TintColor="#00000000" SurfaceColor="#552A2A2C"
+                                           HighlightEnabled="True" HighlightOpacity="0.3" HighlightFalloff="0"
+                                           HighlightWidth="1.5" HighlightBlurRadius="1.2" HighlightAngle="45"
+                                           ShadowEnabled="True" ShadowRadius="9"
+                                           ShadowColor="#26000000" ShadowOpacity="1"
+                                           SnellRefraction="True"
+                                           SnellThickness="13.15"
+                                           SnellIor="1.4"
+                                           SnellOffset="55"
+                                           SnellDispersion="0.105"
+                                           BackdropZoom="1.0"/>
                     <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto">
                         <TextBlock Grid.Row="0" Text="尋找皮膚"
                                    FontSize="16" FontWeight="SemiBold"

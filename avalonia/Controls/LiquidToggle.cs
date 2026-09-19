@@ -37,8 +37,9 @@ public class LiquidToggle : ToggleButton
     // bottom (45×31 = 2.05×TH wide, 1.40×TH tall); a slow drag just fills it (30×23, no overhang). Measured.
     private const double LensW = 45, LensH = 31;            // FAST peak (sigma = 1)
     private const double LensWSlow = 30, LensHSlow = 23;    // SLOW peak (sigma = 0)
-    private const double TravelS = 0.30;
-    private const double MorphInS = 0.085, MorphOutS = 0.255;   // snap open, ~3× slower settle
+    private const double TravelS = 0.199;                       // reference toggle fraction: critical k=1000 → Tune(0.199,0)
+    private const double MorphInS = 0.34, MorphInBounce = 0.38; // knob jelly: reference scale spring k=250 ζ0.6 ≈ Tune(0.397,0.4)
+    private const double MorphOutS = 0.255;                     // ~3× slower settle back to the pill
     private const double SpeedFull = 55.0;
     private const double HoldSigma = 0.6;                   // a press-and-hold swells the knob to ~60% of a full flick                  // knob px/s that reads as a full-speed flick (sigma = 1)
 
@@ -103,7 +104,7 @@ public class LiquidToggle : ToggleButton
         {
             _travel.Retarget(IsChecked == true ? 1 : 0);
             _lifted = true;
-            _lift.Tune(MorphInS, 0).Retarget(1);
+            _lift.Tune(MorphInS, MorphInBounce).Retarget(1);
             Kick();
         }
     }
@@ -114,7 +115,7 @@ public class LiquidToggle : ToggleButton
         if (_root is null || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         _held = true;
         _lifted = true;
-        _lift.Tune(MorphInS, 0).Retarget(1);
+        _lift.Tune(MorphInS, MorphInBounce).Retarget(1);
         Kick();
     }
 
@@ -142,33 +143,39 @@ public class LiquidToggle : ToggleButton
 
         if (_lens is not null)
         {
-            _lens.BackdropZoom = 1.0;           // no centre zoom: it would drag the green up into the overhang and hide the notches
-            _lens.RefractionHeight = 9;         // deepen the top/bottom dark refraction bands (the SDF notch signature)
-            _lens.RefractionAmount = 16;
+            // Faithful circle-map lens (reference build-toggle.ts knob: refractionHeight 5, amount -10, blur 8*(1-p),
+            // chromaticAberration true, saturation 1.0). The interior stays 1× — no BackdropZoom, no Snell approximation.
+            // Optics are RAMPED by press amount L in PlaceKnob; these are the full-press base values.
+            _lens.SnellRefraction = false;
+            _lens.BackdropZoom = 1.0;
+            _lens.RefractionHeight = 5;
+            _lens.RefractionAmount = 10;        // positive magnitude; DrawOperation negates it for the shader
             _lens.DepthEffect = true;
-            _lens.ChromaticAberration = false;
-            _lens.BlurRadius = 0;
+            _lens.ChromaticAberration = true;   // reference knob lens has dispersion on
+            _lens.BlurRadius = 0;               // ramped 8*(1-L) in PlaceKnob (frosted at rest → clear at full press)
             _lens.Vibrancy = 1.0;
             _lens.Brightness = 0;
             _lens.TintColor = Color.FromArgb(0, 0, 0, 0);
-            _lens.SurfaceColor = dark ? Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF);
+            _lens.SurfaceColor = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);   // reference surfaceColor [0,0,0,0]; the white pill is the only surface
             _lens.HighlightEnabled = true;
-            _lens.HighlightOpacity = dark ? 0.62 : 0.55;    // bright specular rim, peaks mid-flip (× lens opacity)
-            _lens.HighlightWidth = 0.35;
+            _lens.HighlightOpacity = dark ? 0.38 : 0.34;    // Ambient rim effective peak (layer 1.0 × paintAlpha 0.38); Plus blend over-brightens
+            _lens.HighlightWidth = 0.5;                      // renders as a 2px stroke regardless (ceil(w)*2)
             _lens.HighlightBlurRadius = 0.25;
-            _lens.HighlightAngle = 60;                       // top + leading edge
+            _lens.HighlightAngle = 45;                       // reference angle = π/4
+            _lens.HighlightFalloff = 1.0;
+            // Reference knob shadow is very subtle: radius 4 → sigma ≈1.3 (vendored radius==sigma), alpha 0.05.
             _lens.ShadowEnabled = true;
-            _lens.ShadowRadius = 7;
-            _lens.ShadowOffset = new Vector(0, 3);
-            _lens.ShadowColor = dark ? Color.FromArgb(0x8C, 0, 0, 0) : Color.FromArgb(0x40, 0, 0, 0);
+            _lens.ShadowRadius = 1.5;
+            _lens.ShadowOffset = new Vector(0, 0.7);
+            _lens.ShadowColor = dark ? Color.FromArgb(0x1A, 0, 0, 0) : Color.FromArgb(0x14, 0, 0, 0);
             _lens.ShadowOpacity = 1;
-            // Minecraft 26.2 glass edge model: the track and card are pulled INWARD along the rim (Snell, IOR 1.4) with an
-            // RGB split, so the capsule's edges visibly bend inside the balloon; the body itself stays clear.
-            _lens.SnellRefraction = true;
-            _lens.SnellThickness = 4.5;         // thin band: a green rim hugging the edge, then the dark card notch
-            _lens.SnellIor = 1.4;
-            _lens.SnellOffset = 10;
-            _lens.SnellDispersion = 0.105;
+            // Reference knob inner shadow: radius 4 (== sigma, 1:1), offset (0,4), alpha 0.30 (renders ~0.15 after the
+            // shader's ×0.5 coverage). Opacity is ramped by press amount L in PlaceKnob.
+            _lens.InnerShadowEnabled = true;
+            _lens.InnerShadowRadius = 4;
+            _lens.InnerShadowOffset = new Vector(0, 4);
+            _lens.InnerShadowColor = Color.FromArgb(0x4D, 0, 0, 0);
+            _lens.InnerShadowOpacity = 1;
         }
         if (_rim is not null)
             _rim.BorderBrush = new LinearGradientBrush
@@ -220,6 +227,7 @@ public class LiquidToggle : ToggleButton
         _lift.Update(dt);
         _lift.Settle(0.002);
         double L = GlassMotion.Clamp01(_lift.X);
+        double Lraw = _lift.X;   // unclamped: lets the balloon overshoot past full size → the knob jelly-bounce
 
         if (!double.IsNaN(_lastCX) && dt > 0)
             _speed += (Math.Abs(cx - _lastCX) / dt - _speed) * GlassMotion.Ema(dt, GlassMotion.SpeedTauS);
@@ -231,7 +239,7 @@ public class LiquidToggle : ToggleButton
         if (_held) _sigma = Math.Max(_sigma, HoldSigma);   // finger down: a held swell
 
         double travel01 = GlassMotion.Clamp01(_travel.X);
-        PlaceKnob(cx, L, _sigma);
+        PlaceKnob(cx, L, Lraw, _sigma);
         _track.Background = new SolidColorBrush(Lerp(_offColor, OnColor, travel01));
         if (_pill is not null)   // the solid pill picks up a pale-green cast toward the ON end
             _pill.Background = new SolidColorBrush(Lerp(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xEA, 0xF7, 0xEF), travel01));
@@ -242,14 +250,18 @@ public class LiquidToggle : ToggleButton
         else { _speed = 0; _lastCX = double.NaN; _clock.Reset(); }
     }
 
-    private void PlaceKnob(double cx, double L, double sigma)
+    private void PlaceKnob(double cx, double L, double Lraw, double sigma)
     {
         // peak lens blends slow↔fast by flip speed; the balloon grows in BOTH axes, so a fast flick overhangs the
         // track top & bottom (h → 1.40×TH) while a slow drag just fills it (h → 1.05×TH, no overhang).
         double pw = LensWSlow + (LensW - LensWSlow) * sigma;
         double ph = LensHSlow + (LensH - LensHSlow) * sigma;
-        double w = KW + (pw - KW) * L;
-        double h = KH + (ph - KH) * L;
+        // Size follows the (bouncy) morph spring UNCLAMPED so it overshoots past full size then settles — the knob
+        // jelly-bounce. Width overshoots more than height (reference scaleX bounce 0.4 > scaleY 0.3): X is springier.
+        double Ls = Math.Max(0, Lraw);
+        double over = Ls - L;                          // the overshoot/undershoot beyond the clamped fill
+        double w = KW + (pw - KW) * (L + over);        // full anisotropy on width
+        double h = KH + (ph - KH) * (L + over * 0.55); // damped anisotropy on height
         double cr = h / 2 * (1 - 0.10 * L * sigma);    // slightly rectangular at the fast peak, capsule at rest
         double left = cx - w / 2, top = CY - h / 2;
 
@@ -258,6 +270,12 @@ public class LiquidToggle : ToggleButton
         _rim!.IsVisible = showLens;
         if (showLens)
         {
+            // Ramp the optics by press amount L (faithful to methods-render-glass-element-pass-toggle.ts H*p / A*p /
+            // blur 8*(1-p)): frosted + no refraction at the pill, clear glass lens at full press.
+            _lens.RefractionHeight = 5 * L;
+            _lens.RefractionAmount = 10 * L;
+            _lens.BlurRadius = 8 * (1 - L);
+            _lens.InnerShadowOpacity = L;
             _lens.Width = w; _lens.Height = h; _lens.CornerRadius = new CornerRadius(cr); _lens.Opacity = L;
             Canvas.SetLeft(_lens, left); Canvas.SetTop(_lens, top);
             _rim.Width = w; _rim.Height = h; _rim.CornerRadius = new CornerRadius(cr); _rim.Opacity = L;

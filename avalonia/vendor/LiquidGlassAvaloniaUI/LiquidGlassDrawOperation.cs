@@ -212,6 +212,7 @@ namespace LiquidGlassAvaloniaUI
                         size.Width, size.Height
                     };
                     lensUniforms["cornerRadii"] = cornerRadii;
+                    lensUniforms["cornerExponent"] = (float)Math.Max(_parameters.CornerExponent, 2.0);
                     lensUniforms["refractionHeight"] = refractionHeight;
                     // The lens shader expects a negative refraction amount.
                     lensUniforms["refractionAmount"] = -refractionAmount;
@@ -284,7 +285,7 @@ namespace LiquidGlassAvaloniaUI
                         };
 
                         SKRect rect = SKRect.Create(0, 0, size.Width, size.Height);
-                        using SKPath clipPath = CreateRoundRectPath(rect, cornerRadii);
+                        using SKPath clipPath = CreateOutlinePath(rect, cornerRadii);
 
                         canvas.Save();
                         canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
@@ -496,6 +497,15 @@ namespace LiquidGlassAvaloniaUI
             int right = (int)Math.Ceiling(deviceBounds.Right - snapshot.OriginInPixels.X + margin);
             int bottom = (int)Math.Ceiling(deviceBounds.Bottom - snapshot.OriginInPixels.Y + margin);
 
+            // Snap the crop outward to a 64 px grid: a surface that is animating its size (a menu growing out of its trigger)
+            // then keeps hitting the same filtered-backdrop cache entry for many frames instead of re-blurring — and
+            // allocating a new GPU surface — on every frame. A slightly larger blur area is far cheaper than that.
+            const int quantum = 64;
+            left = (int)Math.Floor(left / (double)quantum) * quantum;
+            top = (int)Math.Floor(top / (double)quantum) * quantum;
+            right = (int)Math.Ceiling(right / (double)quantum) * quantum;
+            bottom = (int)Math.Ceiling(bottom / (double)quantum) * quantum;
+
             left = Math.Clamp(left, 0, source.Width);
             top = Math.Clamp(top, 0, source.Height);
             right = Math.Clamp(right, left, source.Width);
@@ -524,7 +534,7 @@ namespace LiquidGlassAvaloniaUI
                 zoomOutMargin = (1.0 / zoom - 1.0) * halfMaxSize;
             }
 
-            double refractionMargin = Math.Abs(parameters.RefractionAmount) * (parameters.ChromaticAberration ? 2.0 : 1.0);
+            double refractionMargin = Math.Max(Math.Abs(parameters.RefractionAmount) * (parameters.ChromaticAberration ? 2.0 : 1.0), parameters.SnellRefraction ? Math.Abs(parameters.SnellOffset) * (1.0 + Math.Max(parameters.SnellDispersion, 0.0)) : 0.0);
             double blurMargin = parameters.BlurRadius * 3.0;
 
             return Math.Max(8.0, refractionMargin + blurMargin + offsetMargin + zoomOutMargin + 8.0) * scaling;
@@ -632,7 +642,7 @@ namespace LiquidGlassAvaloniaUI
             float[] cornerRadii = GetCornerRadii(_parameters.CornerRadius, maxRadius);
 
             SKRect rect = SKRect.Create(0, 0, size.Width, size.Height);
-            using SKPath clipPath = CreateRoundRectPath(rect, cornerRadii);
+            using SKPath clipPath = CreateOutlinePath(rect, cornerRadii);
 
             canvas.Save();
             canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
@@ -700,6 +710,7 @@ namespace LiquidGlassAvaloniaUI
                 size.Width, size.Height
             };
             uniforms["cornerRadii"] = cornerRadii;
+            uniforms["cornerExponent"] = (float)Math.Max(_parameters.CornerExponent, 2.0);
 
             float alpha = (float)Clamp(_parameters.HighlightOpacity, 0.0, 1.0);
             uniforms["color"] = new[]
@@ -721,7 +732,9 @@ namespace LiquidGlassAvaloniaUI
                 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, blurRadius)
                 : null;
 
-            float strokeWidth = (float)(Math.Ceiling(Clamp(_parameters.HighlightWidth, 0.0, 100.0)) * 2.0);
+            // Stroke = 2·width (half of it is clipped away by the shape). No longer rounded UP to whole 2 px steps: the iOS rim is a
+            // ~1 px hairline (measured FWHM 0.019 P), which HighlightWidth 0.5 must be able to produce.
+            float strokeWidth = (float)(Clamp(_parameters.HighlightWidth, 0.0, 100.0) * 2.0);
 
             using SKPaint paint = new()
             {
@@ -736,7 +749,7 @@ namespace LiquidGlassAvaloniaUI
             };
 
             SKRect rect = SKRect.Create(0, 0, size.Width, size.Height);
-            using SKPath path = CreateRoundRectPath(rect, cornerRadii);
+            using SKPath path = CreateOutlinePath(rect, cornerRadii);
 
             // Pad the highlight layer to avoid edge artifacts when transformed and/or rasterized into an intermediate surface.
             const float safePad = 1.0f;
@@ -802,6 +815,14 @@ namespace LiquidGlassAvaloniaUI
             };
         }
 
+        /// <summary>The pass outline: a squircle when <see cref="LiquidGlassDrawParameters.CornerExponent"/> is above 2, else the rounded rect.</summary>
+        private SKPath CreateOutlinePath(SKRect rect, float[] cornerRadii)
+        {
+            return _parameters.CornerExponent > 2.001
+                ? LiquidGlassShapes.CreateSquirclePath(rect, cornerRadii[0], (float)_parameters.CornerExponent)
+                : CreateRoundRectPath(rect, cornerRadii);
+        }
+
         private static SKPath CreateRoundRectPath(SKRect rect, float[] cornerRadii)
         {
             using SKRoundRect rr = new();
@@ -833,7 +854,7 @@ namespace LiquidGlassAvaloniaUI
 
             float maxRadius = Math.Min(size.Width, size.Height) * 0.5f;
             float[] cornerRadii = GetCornerRadii(_parameters.CornerRadius, maxRadius);
-            using SKPath path = CreateRoundRectPath(rect, cornerRadii);
+            using SKPath path = CreateOutlinePath(rect, cornerRadii);
 
             using SKPaint paint = new()
             {

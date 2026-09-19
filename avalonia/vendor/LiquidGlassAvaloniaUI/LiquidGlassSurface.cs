@@ -53,6 +53,11 @@ namespace LiquidGlassAvaloniaUI
         public static readonly StyledProperty<double> SnellDispersionProperty =
             AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(SnellDispersion), 0.105);
 
+        // S1mp1e: continuous-curvature corners. 2 = the ordinary circular corner (default); ~2.8 with CornerRadius = 1.31 R
+        // reproduces an iOS continuous corner of radius R. Lens, highlight, shadow and clip all share the outline.
+        public static readonly StyledProperty<double> CornerExponentProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(CornerExponent), 2.0);
+
         public static readonly StyledProperty<double> BlurRadiusProperty =
             AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(BlurRadius), 2.0);
 
@@ -184,6 +189,7 @@ namespace LiquidGlassAvaloniaUI
                 SnellIorProperty,
                 SnellOffsetProperty,
                 SnellDispersionProperty,
+                CornerExponentProperty,
                 BlurRadiusProperty,
                 VibrancyProperty,
                 BrightnessProperty,
@@ -305,6 +311,14 @@ namespace LiquidGlassAvaloniaUI
         {
             get => GetValue(SnellDispersionProperty);
             set => SetValue(SnellDispersionProperty, value);
+        }
+
+        /// <summary>Superellipse exponent of the corners: 2 = circular (default); ~2.8 (with CornerRadius = 1.31 R) = an iOS
+        /// continuous corner of radius R. Applies to the lens SDF, highlight, shadow and clip alike.</summary>
+        public double CornerExponent
+        {
+            get => GetValue(CornerExponentProperty);
+            set => SetValue(CornerExponentProperty, value);
         }
 
         public double BlurRadius
@@ -554,6 +568,7 @@ namespace LiquidGlassAvaloniaUI
                 SnellIor = SnellIor,
                 SnellOffset = SnellOffset,
                 SnellDispersion = SnellDispersion,
+                CornerExponent = CornerExponent,
                 BlurRadius = BlurRadius,
                 Vibrancy = Vibrancy,
                 Brightness = Brightness,
@@ -672,6 +687,7 @@ namespace LiquidGlassAvaloniaUI
                    || property == SnellIorProperty
                    || property == SnellOffsetProperty
                    || property == SnellDispersionProperty
+                   || property == CornerExponentProperty
                    || property == BlurRadiusProperty
                    || property == VibrancyProperty
                    || property == BrightnessProperty

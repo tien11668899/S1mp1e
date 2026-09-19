@@ -34,6 +34,43 @@ float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
     }
 }
 
+
+// S1mp1e: continuous-curvature ("squircle") corner — a superellipse |x/a|^n + |y/a|^n = 1 (n = 2 is the circular corner;
+// iOS's continuous corner of radius R fits n ≈ 2.8 with a ≈ 1.31 R). Shared by the lens SDF and the highlight normal.
+uniform float cornerExponent;        // <= 2: plain rounded rect; > 2: squircle with this exponent
+
+float lengthP(float2 v, float n) {
+    float2 p = pow(max(v, float2(0.0)), float2(n));
+    return pow(p.x + p.y, 1.0 / n);
+}
+
+// signed distance to the squircle-cornered box (first-order Euclidean normalisation near the edge)
+float sdSquircleRect(float2 coord, float2 halfSize, float a, float n) {
+    float2 c = abs(coord) - (halfSize - float2(a));
+    float2 q = max(c, float2(0.0));
+    float f = lengthP(q, n) - a;                       // p-norm distance (exact on the axes)
+    float s = pow(q.x, n) + pow(q.y, n);
+    float2 g = pow(q, float2(n - 1.0)) * pow(max(s, 1e-6), 1.0 / n - 1.0);
+    float gl = max(length(g), 1e-4);
+    float outside = (s > 1e-6) ? f / gl : f;
+    float inside = min(max(c.x, c.y), 0.0);
+    return outside + inside;
+}
+
+float2 gradSdSquircleRect(float2 coord, float2 halfSize, float a, float n) {
+    float2 c = abs(coord) - (halfSize - float2(a));
+    if (c.x >= 0.0 || c.y >= 0.0) {
+        float2 q = max(c, float2(0.0));
+        float s = pow(q.x, n) + pow(q.y, n);
+        if (s <= 1e-6) return float2(0.0);
+        float2 g = pow(q, float2(n - 1.0)) * pow(s, 1.0 / n - 1.0);
+        return sign(coord) * normalize(g);
+    } else {
+        float gx = step(c.y, c.x);
+        return sign(coord) * float2(gx, 1.0 - gx);
+    }
+}
+
 half4 main(float2 coord) {
     float2 halfSize = size * 0.5;
     float2 centeredCoord = coord - halfSize;
@@ -41,7 +78,8 @@ half4 main(float2 coord) {
 
     // Compute the "surface normal" using SDF gradient.
     float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
-    float2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+    float2 grad = cornerExponent > 2.001 ? gradSdSquircleRect(centeredCoord, halfSize, gradRadius, cornerExponent)
+                                         : gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
     float2 normal = float2(cos(angle), sin(angle));
 
     float d = dot(grad, normal);

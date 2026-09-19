@@ -84,7 +84,7 @@ namespace LiquidGlassAvaloniaUI
             float[] cornerRadii = LiquidGlassPathUtils.GetCornerRadii(_parameters.CornerRadius, maxRadius);
             SKRect rect = SKRect.Create(0, 0, size.Width, size.Height);
 
-            using SKPath path = LiquidGlassPathUtils.CreateRoundRectPath(rect, cornerRadii);
+            using SKPath path = LiquidGlassPathUtils.CreateOutlinePath(rect, cornerRadii, (float)_parameters.CornerExponent);
             using SKMaskFilter? blur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, radius);
 
             using SKPaint shadowPaint = new()
@@ -183,7 +183,7 @@ namespace LiquidGlassAvaloniaUI
             float[] cornerRadii = LiquidGlassPathUtils.GetCornerRadii(_parameters.CornerRadius, maxRadius);
             SKRect rect = SKRect.Create(0, 0, size.Width, size.Height);
 
-            using SKPath path = LiquidGlassPathUtils.CreateRoundRectPath(rect, cornerRadii);
+            using SKPath path = LiquidGlassPathUtils.CreateOutlinePath(rect, cornerRadii, (float)_parameters.CornerExponent);
 
             using SKImageFilter blur = SKImageFilter.CreateBlur(radius, radius, SKShaderTileMode.Decal, null, rect);
             using SKPaint layerPaint = new()

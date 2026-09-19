@@ -224,6 +224,11 @@ internal sealed class GlassSliderSurface : Control
     private const double HW = 13, HH = 8.5;      // rest capsule 26×17 (iOS 111×72, 1.54 : 1)
     private const double TrackH = 4;
     private const double GrabSlop = 3;
+    // reference slider knob POSITION spring = critical k=1000 → Tune(0.199,0) (build-slider.ts:133 isToggleKnob →
+    // tg.fraction springStepCritical, methods-animation.ts:149-155). No bounce: the slide never overshoots.
+    private const double GlideS = 0.199;
+    // reference drag-velocity squash spring = k=300 ζ0.5 → Tune(0.363,0.5) (spring.ts:68-69).
+    private const double StretchDurS = 0.363;
     /// <summary>Room around the track for the lens overhang and its shadow (the lens/pill hosts extend this far).</summary>
     internal const double HostPadX = 26, HostPadY = 18;
 
@@ -233,9 +238,9 @@ internal sealed class GlassSliderSurface : Control
     private readonly Border _pill;
     private readonly GlassMotion.Clock _clock = new();
     private readonly GlassMotion.Spring _lift = new(GlassMotion.MorphInS, 0);    // 0 = white pill, 1 = glass lens
-    private readonly GlassMotion.Spring _glide = new(GlassMotion.JumpS, 0);      // drawn ratio minus base, decays to 0
+    private readonly GlassMotion.Spring _glide = new(GlideS, 0);      // drawn ratio minus base, decays to 0
     private readonly GlassMotion.Spring _stretch =
-        new GlassMotion.Spring(GlassMotion.StretchS, 1).Tune(GlassMotion.StretchS, GlassMotion.StretchBounce);
+        new GlassMotion.Spring(StretchDurS, 1).Tune(StretchDurS, GlassMotion.StretchBounce);
 
     private bool _dragging, _rebase, _released, _lifted, _frameRequested;
     private double _dragT, _grabDX, _lastBase = double.NaN, _drawnT = double.NaN, _lastThumbX = double.NaN, _speed;
@@ -263,11 +268,14 @@ internal sealed class GlassSliderSurface : Control
     private void ApplyTheme()
     {
         bool dark = Dark;
-        _lens.BackdropZoom = 1.12;     // the line reads ~1.1x thicker inside, as held on iOS
-        _lens.RefractionHeight = 7;
-        _lens.RefractionAmount = 12;
+        // Faithful circle-map lens (reference build-slider.ts knob: refractionHeight 10, amount -14, saturation 1.0,
+        // effects = blur+lens only, no dispersion). Interior stays 1× — no BackdropZoom, no Snell approximation.
+        _lens.SnellRefraction = false;
+        _lens.BackdropZoom = 1.0;
+        _lens.RefractionHeight = 10;
+        _lens.RefractionAmount = 14;   // positive magnitude; DrawOperation negates it for the shader
         _lens.DepthEffect = true;
-        _lens.ChromaticAberration = false;
+        _lens.ChromaticAberration = false;   // reference slider effects block is blur+lens only (no chroma; unlike the toggle)
         _lens.BlurRadius = 0;
         _lens.Vibrancy = 1.0;
         _lens.Brightness = 0;
@@ -275,24 +283,24 @@ internal sealed class GlassSliderSurface : Control
         // a faint lift so the clear glass reads as a surface; the refracted backdrop still shows straight through
         _lens.SurfaceColor = dark ? Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF);
         _lens.HighlightEnabled = true;
-        _lens.HighlightOpacity = dark ? 0.35 : 0.45;           // a hint of specular, not an outline
-        _lens.HighlightWidth = 0.35;
+        _lens.HighlightOpacity = 0.38;         // Ambient effective peak (1.0 × paintAlpha 0.38); Plus blend over-brightens above this
+        _lens.HighlightWidth = 0.5;            // renders as a 2px stroke regardless (ceil(w)*2)
         _lens.HighlightBlurRadius = 0.25;
-        _lens.HighlightAngle = 60;
+        _lens.HighlightAngle = 45;             // reference angle = π/4
+        _lens.HighlightFalloff = 1.0;
+        // Reference knob shadow is very subtle: radius 4 → sigma ≈1.3 (vendored radius==sigma), alpha 0.05.
         _lens.ShadowEnabled = true;
-        _lens.ShadowRadius = 8;
-        _lens.ShadowOffset = new Vector(0, 3);
-        _lens.ShadowColor = dark ? Color.FromArgb(0x8C, 0, 0, 0) : Color.FromArgb(0x40, 0, 0, 0);
+        _lens.ShadowRadius = 1.5;
+        _lens.ShadowOffset = new Vector(0, 0.7);
+        _lens.ShadowColor = dark ? Color.FromArgb(0x1A, 0, 0, 0) : Color.FromArgb(0x14, 0, 0, 0);
         _lens.ShadowOpacity = 1;
-
-        // Minecraft 26.2 glass edge model (LiquidGlass26 glass.fsh): the backdrop is pulled INWARD along the rim by a
-        // Snell edge factor (IOR 1.4) with an RGB split, so the track line visibly bends and flares where it enters the
-        // lens instead of passing straight through. No tint (26.2 glass has none): the lens body stays clear.
-        _lens.SnellRefraction = true;
-        _lens.SnellThickness = 7;        // ~0.5x the held lens half-height: a sharp meniscus at the rim, clear centre
-        _lens.SnellIor = 1.4;
-        _lens.SnellOffset = 10;          // ~0.75x half-height: the track line flares to ~2x where it enters (iOS reference)
-        _lens.SnellDispersion = 0.105;   // 26.2: 7 * 0.015
+        // Reference knob inner shadow: radius 4 (== sigma, 1:1), offset (0,4), alpha 0.30 (renders ~0.15 after the
+        // shader's ×0.5 coverage). Opacity is ramped by press amount L in PlaceThumb.
+        _lens.InnerShadowEnabled = true;
+        _lens.InnerShadowRadius = 4;
+        _lens.InnerShadowOffset = new Vector(0, 4);
+        _lens.InnerShadowColor = Color.FromArgb(0x4D, 0, 0, 0);
+        _lens.InnerShadowOpacity = 1;
 
         // the rim: light from above, dimmer toward the bottom (a grey lower edge on the light theme, as recorded)
         _rim.BorderBrush = new LinearGradientBrush
@@ -348,7 +356,7 @@ internal sealed class GlassSliderSurface : Control
             // on the thumb: keep the grab offset; any leftover rubber-band overshoot eases out while dragging
             double c = GlassMotion.Clamp01(t);
             _grabDX = x - (TravelX0 + Span * c);
-            _glide.Tune(GlassMotion.JumpS, 0);
+            _glide.Tune(GlideS, 0);
             _glide.X = t - c;
             _glide.V = 0;
             _glide.Retarget(0);
@@ -427,8 +435,8 @@ internal sealed class GlassSliderSurface : Control
         else baseT = _owner.Norm();
         if (!double.IsNaN(_lastBase) && (!_dragging || _rebase) && baseT != _lastBase)
         {
-            if (_released) _glide.Tune(GlassMotion.SettleS, 0);                                   // let go
-            else if (_rebase || (_glide.X == 0 && _glide.V == 0)) _glide.Tune(GlassMotion.JumpS, 0);   // track click / typed
+            if (_released) _glide.Tune(GlideS, 0);                                   // let go
+            else if (_rebase || (_glide.X == 0 && _glide.V == 0)) _glide.Tune(GlideS, 0);   // track click / typed
             _glide.X += _lastBase - baseT;                  // keep the thumb where it was drawn, then glide to the new base
             _glide.Retarget(0);
             if (_released) _glide.SettleMonotonic(); else _glide.CapOvershoot();
@@ -480,6 +488,7 @@ internal sealed class GlassSliderSurface : Control
         _rim.IsVisible = showLens;
         if (showLens)
         {
+            _lens.InnerShadowOpacity = L;    // reference innerShadow alpha ramps with press (radius/alpha × progress)
             _lens.Width = lw * 2;
             _lens.Height = lh * 2;
             _lens.CornerRadius = new CornerRadius(cr);
@@ -494,8 +503,8 @@ internal sealed class GlassSliderSurface : Control
             Canvas.SetTop(_rim, top);
         }
 
-        // the white pill fades out as the glass forms; squared so the two never sit at 50/50 together
-        double whiteA = (1 - L) * (1 - L);
+        // the white pill fades out as the glass forms (reference white overlay alpha = 1 − pressProgress, linear)
+        double whiteA = 1 - L;
         _pill.IsVisible = whiteA > 0.004;
         _pill.Width = lw * 2;
         _pill.Height = lh * 2;

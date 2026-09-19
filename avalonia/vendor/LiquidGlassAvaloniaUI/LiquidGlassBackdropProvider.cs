@@ -33,6 +33,12 @@ namespace LiquidGlassAvaloniaUI
             public Rect LastClipRect;
             public bool ForcePublishNextCapture;
             public bool HasSubscriberOnlyDirtyRect;
+            // Animation freeze: a reserved clip (unioned into the capture clip) + a gate that stops re-captures once
+            // the armed capture has been published, so a growing subscriber does not re-rasterise the window per frame.
+            public bool Frozen;
+            public bool FreezeArm;
+            public bool HasReservedRect;
+            public Rect ReservedRect;
             public Rect SubscriberOnlyDirtyRect;
             public long SubscriberOnlyDirtyTicksUtc;
             public List<WeakReference<Control>> Subscribers { get; } = new();
@@ -83,6 +89,44 @@ namespace LiquidGlassAvaloniaUI
                 || !state.SnapshotScaling.Equals(scaling);
 
             if (shouldCapture)
+            {
+                if (state.Snapshot is not null)
+                    state.Frozen = false;   // DPI changed under a freeze: the held snapshot is no longer valid
+                QueueCapture(topLevel, state);
+            }
+        }
+
+        /// <summary>Capture once with a clip that already covers <paramref name="finalRectTopLevelDip"/> (the subscriber's final
+        /// bounds plus its motion), then hold that snapshot — no re-captures — until <see cref="Unfreeze"/>. Meant for a
+        /// short morph (a menu growing out of a trigger): every growth frame would otherwise trigger a clip-growth capture.</summary>
+        public static void FreezeForAnimation(Control subscriber, Rect finalRectTopLevelDip)
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(subscriber);
+            if (topLevel is null)
+                return;
+
+            BackdropState state = s_states.GetOrCreateValue(topLevel);
+            TrackSubscriber(state, subscriber);
+            EnsureRendererSubscription(topLevel, state);
+            state.Frozen = false;                                   // re-arm even if a previous freeze was never released
+            state.ReservedRect = finalRectTopLevelDip.Inflate(GetBackdropInflate(subscriber) + 8.0);
+            state.HasReservedRect = true;
+            state.FreezeArm = true;
+            QueueCapture(topLevel, state);
+        }
+
+        /// <summary>Ends a <see cref="FreezeForAnimation"/>: drops the reserved clip and takes a fresh live snapshot.</summary>
+        public static void Unfreeze(Control subscriber)
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(subscriber);
+            if (topLevel is null || !s_states.TryGetValue(topLevel, out BackdropState? state))
+                return;
+
+            bool wasFrozen = state.Frozen || state.FreezeArm || state.HasReservedRect;
+            state.Frozen = false;
+            state.FreezeArm = false;
+            state.HasReservedRect = false;
+            if (wasFrozen)
                 QueueCapture(topLevel, state);
         }
 
@@ -120,6 +164,9 @@ namespace LiquidGlassAvaloniaUI
 
         private static void QueueCapture(TopLevel topLevel, BackdropState state)
         {
+            if (state.Frozen && !state.FreezeArm)
+                return;   // frozen for an animation: keep serving the held snapshot
+
             LiquidGlassDiagnostics.RecordCaptureQueueRequest();
 
             if (state.CaptureQueued)
@@ -214,6 +261,7 @@ namespace LiquidGlassAvaloniaUI
                 {
                     state.LastCaptureTicksUtc = nowTicks;
                     LiquidGlassDiagnostics.RecordCaptureSkippedByHash();
+                    if (state.FreezeArm) { state.Frozen = true; state.FreezeArm = false; }
                     return;
                 }
 
@@ -232,6 +280,7 @@ namespace LiquidGlassAvaloniaUI
                 System.Threading.Volatile.Write(ref state.Snapshot, snapshot);
                 currentSnapshot?.RequestDispose();
                 LiquidGlassDiagnostics.RecordCapturePublished();
+                if (state.FreezeArm) { state.Frozen = true; state.FreezeArm = false; }
             }
             finally
             {
@@ -261,6 +310,9 @@ namespace LiquidGlassAvaloniaUI
                 if (IsCapturing)
                     return;
 
+                if (state.Frozen && !state.FreezeArm)
+                    return;   // animation freeze: the growing subscriber must not trigger clip-growth captures
+
                 if (!topLevel.IsVisible)
                     return;
 
@@ -273,6 +325,9 @@ namespace LiquidGlassAvaloniaUI
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (IsCapturing)
+                        return;
+
+                    if (state.Frozen && !state.FreezeArm)
                         return;
 
                     if (!topLevel.IsVisible)
@@ -405,6 +460,9 @@ namespace LiquidGlassAvaloniaUI
                 union = union is null ? globalBounds : union.Value.Union(globalBounds);
             }
 
+            if (state.HasReservedRect)
+                union = union is null ? state.ReservedRect : union.Value.Union(state.ReservedRect);
+
             if (union is null)
                 return default;
 
@@ -511,7 +569,7 @@ namespace LiquidGlassAvaloniaUI
 
                     // Chromatic aberration can sample up to ~2x refractionAmount in the worst case,
                     // so capture a wider border to avoid clamping artifacts.
-                    double refractionMargin = Math.Abs(surface.RefractionAmount) * (surface.ChromaticAberration ? 2.0 : 1.0);
+                    double refractionMargin = Math.Max(Math.Abs(surface.RefractionAmount) * (surface.ChromaticAberration ? 2.0 : 1.0), surface.SnellRefraction ? Math.Abs(surface.SnellOffset) * (1.0 + Math.Max(surface.SnellDispersion, 0.0)) : 0.0);
 
                     return Math.Max(
                         minInflate,

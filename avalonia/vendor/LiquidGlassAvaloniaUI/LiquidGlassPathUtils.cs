@@ -32,6 +32,14 @@ namespace LiquidGlassAvaloniaUI
             return path;
         }
 
+        /// <summary>Squircle outline when <paramref name="cornerExponent"/> is above 2, else the rounded rect.</summary>
+        public static SKPath CreateOutlinePath(SKRect rect, float[] cornerRadii, float cornerExponent)
+        {
+            return cornerExponent > 2.001f
+                ? LiquidGlassShapes.CreateSquirclePath(rect, cornerRadii[0], cornerExponent)
+                : CreateRoundRectPath(rect, cornerRadii);
+        }
+
         private static double Clamp(double value, double min, double max)
         {
             if (value < min) return min;
