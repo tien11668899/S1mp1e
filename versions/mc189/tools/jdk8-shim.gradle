@@ -1,0 +1,11 @@
+// Build the 1.8.9 (Gradle 2.14 / ForgeGradle 2.1) project without a JDK 8: Gradle runs on the
+// JRE 8, and every JavaCompile forks JDK 21's javac against the Java 8 rt.jar, so the bytecode
+// links to Java 8 API signatures (no ByteBuffer.flip() -> NoSuchMethodError on the game's Java 8).
+allprojects {
+    tasks.withType(JavaCompile) {
+        options.fork = true
+        options.forkOptions.executable = 'C:/Program Files/Java/jdk-21.0.11/bin/javac.exe'
+        options.bootClasspath = 'C:/Program Files/Java/jre1.8.0_481/lib/rt.jar'
+        options.compilerArgs += ['-Xlint:-options']
+    }
+}

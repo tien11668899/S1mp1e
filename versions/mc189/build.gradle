@@ -3,8 +3,11 @@
 // Same measured Apple parameters, same Snell refraction model, same springs —
 // only the plumbing differs (GLSL 120 + immediate mode instead of blaze3d).
 //
-// Toolchain: JDK8 + Gradle 2.14 + ForgeGradle 2.1-SNAPSHOT.
-//   $env:JAVA_HOME="C:\Temp\jdk8dl\jdk8u502-b07"; .\gradlew.bat build
+// Toolchain: Gradle 2.14 + ForgeGradle 2.1-SNAPSHOT, which must RUN on Java 8. With a JDK 8:
+//   $env:JAVA_HOME="<jdk8>"; .\gradlew.bat build
+// With only a JRE 8 (no javac) plus a newer JDK, tools/jdk8-shim.gradle forks that JDK's javac
+// against the JRE 8 rt.jar, so the bytecode still links to Java 8 API signatures:
+//   $env:JAVA_HOME="C:\Program Files\Java\jre1.8.0_481"; .\gradlew.bat --offline -I tools\jdk8-shim.gradle build
 
 buildscript {
     repositories {
