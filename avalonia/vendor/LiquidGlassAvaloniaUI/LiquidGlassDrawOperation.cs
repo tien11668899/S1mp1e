@@ -200,7 +200,8 @@ namespace LiquidGlassAvaloniaUI
 
                 float refractionHeight = (float)Clamp(_parameters.RefractionHeight, 0.0, Math.Min(size.Width, size.Height) * 0.5);
                 float refractionAmount = (float)_parameters.RefractionAmount;
-                bool applyLens = refractionHeight > 0.001f && Math.Abs(refractionAmount) > 0.001f;
+                bool snell = _parameters.SnellRefraction;
+                bool applyLens = snell || (refractionHeight > 0.001f && Math.Abs(refractionAmount) > 0.001f);
 
                 SKShader? lensShader = null;
                 if (applyLens)
@@ -216,6 +217,11 @@ namespace LiquidGlassAvaloniaUI
                     lensUniforms["refractionAmount"] = -refractionAmount;
                     lensUniforms["depthEffect"] = _parameters.DepthEffect ? 1.0f : 0.0f;
                     lensUniforms["chromaticAberration"] = _parameters.ChromaticAberration ? 1.0f : 0.0f;
+                    lensUniforms["snell"] = snell ? 1.0f : 0.0f;
+                    lensUniforms["snellThickness"] = (float)Clamp(_parameters.SnellThickness, 0.001, Math.Min(size.Width, size.Height) * 0.5);
+                    lensUniforms["snellIor"] = (float)Math.Max(_parameters.SnellIor, 1.0001);
+                    lensUniforms["snellOffset"] = (float)_parameters.SnellOffset;
+                    lensUniforms["snellDispersion"] = (float)Math.Max(_parameters.SnellDispersion, 0.0);
 
                     using SKRuntimeEffectChildren lensChildren = new(s_lensEffect);
                     lensChildren["content"] = lensInput;

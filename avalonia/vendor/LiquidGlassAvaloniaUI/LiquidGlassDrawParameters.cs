@@ -22,6 +22,12 @@ namespace LiquidGlassAvaloniaUI
         public bool DepthEffect { get; set; }
         public bool ChromaticAberration { get; set; }
 
+        public bool SnellRefraction { get; set; }
+        public double SnellThickness { get; set; }
+        public double SnellIor { get; set; }
+        public double SnellOffset { get; set; }
+        public double SnellDispersion { get; set; }
+
         public double BlurRadius { get; set; }
         public double Vibrancy { get; set; }
         public double Brightness { get; set; }

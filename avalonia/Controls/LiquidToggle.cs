@@ -2,6 +2,7 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -38,7 +39,8 @@ public class LiquidToggle : ToggleButton
     private const double LensWSlow = 30, LensHSlow = 23;    // SLOW peak (sigma = 0)
     private const double TravelS = 0.30;
     private const double MorphInS = 0.085, MorphOutS = 0.255;   // snap open, ~3× slower settle
-    private const double SpeedFull = 55.0;                  // knob px/s that reads as a full-speed flick (sigma = 1)
+    private const double SpeedFull = 55.0;
+    private const double HoldSigma = 0.6;                   // a press-and-hold swells the knob to ~60% of a full flick                  // knob px/s that reads as a full-speed flick (sigma = 1)
 
     private static readonly Color OnColor = Color.FromRgb(0x34, 0xC7, 0x59);
 
@@ -53,7 +55,7 @@ public class LiquidToggle : ToggleButton
     private readonly GlassMotion.Spring _travel = new(TravelS, 0);                 // 0 = OFF pos, 1 = ON pos
     private readonly GlassMotion.Spring _lift = new(MorphInS, 0);                  // 0 = white pill, 1 = glass lens
 
-    private bool _lifted, _frameRequested;
+    private bool _lifted, _held, _frameRequested;
     private double _lastCX = double.NaN, _speed, _sigma;
 
     public LiquidToggle() => ClipToBounds = false;
@@ -106,6 +108,30 @@ public class LiquidToggle : ToggleButton
         }
     }
 
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        if (_root is null || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        _held = true;
+        _lifted = true;
+        _lift.Tune(MorphInS, 0).Retarget(1);
+        Kick();
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);   // ToggleButton flips IsChecked here if released over the switch
+        _held = false;
+        Kick();
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        _held = false;
+        Kick();
+    }
+
     /// <summary>Glass optics, rim, pill styling and the OFF track colour per theme. The lens has no body colour of its
     /// own: a clear interior, refraction in a band along the rim, a little magnification, a rim highlight, a shadow.</summary>
     private void ApplyTheme()
@@ -116,7 +142,7 @@ public class LiquidToggle : ToggleButton
 
         if (_lens is not null)
         {
-            _lens.BackdropZoom = 1.24;          // stronger convex magnification: the track core reads larger/brighter
+            _lens.BackdropZoom = 1.0;           // no centre zoom: it would drag the green up into the overhang and hide the notches
             _lens.RefractionHeight = 9;         // deepen the top/bottom dark refraction bands (the SDF notch signature)
             _lens.RefractionAmount = 16;
             _lens.DepthEffect = true;
@@ -125,7 +151,7 @@ public class LiquidToggle : ToggleButton
             _lens.Vibrancy = 1.0;
             _lens.Brightness = 0;
             _lens.TintColor = Color.FromArgb(0, 0, 0, 0);
-            _lens.SurfaceColor = dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF);
+            _lens.SurfaceColor = dark ? Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF);
             _lens.HighlightEnabled = true;
             _lens.HighlightOpacity = dark ? 0.62 : 0.55;    // bright specular rim, peaks mid-flip (× lens opacity)
             _lens.HighlightWidth = 0.35;
@@ -136,6 +162,13 @@ public class LiquidToggle : ToggleButton
             _lens.ShadowOffset = new Vector(0, 3);
             _lens.ShadowColor = dark ? Color.FromArgb(0x8C, 0, 0, 0) : Color.FromArgb(0x40, 0, 0, 0);
             _lens.ShadowOpacity = 1;
+            // Minecraft 26.2 glass edge model: the track and card are pulled INWARD along the rim (Snell, IOR 1.4) with an
+            // RGB split, so the capsule's edges visibly bend inside the balloon; the body itself stays clear.
+            _lens.SnellRefraction = true;
+            _lens.SnellThickness = 4.5;         // thin band: a green rim hugging the edge, then the dark card notch
+            _lens.SnellIor = 1.4;
+            _lens.SnellOffset = 10;
+            _lens.SnellDispersion = 0.105;
         }
         if (_rim is not null)
             _rim.BorderBrush = new LinearGradientBrush
@@ -183,7 +216,7 @@ public class LiquidToggle : ToggleButton
 
         // lens forms on the flick, then reverts once the knob has essentially arrived
         bool arrived = Math.Abs(_travel.Target - _travel.X) < 0.05 && Math.Abs(_travel.V) < 0.5;
-        if (_lifted && arrived) { _lifted = false; _lift.Tune(MorphOutS, 0).Retarget(0); }
+        if (_lifted && arrived && !_held) { _lifted = false; _lift.Tune(MorphOutS, 0).Retarget(0); }
         _lift.Update(dt);
         _lift.Settle(0.002);
         double L = GlassMotion.Clamp01(_lift.X);
@@ -195,6 +228,7 @@ public class LiquidToggle : ToggleButton
         // balloon reflects how hard it was flipped, not the knob's speed at the instant it arrives.
         if (L > 0.02) _sigma = Math.Max(_sigma, GlassMotion.Clamp01(_speed / SpeedFull));
         else _sigma = 0;
+        if (_held) _sigma = Math.Max(_sigma, HoldSigma);   // finger down: a held swell
 
         double travel01 = GlassMotion.Clamp01(_travel.X);
         PlaceKnob(cx, L, _sigma);
@@ -202,7 +236,7 @@ public class LiquidToggle : ToggleButton
         if (_pill is not null)   // the solid pill picks up a pale-green cast toward the ON end
             _pill.Background = new SolidColorBrush(Lerp(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xEA, 0xF7, 0xEF), travel01));
 
-        bool moving = _lifted || _lift.X != 0 || Math.Abs(_travel.X - _travel.Target) > 1e-3
+        bool moving = _held || _lifted || _lift.X != 0 || Math.Abs(_travel.X - _travel.Target) > 1e-3
                       || Math.Abs(_travel.V) > 1e-3 || _speed > 0.5;
         if (moving) ScheduleFrame();
         else { _speed = 0; _lastCX = double.NaN; _clock.Reset(); }

@@ -263,7 +263,7 @@ internal sealed class GlassSliderSurface : Control
     private void ApplyTheme()
     {
         bool dark = Dark;
-        _lens.BackdropZoom = 1.18;
+        _lens.BackdropZoom = 1.12;     // the line reads ~1.1x thicker inside, as held on iOS
         _lens.RefractionHeight = 7;
         _lens.RefractionAmount = 12;
         _lens.DepthEffect = true;
@@ -273,7 +273,7 @@ internal sealed class GlassSliderSurface : Control
         _lens.Brightness = 0;
         _lens.TintColor = Color.FromArgb(0, 0, 0, 0);
         // a faint lift so the clear glass reads as a surface; the refracted backdrop still shows straight through
-        _lens.SurfaceColor = dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF);
+        _lens.SurfaceColor = dark ? Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF);
         _lens.HighlightEnabled = true;
         _lens.HighlightOpacity = dark ? 0.35 : 0.45;           // a hint of specular, not an outline
         _lens.HighlightWidth = 0.35;
@@ -284,6 +284,15 @@ internal sealed class GlassSliderSurface : Control
         _lens.ShadowOffset = new Vector(0, 3);
         _lens.ShadowColor = dark ? Color.FromArgb(0x8C, 0, 0, 0) : Color.FromArgb(0x40, 0, 0, 0);
         _lens.ShadowOpacity = 1;
+
+        // Minecraft 26.2 glass edge model (LiquidGlass26 glass.fsh): the backdrop is pulled INWARD along the rim by a
+        // Snell edge factor (IOR 1.4) with an RGB split, so the track line visibly bends and flares where it enters the
+        // lens instead of passing straight through. No tint (26.2 glass has none): the lens body stays clear.
+        _lens.SnellRefraction = true;
+        _lens.SnellThickness = 7;        // ~0.5x the held lens half-height: a sharp meniscus at the rim, clear centre
+        _lens.SnellIor = 1.4;
+        _lens.SnellOffset = 10;          // ~0.75x half-height: the track line flares to ~2x where it enters (iOS reference)
+        _lens.SnellDispersion = 0.105;   // 26.2: 7 * 0.015
 
         // the rim: light from above, dimmer toward the bottom (a grey lower edge on the light theme, as recorded)
         _rim.BorderBrush = new LinearGradientBrush

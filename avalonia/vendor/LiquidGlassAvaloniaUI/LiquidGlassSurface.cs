@@ -36,6 +36,23 @@ namespace LiquidGlassAvaloniaUI
         public static readonly StyledProperty<bool> ChromaticAberrationProperty =
             AvaloniaProperty.Register<LiquidGlassSurface, bool>(nameof(ChromaticAberration), false);
 
+        // S1mp1e: Minecraft 26.2 glass.fsh edge model (Snell edge factor, inward sampling, RGB dispersion).
+        // Off by default, so every existing surface renders exactly as before.
+        public static readonly StyledProperty<bool> SnellRefractionProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, bool>(nameof(SnellRefraction), false);
+
+        public static readonly StyledProperty<double> SnellThicknessProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(SnellThickness), 13.15);
+
+        public static readonly StyledProperty<double> SnellIorProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(SnellIor), 1.4);
+
+        public static readonly StyledProperty<double> SnellOffsetProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(SnellOffset), 24.0);
+
+        public static readonly StyledProperty<double> SnellDispersionProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(SnellDispersion), 0.105);
+
         public static readonly StyledProperty<double> BlurRadiusProperty =
             AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(BlurRadius), 2.0);
 
@@ -162,6 +179,11 @@ namespace LiquidGlassAvaloniaUI
                 RefractionAmountProperty,
                 DepthEffectProperty,
                 ChromaticAberrationProperty,
+                SnellRefractionProperty,
+                SnellThicknessProperty,
+                SnellIorProperty,
+                SnellOffsetProperty,
+                SnellDispersionProperty,
                 BlurRadiusProperty,
                 VibrancyProperty,
                 BrightnessProperty,
@@ -250,6 +272,39 @@ namespace LiquidGlassAvaloniaUI
         {
             get => GetValue(ChromaticAberrationProperty);
             set => SetValue(ChromaticAberrationProperty, value);
+        }
+
+        /// <summary>Use the Minecraft 26.2 glass edge model instead of the circle-map lens: Snell edge factor
+        /// -tan(thetaT - thetaI) over a band of <see cref="SnellThickness"/> DIP, sampling INWARD by up to
+        /// <see cref="SnellOffset"/> DIP, with a per-channel spread of <see cref="SnellDispersion"/>.</summary>
+        public bool SnellRefraction
+        {
+            get => GetValue(SnellRefractionProperty);
+            set => SetValue(SnellRefractionProperty, value);
+        }
+
+        public double SnellThickness
+        {
+            get => GetValue(SnellThicknessProperty);
+            set => SetValue(SnellThicknessProperty, value);
+        }
+
+        public double SnellIor
+        {
+            get => GetValue(SnellIorProperty);
+            set => SetValue(SnellIorProperty, value);
+        }
+
+        public double SnellOffset
+        {
+            get => GetValue(SnellOffsetProperty);
+            set => SetValue(SnellOffsetProperty, value);
+        }
+
+        public double SnellDispersion
+        {
+            get => GetValue(SnellDispersionProperty);
+            set => SetValue(SnellDispersionProperty, value);
         }
 
         public double BlurRadius
@@ -494,6 +549,11 @@ namespace LiquidGlassAvaloniaUI
                 RefractionAmount = RefractionAmount,
                 DepthEffect = DepthEffect,
                 ChromaticAberration = ChromaticAberration,
+                SnellRefraction = SnellRefraction,
+                SnellThickness = SnellThickness,
+                SnellIor = SnellIor,
+                SnellOffset = SnellOffset,
+                SnellDispersion = SnellDispersion,
                 BlurRadius = BlurRadius,
                 Vibrancy = Vibrancy,
                 Brightness = Brightness,
@@ -607,6 +667,11 @@ namespace LiquidGlassAvaloniaUI
                    || property == RefractionAmountProperty
                    || property == DepthEffectProperty
                    || property == ChromaticAberrationProperty
+                   || property == SnellRefractionProperty
+                   || property == SnellThicknessProperty
+                   || property == SnellIorProperty
+                   || property == SnellOffsetProperty
+                   || property == SnellDispersionProperty
                    || property == BlurRadiusProperty
                    || property == VibrancyProperty
                    || property == BrightnessProperty

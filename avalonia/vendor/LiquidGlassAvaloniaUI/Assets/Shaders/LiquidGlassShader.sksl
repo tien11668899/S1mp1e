@@ -10,6 +10,13 @@ uniform float refractionAmount;      // Refraction strength (DIP)
 uniform float depthEffect;           // 0..1
 uniform float chromaticAberration;   // 0..1
 
+// S1mp1e: Minecraft 26.2 glass.fsh edge model (see LiquidGlassSurface.SnellRefraction).
+uniform float snell;                 // 0 = circle-map lens below, 1 = Snell edge model
+uniform float snellThickness;        // refraction band from the edge (DIP)
+uniform float snellIor;              // index of refraction (26.2: 1.4)
+uniform float snellOffset;           // inward displacement at edge factor 1 (DIP)
+uniform float snellDispersion;       // per-channel spread of the offset (26.2: 7 * 0.015 = 0.105)
+
 float radiusAt(float2 centeredCoord, float4 radii) {
     if (centeredCoord.x >= 0.0) {
         if (centeredCoord.y < 0.0) return radii.y;
@@ -86,6 +93,32 @@ half4 main(float2 coord) {
     float radius = radiusAt(centeredCoord, cornerRadii);
 
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+
+    if (snell > 0.5) {
+        // Port of LiquidGlass26 glass.fsh: xR = 1 - depth/band, thetaI = asin(xR^2), thetaT = asin(sin(thetaI)/IOR),
+        // edgeFactor = -tan(thetaT - thetaI) (~0.98 at the very edge, ~0.34 at 10% depth, ~0.07 at half the band),
+        // and the backdrop is sampled INWARD along the SDF normal: offset = -normal * edgeFactor * scale.
+        float band = max(snellThickness, 0.001);
+        float depth = max(-sd, 0.0);
+        if (depth >= band) {
+            return content.eval(coord);
+        }
+        float xR = clamp(1.0 - depth / band, 0.0, 1.0);
+        float thetaI = asin(xR * xR);
+        float thetaT = asin(clamp(sin(thetaI) / snellIor, -1.0, 1.0));
+        float edgeFactor = -tan(thetaT - thetaI);
+        float gradR = min(radius * 1.5, min(halfSize.x, halfSize.y));
+        float2 n = gradSdRoundedRect(centeredCoord, halfSize, gradR);
+        float2 off = -n * edgeFactor * snellOffset;
+        if (snellDispersion <= 0.0005) {
+            return content.eval(coord + off);
+        }
+        half4 cR = content.eval(coord + off * (1.0 + snellDispersion));
+        half4 cG = content.eval(coord + off);
+        half4 cB = content.eval(coord + off * (1.0 - snellDispersion));
+        return half4(cR.r, cG.g, cB.b, cG.a);
+    }
+
     float h = max(refractionHeight, 0.001);
 
     // Flat center region: no refraction.
