@@ -194,22 +194,48 @@ async fn install_java(
 const GLASS_BASE_URL: &str =
     "https://raw.githubusercontent.com/tien11668899/S1mp1e/main/glass-mods";
 
-/// Ensure the liquid-glass client jar for `mc` is present in `.minecraft/s1mp1e-mods/`.
-/// On a fresh machine the jar was never built locally, so fetch it from the repo's
-/// `glass-mods/`. No-op if already present. A missing build (404) is not an error —
-/// the game just launches without glass for that version.
+/// Ensure the liquid-glass client jar for `mc` in `.minecraft/s1mp1e-mods/` is the one
+/// published in the repo's `glass-mods/`: fetched on a fresh machine, and UPDATED when the
+/// repo's copy changes. The server's ETag is kept next to the jar (`glass-<mc>.jar.etag`)
+/// and sent back as `If-None-Match`, so an unchanged jar costs one tiny 304 per launch.
+/// A jar installed before this existed has no `.etag`, so it is refreshed once.
+///
+/// Never fatal: offline, a missing build (404) or a jar locked by a running game all keep
+/// whatever is installed. A `glass-<mc>.jar.pin` file next to the jar opts out entirely
+/// (a locally built development jar must not be replaced by the published one).
 pub async fn ensure_glass(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
     let dst = root.join("s1mp1e-mods").join(format!("glass-{mc}.jar"));
-    if dst.exists() {
+    if dst.with_extension("jar.pin").exists() {
         return Ok(());
     }
-    tick(emit, "glass", format!("下載 {mc} 液態玻璃"), 0, 0);
+    let etag_path = dst.with_extension("jar.etag");
+    let known_etag = if dst.exists() {
+        tokio::fs::read_to_string(&etag_path).await.ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+    } else {
+        None
+    };
+
     let cl = client();
     let url = format!("{GLASS_BASE_URL}/glass-{mc}.jar");
-    let resp = match cl.get(&url).send().await {
-        Ok(r) if r.status().is_success() => r,
-        _ => return Ok(()), // no glass build for this version → skip silently
+    let mut req = cl.get(&url);
+    if let Some(tag) = &known_etag {
+        req = req.header(reqwest::header::IF_NONE_MATCH, tag.as_str());
+    }
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(_) => return Ok(()), // offline → keep the installed jar (if any)
     };
+    if resp.status() == reqwest::StatusCode::NOT_MODIFIED || !resp.status().is_success() {
+        return Ok(()); // unchanged, or no glass build for this version
+    }
+    let new_etag = resp
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+
+    let updating = dst.exists();
+    tick(emit, "glass", if updating { format!("更新 {mc} 液態玻璃") } else { format!("下載 {mc} 液態玻璃") }, 0, 0);
     let bytes = resp.bytes().await.context("download glass jar")?;
     if let Some(p) = dst.parent() {
         tokio::fs::create_dir_all(p).await?;
@@ -217,7 +243,14 @@ pub async fn ensure_glass(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
     // Atomic: temp + rename so a mid-download abort never leaves a truncated jar.
     let tmp = dst.with_extension("jar.part");
     tokio::fs::write(&tmp, &bytes).await?;
-    tokio::fs::rename(&tmp, &dst).await?;
+    if tokio::fs::rename(&tmp, &dst).await.is_err() {
+        // e.g. the jar is held open by a game that is still running: keep the old one
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Ok(());
+    }
+    if let Some(tag) = new_etag {
+        let _ = tokio::fs::write(&etag_path, tag).await;
+    }
     tick(emit, "glass", format!("{mc} 液態玻璃就緒"), 1, 1);
     Ok(())
 }
@@ -433,4 +466,58 @@ pub async fn ensure_libraries(root: PathBuf, id: String, emit: Emit) -> Result<(
         match vj.inherits_from { Some(par) => cur = par, None => break }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod glass_update_tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    fn quiet() -> Emit {
+        std::sync::Arc::new(|_| {})
+    }
+
+    fn mtime(p: &PathBuf) -> SystemTime {
+        std::fs::metadata(p).unwrap().modified().unwrap()
+    }
+
+    /// Network test against the real repo (glass-1.8.9.jar is ~96 KB).
+    #[tokio::test]
+    async fn glass_jar_is_fetched_kept_and_refreshed() {
+        let root = std::env::temp_dir().join(format!("s1mp1e-glass-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let jar = root.join("s1mp1e-mods").join("glass-1.8.9.jar");
+        let etag = jar.with_extension("jar.etag");
+
+        // 1) fresh machine: downloaded, ETag remembered
+        ensure_glass(&root, "1.8.9", &quiet()).await.unwrap();
+        assert!(jar.exists(), "jar should be downloaded");
+        assert!(std::fs::read_to_string(&etag).unwrap().starts_with('"'), "etag should be stored");
+        let t1 = mtime(&jar);
+
+        // 2) unchanged upstream: 304, jar untouched
+        std::thread::sleep(Duration::from_millis(1100));
+        ensure_glass(&root, "1.8.9", &quiet()).await.unwrap();
+        assert_eq!(mtime(&jar), t1, "an unchanged jar must not be re-downloaded");
+
+        // 3) an old install (no .etag) or a changed upstream: refreshed
+        std::fs::write(&jar, b"stale").unwrap();
+        std::fs::write(&etag, "\"stale-etag\"").unwrap();
+        ensure_glass(&root, "1.8.9", &quiet()).await.unwrap();
+        assert!(std::fs::metadata(&jar).unwrap().len() > 1000, "a stale jar must be replaced");
+        assert_ne!(std::fs::read_to_string(&etag).unwrap(), "\"stale-etag\"");
+
+        // 4) a .pin keeps a local development jar
+        std::fs::write(&jar, b"dev build").unwrap();
+        std::fs::write(jar.with_extension("jar.pin"), b"").unwrap();
+        std::fs::write(&etag, "\"stale-etag\"").unwrap();
+        ensure_glass(&root, "1.8.9", &quiet()).await.unwrap();
+        assert_eq!(std::fs::read(&jar).unwrap(), b"dev build", "a pinned jar must never be replaced");
+
+        // 5) a version with no published build is not an error
+        ensure_glass(&root, "0.0.0-none", &quiet()).await.unwrap();
+        assert!(!root.join("s1mp1e-mods").join("glass-0.0.0-none.jar").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

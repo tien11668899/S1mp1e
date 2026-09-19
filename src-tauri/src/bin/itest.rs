@@ -218,8 +218,8 @@ async fn cmd_play(a: &[String]) -> i32 {
 
     let auth_info = resolve_auth(&name).await;
     let settings = config::load().settings;
-    // Fresh machine: the glass jar was never built locally → fetch it from the repo so
-    // the friend who just downloaded the launcher still gets liquid glass.
+    // Fetch the glass jar from the repo on a fresh machine, and refresh it whenever the
+    // published one changes (ETag), so players actually receive in-game glass updates.
     if settings.glass {
         let _ = install::ensure_glass(&root, &mc, &silent_emit()).await;
     }
