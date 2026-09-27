@@ -2,694 +2,847 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>S1mp1e — 液態玻璃 Minecraft 啟動器</title>
-<meta name="description" content="Apple 液態玻璃美學的 Minecraft 客戶端與啟動器。從 1.8.9 到 26.2 一鍵開玩,Modrinth 直搜下載,Microsoft 帳號登入。">
-<meta property="og:title" content="S1mp1e — Liquid Glass Minecraft Launcher">
-<meta property="og:description" content="液態玻璃 UI · 支援 1.8.9 到 26.2 · Modrinth 直搜 · MSA 登入">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>S1mp1e | 液態玻璃 Minecraft 啟動器與客戶端</title>
+<meta name="description" content="把 Apple 的液態玻璃放進 Minecraft。啟動器和遊戲內介面一起換，1.8.9 到 26.2 都能玩。">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f6f6f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="S1mp1e | 液態玻璃 Minecraft 啟動器與客戶端">
+<meta property="og:description" content="液態玻璃介面、戰鬥三件套、21 個模組，1.8.9 到 26.2。">
 <meta property="og:image" content="https://tien11668899.github.io/S1mp1e/assets/icon.png">
+<meta property="og:type" content="website">
 <link rel="icon" href="assets/icon.png">
+<link rel="preload" as="image" href="assets/start-light.webp" media="(prefers-color-scheme: light)">
+<link rel="preload" as="image" href="assets/start-dark.webp" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <style>
-html, body { background: #fbfbfd; color: #1d1d1f; }
+/* =====================================================================
+   S1mp1e site. Glass surfaces here are a WEB APPROXIMATION of liquid
+   glass (backdrop-filter + layered highlights + an SVG displacement map
+   for the lens demo), not Apple's platform material.
 
+   Shape rule: large surfaces 28px, media 20px, every control is a pill.
+   One accent: Apple blue (text links #0066cc / #2997ff, filled buttons
+   #0066cc / #0071e3 so white labels keep >= 4.5:1).
+   ===================================================================== */
 :root {
+    --bg: #f6f6f8;
+    --surface: #ffffff;
+    --surface-2: #ececf1;
     --ink: #1d1d1f;
-    --ink-2: #6e6e73;
-    --ink-3: #86868b;
-    --canvas: #fbfbfd;
-    --canvas-pearl: #f5f5f7;
-    --canvas-tile: #ffffff;
-    --dark: #000000;
-    --dark-tile: #161617;
+    --ink-2: #57575c;
+    --line: rgba(0, 0, 0, 0.08);
     --accent: #0066cc;
-    --accent-hover: #0077ed;
-    --hairline: #d2d2d7;
-    --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont,
-                    "PingFang TC", "PingFang SC", "Helvetica Neue",
-                    "Microsoft JhengHei", sans-serif;
-    --font-text: "SF Pro Text", -apple-system, BlinkMacSystemFont,
-                 "PingFang TC", "PingFang SC", "Helvetica Neue",
-                 "Microsoft JhengHei", sans-serif;
+    --accent-fill: #0066cc;
+    --accent-fill-hover: #0077ed;
+    --shadow-tint: 30, 40, 80;
+    --glass-bg: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.46));
+    --glass-edge: rgba(255, 255, 255, 0.85);
+    --r-lg: 28px;
+    --r-md: 20px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang TC",
+            "Segoe UI Variable Display", "Segoe UI", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0b0b0d;
+        --surface: #161618;
+        --surface-2: #1f1f23;
+        --ink: #f5f5f7;
+        --ink-2: #a8a8ae;
+        --line: rgba(255, 255, 255, 0.1);
+        --accent: #2997ff;
+        --accent-fill: #0071e3;
+        --accent-fill-hover: #0a7ff0;
+        --shadow-tint: 0, 0, 0;
+        --glass-bg: linear-gradient(180deg, rgba(40,40,46,0.72), rgba(24,24,28,0.5));
+        --glass-edge: rgba(255, 255, 255, 0.16);
+    }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body {
-    font-family: var(--font-text);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
     font-size: 17px;
-    line-height: 1.47059;
-    letter-spacing: -0.022em;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+    line-height: 1.6;
+    letter-spacing: 0.005em;
+    -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
 }
+img { display: block; max-width: 100%; height: auto; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-img { max-width: 100%; height: auto; display: block; }
-button { font-family: inherit; border: 0; background: none; cursor: pointer; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+section { scroll-margin-top: 84px; }
 
-/* -------- Nav (floating liquid-glass pill) -------- */
+h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; line-height: 1.12; }
+h2 { font-size: clamp(32px, 4.4vw, 54px); }
+h3 { font-size: 22px; letter-spacing: -0.01em; line-height: 1.3; }
+.lede { font-size: clamp(17px, 1.5vw, 20px); color: var(--ink-2); max-width: 38em; margin-top: 14px; }
+.eyebrow { font-size: 15px; font-weight: 600; color: var(--accent); margin-bottom: 10px; }
+.muted { color: var(--ink-2); }
+
+/* ---------- glass (web approximation) ---------- */
+.glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    backdrop-filter: blur(22px) saturate(180%);
+    box-shadow:
+        inset 0 1px 0 var(--glass-edge),
+        inset 0 0 0 0.5px var(--glass-edge),
+        0 10px 36px rgba(var(--shadow-tint), 0.14),
+        0 1px 3px rgba(var(--shadow-tint), 0.08);
+}
+@media (prefers-reduced-transparency: reduce) {
+    .glass { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* ---------- buttons ---------- */
+.btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 48px; padding: 0 24px;
+    border-radius: 999px;
+    font-size: 17px; font-weight: 600; white-space: nowrap;
+    border: 0; cursor: pointer;
+    transition: background-color .2s, transform .2s var(--ease), box-shadow .2s;
+}
+.btn:hover { text-decoration: none; }
+.btn:active { transform: scale(0.97); }
+.btn i { font-size: 20px; }
+.btn-primary { background: var(--accent-fill); color: #fff; box-shadow: 0 8px 24px rgba(0, 102, 204, 0.28); }
+.btn-primary:hover { background: var(--accent-fill-hover); }
+.btn-ghost { color: var(--ink); }
+.btn-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+
+/* ---------- nav ---------- */
 .nav {
-    position: fixed;
-    top: 16px; left: 50%;
-    transform: translateX(-50%);
-    z-index: 50;
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 100;
+    display: flex; align-items: center; gap: 2px;
     padding: 6px;
     border-radius: 999px;
-    background:
-        linear-gradient(180deg,
-            rgba(255,255,255,0.55) 0%,
-            rgba(255,255,255,0.28) 100%);
-    backdrop-filter: url(#glass-distort) blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    box-shadow:
-        0 1px 0 rgba(255,255,255,0.85) inset,
-        0 0 0 0.5px rgba(255,255,255,0.6) inset,
-        0 0 20px rgba(255,255,255,0.35) inset,
-        0 10px 40px rgba(31,38,135,0.12),
-        0 2px 8px rgba(0,0,0,0.05);
-    transition: background .3s, box-shadow .3s;
+    max-width: calc(100vw - 24px);
 }
-.nav-inner {
-    display: inline-flex; align-items: center;
-    gap: 4px;
-    padding: 0 6px;
-    font-size: 14px;
-    color: var(--ink);
-    letter-spacing: -0.01em;
-    position: relative;
-}
-.nav-inner a { color: inherit; text-decoration: none; font-weight: 400; }
-.nav-brand {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 8px 14px 8px 8px;
-    font-weight: 600; font-size: 15px;
-    letter-spacing: -0.02em;
-    border-right: 1px solid rgba(0,0,0,0.08);
-    margin-right: 6px;
-}
-.nav-brand img { width: 22px; height: 22px; border-radius: 5px; }
-.nav-links { display: inline-flex; gap: 2px; align-items: center; }
-.nav-links a {
-    padding: 8px 14px;
-    border-radius: 999px;
-    opacity: 0.78;
-    transition: background .18s, opacity .18s, color .18s;
-}
-.nav-links a:hover {
-    background: rgba(0,0,0,0.06);
-    opacity: 1;
-}
-.nav-cta {
-    color: #fff !important;
-    background: var(--accent);
-    font-weight: 500 !important;
-    opacity: 1 !important;
-    margin-left: 4px;
-}
-.nav-cta:hover {
-    background: var(--accent-hover) !important;
-}
+.nav a { color: var(--ink); font-size: 15px; white-space: nowrap; }
+.nav a:hover { text-decoration: none; }
+.nav-brand { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; font-weight: 700; }
+.nav-brand img { width: 26px; height: 26px; border-radius: 7px; }
+.nav-link { padding: 8px 14px; border-radius: 999px; opacity: 0.8; transition: background-color .18s, opacity .18s; }
+.nav-link:hover { background: var(--line); opacity: 1; }
+.nav-cta { margin-left: 4px; padding: 8px 16px; border-radius: 999px; background: var(--accent-fill); color: #fff !important; font-weight: 600; }
+.nav-cta:hover { background: var(--accent-fill-hover); }
 
-/* -------- Section shell -------- */
-.section {
-    padding: 100px 22px 90px;
-    text-align: center;
+/* ---------- hero (asymmetric split) ---------- */
+.hero { padding: 96px 0 56px; min-height: min(100dvh, 860px); display: flex; align-items: center; }
+.hero-grid {
+    display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 48px; align-items: center;
 }
-.section.dark { background: var(--dark); color: #f5f5f7; }
-.section.pearl { background: var(--canvas-pearl); }
-.section.canvas { background: var(--canvas); }
-.section-inner { max-width: 980px; margin: 0 auto; }
+.hero h1 { font-size: clamp(56px, 8.2vw, 108px); letter-spacing: -0.035em; line-height: 1; }
+.hero .lede { font-size: clamp(18px, 1.7vw, 22px); }
+.hero-shot { perspective: 1800px; margin-right: -12vw; }
+.hero-shot img {
+    width: 100%;
+    border-radius: var(--r-md);
+    box-shadow: 0 40px 90px rgba(var(--shadow-tint), 0.28), 0 0 0 1px var(--line);
+    transform-origin: 0 50%;
+    animation: shot-in 1.4s var(--ease) both .15s;
+}
+@keyframes shot-in {
+    from { opacity: 0; transform: rotateY(-14deg) translateX(40px) scale(0.96); }
+    to   { opacity: 1; transform: none; }
+}
+.hero-copy > * { animation: rise .9s var(--ease) both; }
+.hero-copy > *:nth-child(2) { animation-delay: .08s; }
+.hero-copy > *:nth-child(3) { animation-delay: .16s; }
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 
-.eyebrow {
-    font-size: 21px; font-weight: 600;
-    letter-spacing: 0;
-    color: var(--ink);
-    margin-bottom: 6px;
-}
-.dark .eyebrow { color: #f5f5f7; }
+/* ---------- section shell ---------- */
+.sec { padding: 100px 0; }
+.sec-head { max-width: 760px; }
 
-h1, h2, h3 {
-    font-family: var(--font-display);
-    color: inherit;
-    font-weight: 600;
-    letter-spacing: -0.005em;
-    line-height: 1.05;
+/* ---------- gallery (horizontal snap) ---------- */
+.gallery { position: relative; margin-top: 44px; }
+.track {
+    display: grid; grid-auto-flow: column; grid-auto-columns: min(82vw, 860px);
+    gap: 20px;
+    overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
+    padding: 4px max(24px, calc((100vw - 1200px) / 2 + 24px)) 12px;
+    scrollbar-width: none;
 }
-h1 { font-size: 96px; letter-spacing: -0.015em; }
-h2 { font-size: 56px; letter-spacing: -0.005em; line-height: 1.07; }
-h3 { font-size: 32px; letter-spacing: 0.004em; line-height: 1.125; }
+.track::-webkit-scrollbar { display: none; }
+.track figure { scroll-snap-align: center; }
+.track img {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+    border-radius: var(--r-md);
+    box-shadow: 0 18px 50px rgba(var(--shadow-tint), 0.18);
+    background: var(--surface-2);
+}
+.track figcaption { margin-top: 14px; font-size: 16px; color: var(--ink-2); }
+.track figcaption b { color: var(--ink); font-weight: 600; margin-right: 6px; }
+.gallery-ctl { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+.round {
+    width: 46px; height: 46px; border-radius: 999px; border: 0; cursor: pointer;
+    display: grid; place-items: center; font-size: 20px;
+    transition: transform .2s var(--ease), opacity .2s;
+}
+.round:active { transform: scale(0.94); }
+.round:disabled { opacity: 0.35; cursor: default; }
 
-.subhead {
-    font-family: var(--font-display);
-    font-size: 28px; font-weight: 400;
-    line-height: 1.14;
-    letter-spacing: 0.007em;
-    margin-top: 8px;
-    color: var(--ink);
+/* ---------- refraction demo (vertical stack) ---------- */
+.formula {
+    display: inline-block; margin-top: 22px; padding: 12px 20px; border-radius: 999px;
+    font-family: "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 17px;
+    background: var(--surface); box-shadow: 0 0 0 1px var(--line);
 }
-.dark .subhead { color: #f5f5f7; }
-
-.lede {
-    font-size: 21px; font-weight: 400;
-    line-height: 1.38;
-    letter-spacing: 0.011em;
-    margin-top: 12px;
-    color: var(--ink-2);
-    max-width: 620px; margin-left: auto; margin-right: auto;
+.stage {
+    position: relative; margin-top: 40px;
+    aspect-ratio: 16 / 9; border-radius: var(--r-lg); overflow: hidden;
+    background: #1a1410 url("assets/ig-title.webp") center / cover no-repeat;
+    box-shadow: 0 30px 80px rgba(var(--shadow-tint), 0.25);
+    touch-action: none; user-select: none;
 }
-.dark .lede { color: #a1a1a6; }
-
-.action-row {
-    margin-top: 24px;
-    display: flex; gap: 24px; justify-content: center; flex-wrap: wrap;
-    font-size: 17px;
-    letter-spacing: -0.01em;
-}
-.action-row a {
-    color: var(--accent);
-    display: inline-flex; align-items: center; gap: 4px;
-    font-weight: 400;
-    transition: color .18s;
-}
-.action-row a:hover { color: var(--accent-hover); text-decoration: none; }
-.action-row a::after { content: "›"; font-size: 20px; line-height: 1; transform: translateY(-1px); }
-.dark .action-row a { color: #2997ff; }
-.dark .action-row a:hover { color: #4ba8ff; }
-
-/* Solid pill button (used in hero + download) */
-.btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    height: 44px; padding: 0 22px;
-    background: var(--accent); color: #fff;
-    border-radius: 980px;
-    font-size: 17px; font-weight: 400;
-    letter-spacing: -0.01em;
-    transition: background .2s;
-    text-decoration: none;
-}
-.btn:hover { background: var(--accent-hover); text-decoration: none; }
-.btn.secondary {
-    background: transparent;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-}
-.btn.secondary:hover { background: rgba(0,102,204,0.06); }
-.dark .btn.secondary { color: #2997ff; border-color: #2997ff; }
-.dark .btn.secondary:hover { background: rgba(41,151,255,0.12); }
-
-.btn-row {
-    margin-top: 28px;
-    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
-}
-
-/* -------- Hero -------- */
-.hero { padding: 68px 22px 0; text-align: center; }
-.hero h1 {
-    margin: 0 auto;
-    max-width: 12ch;
-}
-.hero .subhead {
-    margin-top: 10px;
-    color: var(--ink);
-    max-width: 20ch;
-    margin-left: auto; margin-right: auto;
-}
-.hero .action-row { margin-top: 18px; margin-bottom: 40px; }
-
-.hero-photo {
-    margin: 0 auto;
-    max-width: 1200px;
-    padding: 0 22px;
-    position: relative;
-    perspective: 2400px;
-    perspective-origin: 50% 40%;
-}
-.hero-photo img {
-    width: 100%; height: auto;
-    border-radius: 22px;
-    box-shadow: 0 40px 80px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
-    transform-style: preserve-3d;
-    transform-origin: 50% 40%;
-}
-
-/* -------- Product tiles -------- */
-.tiles {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 12px;
-    padding: 12px 12px 0;
-    max-width: 1440px;
-    margin: 0 auto;
-}
-.tile {
-    position: relative;
-    border-radius: 28px;
-    overflow: hidden;
-    padding: 60px 40px 0;
-    text-align: center;
-    min-height: 580px;
-    display: flex; flex-direction: column;
-    background: var(--canvas-tile);
-}
-.tile.dark { background: var(--dark-tile); color: #f5f5f7; }
-.tile.dark .subhead { color: #f5f5f7; }
-.tile.dark .lede { color: #a1a1a6; }
-.tile-copy { flex: 0 0 auto; }
-.tile-visual {
-    flex: 1 1 auto;
-    display: flex; align-items: center; justify-content: center;
-    padding: 32px 0 40px;
-    position: relative;
-}
-.tile-visual img {
-    max-height: 340px; width: auto;
-    border-radius: 14px;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.15);
-}
-.tile.dark .tile-visual img { box-shadow: 0 30px 60px rgba(0,0,0,0.4); }
-
-/* Tile grid (small) */
-.tile-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-}
-.tile.compact {
-    min-height: 460px;
-    padding: 48px 32px 0;
-}
-.tile.compact h3 { font-size: 24px; }
-
-/* -------- Versions strip -------- */
-.versions {
-    display: flex; flex-wrap: wrap; justify-content: center;
-    gap: 10px;
-    max-width: 800px; margin: 40px auto 0;
-}
-.version-chip {
-    display: inline-flex; align-items: center;
-    height: 34px; padding: 0 16px;
-    background: linear-gradient(180deg,
-        rgba(255,255,255,0.14) 0%,
-        rgba(255,255,255,0.06) 100%);
-    backdrop-filter: url(#glass-distort) blur(12px) saturate(160%);
-    -webkit-backdrop-filter: blur(12px) saturate(160%);
-    color: #f5f5f7;
-    border-radius: 999px;
-    font-size: 14px; font-weight: 400;
-    letter-spacing: -0.01em;
-    box-shadow:
-        0 1px 0 rgba(255,255,255,0.28) inset,
-        0 0 0 0.5px rgba(255,255,255,0.18) inset,
-        0 8px 24px rgba(0,0,0,0.15);
-    transition: transform .25s, box-shadow .25s;
-}
-.version-chip:hover {
-    transform: translateY(-2px);
-    box-shadow:
-        0 1px 0 rgba(255,255,255,0.38) inset,
-        0 0 0 0.5px rgba(255,255,255,0.28) inset,
-        0 14px 32px rgba(0,0,0,0.22);
-}
-
-/* Universal glass surface helper */
-.glass-surface {
-    background: linear-gradient(180deg,
-        rgba(255,255,255,0.5) 0%,
-        rgba(255,255,255,0.22) 100%);
-    backdrop-filter: url(#glass-distort) blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    box-shadow:
-        0 1px 0 rgba(255,255,255,0.85) inset,
-        0 0 0 0.5px rgba(255,255,255,0.5) inset,
-        0 0 30px rgba(255,255,255,0.15) inset,
-        0 20px 60px rgba(31,38,135,0.18),
-        0 4px 12px rgba(0,0,0,0.06);
-}
-.dark .glass-surface,
-.tile.dark .glass-surface {
-    background: linear-gradient(180deg,
-        rgba(255,255,255,0.12) 0%,
-        rgba(255,255,255,0.04) 100%);
-    box-shadow:
-        0 1px 0 rgba(255,255,255,0.35) inset,
-        0 0 0 0.5px rgba(255,255,255,0.15) inset,
-        0 0 30px rgba(255,255,255,0.06) inset,
-        0 20px 60px rgba(0,0,0,0.4);
-}
-
-/* -------- Glass badge visual (hero decoration) -------- */
-.glass-panel {
-    width: 100%; height: 220px;
-    margin: 40px auto 0;
-    max-width: 720px;
-    border-radius: 28px;
-    background:
-        linear-gradient(135deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02) 60%),
-        radial-gradient(ellipse at 30% 20%, rgba(94,92,230,0.4) 0%, transparent 60%),
-        radial-gradient(ellipse at 75% 65%, rgba(10,132,255,0.4) 0%, transparent 55%);
-    backdrop-filter: url(#glass-distort) blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    box-shadow:
-        0 1px 0 rgba(255,255,255,0.35) inset,
-        0 0 0 0.5px rgba(255,255,255,0.18) inset,
-        0 0 30px rgba(255,255,255,0.08) inset,
-        0 30px 80px rgba(0,0,0,0.5);
-    position: relative;
-    overflow: hidden;
-}
-.glass-panel::after {
-    content: "";
-    position: absolute; inset: 0;
-    background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 50%, transparent 70%);
-}
-
-/* -------- Footer -------- */
-.foot {
-    background: var(--canvas-pearl);
-    padding: 44px 22px 20px;
-    font-size: 12px;
-    line-height: 1.5;
-    letter-spacing: -0.01em;
-    color: var(--ink-3);
-}
-.foot-inner { max-width: 980px; margin: 0 auto; }
-.foot p { margin-bottom: 8px; }
-.foot a { color: var(--ink-2); }
-.foot-divider { height: 1px; background: var(--hairline); margin: 20px 0; }
-
-/* -------- Responsive -------- */
-@media (max-width: 1068px) {
-    h1 { font-size: 76px; }
-    h2 { font-size: 48px; }
-    h3 { font-size: 28px; }
-    .subhead { font-size: 24px; }
-    .tile { padding: 48px 28px 0; min-height: 520px; }
-}
-/* -------- Scroll-driven animations -------- */
-.reveal {
-    opacity: 0;
-    transform: translateY(32px) scale(0.98);
-    transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
-                transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: opacity, transform;
-}
-.reveal.in {
-    opacity: 1;
-    transform: none;
-}
-.reveal.d1 { transition-delay: 0.06s; }
-.reveal.d2 { transition-delay: 0.14s; }
-.reveal.d3 { transition-delay: 0.22s; }
-
-.hero-photo img {
+.lens {
+    position: absolute; left: 0; top: 0;
+    border-radius: 40px; overflow: hidden; cursor: grab;
+    /* rule 4: a very faint grounding shadow under the glass */
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.18);
     will-change: transform;
-    transform:
-        translate3d(0, var(--parallax, 0px), 0)
-        scale(var(--pscale, 1))
-        rotateX(var(--rx, 0deg))
-        rotateY(var(--ry, 0deg));
-    transition: none;
 }
+.lens:active { cursor: grabbing; }
+.lens-view { position: absolute; inset: 0; background: url("assets/ig-title.webp") no-repeat; filter: url(#refract); }
+.lens::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(160deg, rgba(255,255,255,0.22), rgba(255,255,255,0.02) 45%, rgba(255,255,255,0.08));
+    box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.7), inset 0 0 0 1px rgba(255,255,255,0.28), inset 0 -8px 18px rgba(255,255,255,0.08);
+}
+.stage-hint {
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    padding: 8px 16px; border-radius: 999px; font-size: 14px; color: #fff; white-space: nowrap;
+    background: rgba(0, 0, 0, 0.42); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    transition: opacity .4s;
+}
+.stage.touched .stage-hint { opacity: 0; }
+.knobs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; margin-top: 30px; }
+.knob label { display: flex; justify-content: space-between; font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.knob output { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-weight: 500; color: var(--ink-2); }
+input[type=range] { width: 100%; accent-color: var(--accent-fill); height: 28px; }
 
-/* Sticky headline (tiles section) */
-.sticky-headline {
-    position: sticky;
-    top: 88px;
-    z-index: 1;
-    padding: 40px 0 20px;
-    background: linear-gradient(180deg, var(--canvas) 0%, var(--canvas) 60%, transparent 100%);
-    text-align: center;
+/* ---------- combat bento ---------- */
+.bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; margin-top: 48px; }
+.cell { border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px var(--line); padding: 32px; overflow: hidden; }
+.cell p { color: var(--ink-2); margin-top: 8px; font-size: 16px; }
+.bento { grid-template-areas: "ring ring ring ring ring ring ring wrap wrap wrap wrap wrap"
+                              "hit  hit  hit  hit  hit  hit  hit  wrap wrap wrap wrap wrap"
+                              "fire fire fire fire fire fire fire fire fire fire fire fire"; }
+.cell { display: flex; flex-direction: column; }
+.c-ring { grid-area: ring; }
+.c-wrap { grid-area: wrap; background: var(--surface-2); justify-content: center; }
+.c-hit { grid-area: hit; }
+.c-fire { grid-area: fire; }
+.c-ring .crops, .c-hit .pair { margin-top: auto; padding-top: 22px; }
+.c-hit .pair { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.c-fire .pair { max-width: 900px; }
+.crops { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.crops figure { margin: 0; }
+.crops img, .pair img { width: 100%; border-radius: 16px; image-rendering: pixelated; aspect-ratio: 1; object-fit: cover; }
+.crops figcaption, .pair figcaption { font-size: 14px; color: var(--ink-2); margin-top: 8px; text-align: center; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.pair.wide img { aspect-ratio: 580 / 320; image-rendering: auto; }
+.note { font-size: 14px !important; margin-top: 18px !important; }
+.wrap-demo {
+    position: relative; margin: 22px auto 0; width: min(100%, 300px); aspect-ratio: 1;
+    border-radius: 24px; overflow: hidden;
+    background: #2f4a1f url("assets/cb-grass.webp") center / 220% auto;
+    image-rendering: pixelated;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
 }
-.sticky-headline .eyebrow { color: var(--ink-2); }
-.sticky-headline h2 { margin-top: 4px; }
+.wrap-demo canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: auto; }
+.wrap-knobs { display: grid; gap: 14px; margin-top: 20px; }
+.check { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent-fill); }
+
+/* ---------- modules (grouped columns) ---------- */
+.groups { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 40px; margin-top: 48px; }
+.group h3 { font-size: 18px; margin-bottom: 16px; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.chip {
+    padding: 9px 16px; border-radius: 999px; font-size: 15px;
+    background: var(--surface); box-shadow: 0 0 0 1px var(--line);
+}
+.chip.new { background: var(--accent-fill); color: #fff; box-shadow: none; }
+
+/* ---------- launcher (sticky split) ---------- */
+.sticky-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 56px; align-items: start; }
+.sticky-copy { position: sticky; top: 110px; }
+.feat { margin-top: 30px; padding-left: 18px; border-left: 2px solid var(--line); }
+.feat h3 { font-size: 19px; }
+.feat p { color: var(--ink-2); font-size: 16px; margin-top: 4px; }
+.shots { display: grid; gap: 28px; }
+.shots img { width: 100%; border-radius: var(--r-md); box-shadow: 0 26px 70px rgba(var(--shadow-tint), 0.22), 0 0 0 1px var(--line); }
+
+/* ---------- versions (tile grid) ---------- */
+.vgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 44px; }
+.ver { border-radius: var(--r-md); background: var(--surface); box-shadow: 0 0 0 1px var(--line); padding: 18px 18px 16px; }
+.ver strong { display: block; font-size: 24px; letter-spacing: -0.02em; line-height: 1.2; }
+.ver span { display: block; font-size: 14px; color: var(--ink-2); margin-top: 6px; }
+.ver.latest { background: var(--accent-fill); color: #fff; box-shadow: none; }
+.ver.latest span { color: rgba(255, 255, 255, 0.85); }
+
+/* ---------- download (centered CTA) ---------- */
+.dl { text-align: center; }
+.dl .lede { margin-left: auto; margin-right: auto; }
+.dl .btn-row { justify-content: center; }
+.dl-meta { margin-top: 16px; font-size: 15px; color: var(--ink-2); min-height: 1.6em; }
+.fair {
+    max-width: 640px; margin: 56px auto 0; padding: 22px 26px; border-radius: var(--r-md);
+    background: var(--surface); box-shadow: 0 0 0 1px var(--line); text-align: left;
+    display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start;
+}
+.fair i { font-size: 26px; color: var(--accent); margin-top: 2px; }
+.fair p { font-size: 16px; color: var(--ink-2); }
+.fair b { color: var(--ink); }
+
+/* ---------- footer ---------- */
+.foot { padding: 40px 0 56px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.foot p + p { margin-top: 8px; }
+.foot a { color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------- reveal ---------- */
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s var(--ease), transform .9s var(--ease); }
+.reveal.in { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
     .reveal { opacity: 1; transform: none; transition: none; }
-    .hero-photo img { transform: none; }
+    .hero-shot img, .hero-copy > * { animation: none; }
+    .track { scroll-behavior: auto; }
 }
 
-@media (max-width: 734px) {
-    .nav-links { gap: 18px; }
-    .nav-links a:nth-child(3),
-    .nav-links a:nth-child(4) { display: none; }
-    .section { padding: 64px 20px 56px; }
-    .hero { padding: 40px 20px 0; }
-    h1 { font-size: 48px; letter-spacing: -0.01em; }
-    h2 { font-size: 32px; letter-spacing: 0; }
-    h3 { font-size: 22px; }
-    .subhead { font-size: 19px; }
-    .lede { font-size: 17px; }
-    .tile-grid { grid-template-columns: 1fr; }
-    .tile { min-height: 440px; padding: 44px 22px 0; }
-    .tile-visual img { max-height: 240px; }
-    .hero-photo { padding: 0 12px; }
-    .hero-photo img { border-radius: 14px; }
-    .tiles { padding: 8px 8px 0; }
-    .glass-panel { height: 140px; }
+/* ---------- responsive ---------- */
+@media (max-width: 1024px) {
+    .hero { min-height: 0; padding-top: 110px; }
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero-shot { margin-right: 0; }
+    .bento { grid-template-areas: "ring" "wrap" "hit" "fire"; grid-template-columns: 1fr; }
+    .groups { grid-template-columns: 1fr 1fr; }
+    .sticky-grid { grid-template-columns: 1fr; gap: 36px; }
+    .sticky-copy { position: static; }
+    .vgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+    .wrap { padding: 0 16px; }
+    .sec { padding: 76px 0; }
+    .nav-link.opt { display: none; }
+    .knobs { grid-template-columns: 1fr; gap: 16px; }
+    .cell { padding: 24px 20px; }
+    .groups { grid-template-columns: 1fr; gap: 30px; }
+    .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .track { grid-auto-columns: 86vw; padding-left: 16px; padding-right: 16px; gap: 12px; }
+    .gallery-ctl { display: none; }
+    .stage { aspect-ratio: 4 / 3; }
+    .fair { grid-template-columns: 1fr; }
 }
 </style>
 </head>
 <body>
 
-<!-- SVG filter for liquid-glass displacement (referenced by backdrop-filter url()) -->
-<svg style="position:absolute;width:0;height:0;pointer-events:none" aria-hidden="true">
-    <defs>
-        <filter id="glass-distort" x="0%" y="0%" width="100%" height="100%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012"
-                          numOctaves="2" seed="17" result="noise"/>
-            <feGaussianBlur in="noise" stdDeviation="1.4" result="softNoise"/>
-            <feDisplacementMap in="SourceGraphic" in2="softNoise"
-                               scale="72" xChannelSelector="R" yChannelSelector="G"/>
-        </filter>
-    </defs>
+<!-- Refraction filter for the lens demo. The displacement map is generated in JS from
+     r(d) = S * max(1 - d/D, 0)^p, so the glass bends the scene most at its rim. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <filter id="refract" x="0" y="0" width="260" height="170" filterUnits="userSpaceOnUse"
+            primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+        <feImage id="refract-map" x="0" y="0" width="260" height="170" preserveAspectRatio="none" result="map"/>
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.6" result="soft"/>
+        <feDisplacementMap id="refract-disp" in="soft" in2="map" scale="26" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
 </svg>
 
-<nav class="nav">
-    <div class="nav-inner">
-        <a class="nav-brand" href="#top" aria-label="S1mp1e">
-            <img src="assets/icon.png" alt=""><span>S1mp1e</span>
-        </a>
-        <div class="nav-links">
-            <a href="#overview">總覽</a>
-            <a href="#versions">版本</a>
-            <a href="#features">功能</a>
-            <a href="https://github.com/tien11668899/S1mp1e">開源</a>
-            <a class="nav-cta" href="#download">下載</a>
-        </div>
-    </div>
+<nav class="nav glass" aria-label="主選單">
+    <a class="nav-brand" href="#top"><img src="assets/icon.png" alt="" width="26" height="26">S1mp1e</a>
+    <a class="nav-link opt" href="#overview">玻璃</a>
+    <a class="nav-link opt" href="#combat">戰鬥</a>
+    <a class="nav-link opt" href="#launcher">啟動器</a>
+    <a class="nav-link opt" href="#versions">版本</a>
+    <a class="nav-cta" href="#download">下載</a>
 </nav>
 
-<!-- ============= HERO ============= -->
-<section class="hero" id="top">
-    <h1>S1mp1e</h1>
-    <p class="subhead">玻璃 · 是新的介面</p>
-    <div class="action-row">
-        <a href="#download">下載</a>
-        <a href="#overview">深入了解</a>
-    </div>
-    <div class="hero-photo">
-        <img src="assets/start-light.png" alt="S1mp1e 啟動器界面" loading="eager">
-    </div>
-</section>
+<main>
 
-<!-- ============= OVERVIEW / DARK TILE ============= -->
-<section class="section dark" id="overview">
-    <div class="section-inner reveal">
-        <p class="eyebrow">液態玻璃</p>
-        <h2>每一格<br>都在流動</h2>
-        <p class="lede">
-            hotbar 選單 tooltip 全部真折射 從第一 pixel 就是玻璃
-        </p>
-        <div class="action-row">
-            <a href="#download">下載</a>
-            <a href="#features">看功能</a>
-            <a href="https://github.com/tien11668899/S1mp1e">看原始碼</a>
-        </div>
-        <div class="glass-panel" aria-hidden="true"></div>
-    </div>
-</section>
-
-<!-- ============= TILES ============= -->
-<div class="tiles">
-
-    <!-- Big feature tile: Modrinth (light) -->
-    <section class="tile" id="features">
-        <div class="tile-copy reveal d1">
-            <p class="eyebrow" style="color:var(--ink-2);">模組</p>
-            <h2>搜 · 點 · 玩</h2>
-            <p class="lede">
-                Modrinth 全站直搜 中文翻譯 相容自動判斷
-            </p>
-        </div>
-        <div class="tile-visual reveal d2">
-            <img src="assets/mods-light.png" alt="Modrinth 搜尋介面">
-        </div>
-    </section>
-
-    <!-- Big feature tile: Account (dark) -->
-    <section class="tile dark">
-        <div class="tile-copy reveal d1">
-            <p class="eyebrow">帳號</p>
-            <h2>一個 code<br>就登入</h2>
-            <p class="lede">
-                Microsoft device flow 皮膚 PNG 拖進來就套用
-            </p>
-        </div>
-        <div class="tile-visual reveal d2">
-            <img src="assets/account-dark.png" alt="帳號管理介面">
-        </div>
-    </section>
-
-    <!-- 2x compact tiles -->
-    <div class="tile-grid">
-        <section class="tile compact">
-            <div class="tile-copy reveal d1">
-                <p class="eyebrow" style="color:var(--ink-2);">熱物欄</p>
-                <h3>真的會折射</h3>
-                <p class="lede">
-                    SDF shader 彈簧 selector 世界從格子裡透出來
-                </p>
+<!-- ================= HERO ================= -->
+<header class="hero" id="top">
+    <div class="wrap hero-grid">
+        <div class="hero-copy">
+            <h1>S1mp1e</h1>
+            <p class="lede">把 Apple 的液態玻璃放進 Minecraft。啟動器和遊戲內介面一起換，1.8.9 到 26.2 都能玩。</p>
+            <div class="btn-row">
+                <a class="btn btn-primary" data-dl href="https://github.com/tien11668899/S1mp1e/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>下載 Windows 版</a>
+                <a class="btn btn-ghost glass" href="https://github.com/tien11668899/S1mp1e"><i class="ph ph-github-logo" aria-hidden="true"></i>原始碼</a>
             </div>
-            <div class="tile-visual" style="align-items:flex-end;">
-                <div style="width:100%;height:60px;background:linear-gradient(90deg,rgba(0,102,204,0.15),rgba(94,92,230,0.15));border-radius:12px;position:relative;overflow:hidden;">
-                    <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;background:linear-gradient(135deg,rgba(255,255,255,0.4),rgba(255,255,255,0.1));border:1px solid rgba(255,255,255,0.4);border-radius:8px;backdrop-filter:blur(6px);"></div>
+        </div>
+        <div class="hero-shot">
+            <picture>
+                <source srcset="assets/start-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="assets/start-light.webp" width="1374" height="882" alt="S1mp1e 啟動器的開始遊戲頁，左側是玻璃側欄，右側可選版本與載入器" fetchpriority="high">
+            </picture>
+        </div>
+    </div>
+</header>
+
+<!-- ================= IN-GAME GALLERY ================= -->
+<section class="sec" id="overview" aria-labelledby="h-overview">
+    <div class="wrap"><div class="sec-head reveal">
+        <h2 id="h-overview">遊戲裡，每一層都是玻璃</h2>
+        <p class="lede">標題畫面、設定面板、背包、tooltip、聊天和名牌，全部換成會折射的玻璃，後面的世界看得到。</p>
+    </div></div>
+    <div class="gallery reveal">
+        <div class="track" id="track" tabindex="0" aria-label="遊戲內截圖，可左右捲動">
+            <figure><img src="assets/ig-title.webp" width="1280" height="720" loading="lazy" alt="Minecraft 標題畫面，按鈕都是玻璃"><figcaption><b>標題畫面</b>按鈕和選單都換成玻璃膠囊。</figcaption></figure>
+            <figure><img src="assets/ig-config.webp" width="1280" height="720" loading="lazy" alt="遊戲內的 S1mp1e 設定面板，有開關與滑桿"><figcaption><b>設定面板</b>Right Shift 打開，開關會果凍般地彈。</figcaption></figure>
+            <figure><img src="assets/ig-creative.webp" width="1280" height="720" loading="lazy" alt="創造模式背包，玻璃格線與效果欄"><figcaption><b>創造背包</b>玻璃格線、分類籤和效果欄。</figcaption></figure>
+            <figure><img src="assets/ig-tooltip.webp" width="1280" height="720" loading="lazy" alt="背包中的物品說明框是玻璃"><figcaption><b>Tooltip</b>物品說明永遠畫在最上層。</figcaption></figure>
+            <figure><img src="assets/ig-chat.webp" width="1280" height="720" loading="lazy" alt="聊天欄、進度通知和名牌都是玻璃"><figcaption><b>聊天與名牌</b>聊天欄、通知、tab 列和名牌也是。</figcaption></figure>
+        </div>
+        <div class="wrap gallery-ctl">
+            <button class="round glass" id="prev" aria-label="上一張"><i class="ph ph-caret-left" aria-hidden="true"></i></button>
+            <button class="round glass" id="next" aria-label="下一張"><i class="ph ph-caret-right" aria-hidden="true"></i></button>
+        </div>
+    </div>
+</section>
+
+<!-- ================= REFRACTION DEMO ================= -->
+<section class="sec" id="glass" aria-labelledby="h-glass">
+    <div class="wrap">
+        <div class="sec-head reveal">
+            <h2 id="h-glass">真的會折射</h2>
+            <p class="lede">折射集中在邊緣，往內照這條曲線衰減到零。拖著玻璃走一圈，數值也能直接調。</p>
+            <div class="formula" aria-label="r(d) 等於 S 乘上 max(1 減 d 除以 D, 0) 的 p 次方">r(d) = S · max(1 − d/D, 0)<sup>p</sup></div>
+        </div>
+        <div class="stage reveal" id="stage">
+            <div class="lens" id="lens" tabindex="0" role="application" aria-label="玻璃鏡片，可拖曳，或用方向鍵移動">
+                <div class="lens-view" id="lensView"></div>
+            </div>
+            <div class="stage-hint"><i class="ph ph-hand-grabbing" aria-hidden="true"></i> 拖曳玻璃</div>
+        </div>
+        <div class="knobs reveal">
+            <div class="knob">
+                <label for="kS">邊緣強度 S <output id="oS" for="kS">12.65</output></label>
+                <input type="range" id="kS" min="0" max="30" step="0.05" value="12.65">
+            </div>
+            <div class="knob">
+                <label for="kD">過渡距離 D <output id="oD" for="kD">22</output></label>
+                <input type="range" id="kD" min="4" max="60" step="1" value="22">
+            </div>
+            <div class="knob">
+                <label for="kP">衰減係數 p <output id="oP" for="kP">1.65</output></label>
+                <input type="range" id="kP" min="0.5" max="4" step="0.05" value="1.65">
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ================= COMBAT BENTO ================= -->
+<section class="sec" id="combat" aria-labelledby="h-combat">
+    <div class="wrap">
+        <div class="sec-head reveal">
+            <p class="eyebrow">新功能</p>
+            <h2 id="h-combat">戰鬥三件套</h2>
+            <p class="lede">攻擊冷卻環、命中標記、火焰降低。只改畫面，不碰任何判定。</p>
+        </div>
+        <div class="bento">
+            <article class="cell c-ring reveal">
+                <h3>攻擊冷卻玻璃環</h3>
+                <p>蓄力時沿著玻璃軌道填滿，蓄滿對準生物就換形狀。圓形、方框，或直接包住準星。</p>
+                <div class="crops">
+                    <figure><img src="assets/cb-wrap.webp" width="416" height="416" loading="lazy" alt="玻璃環分成四段，各自包住 X 形準星的四根臂"><figcaption>包覆準星</figcaption></figure>
+                    <figure><img src="assets/cb-ready.webp" width="416" height="416" loading="lazy" alt="藍色圓形玻璃環，蓄滿時的樣子"><figcaption>蓄滿</figcaption></figure>
+                    <figure><img src="assets/cb-chroma.webp" width="416" height="416" loading="lazy" alt="逆時針的彩虹色玻璃環"><figcaption>逆時針加彩虹</figcaption></figure>
+                </div>
+                <p class="note">1.8.9 沒有攻擊冷卻，所以這一項只在 1.12.2 以後的版本。</p>
+            </article>
+            <article class="cell c-wrap reveal">
+                <h3>準星分開，玻璃也分開</h3>
+                <p>包覆會照你的準星大小、間隙、粗細和旋轉。間隙夠大，玻璃就分成四段各自包住。拉拉看。</p>
+                <div class="wrap-demo"><canvas id="wrapCanvas" aria-label="包覆準星的玻璃環示範，會隨下方設定改變形狀"></canvas></div>
+                <div class="wrap-knobs">
+                    <div class="knob">
+                        <label for="wGap">準星間隙 <output id="oGap" for="wGap">8</output></label>
+                        <input type="range" id="wGap" min="0" max="10" step="1" value="8">
+                    </div>
+                    <div class="knob">
+                        <label for="wPad">貼合程度 <output id="oPad" for="wPad">1.5</output></label>
+                        <input type="range" id="wPad" min="0" max="6" step="0.5" value="1.5">
+                    </div>
+                    <label class="check"><input type="checkbox" id="wRot"> 準星轉 45°</label>
+                </div>
+            </article>
+            <article class="cell c-hit reveal">
+                <h3>命中標記</h3>
+                <p>打中時準星旁彈出四段玻璃刻度，暴擊變橘色，擊殺變紅色。</p>
+                <div class="pair">
+                    <figure><img src="assets/cb-crit.webp" width="416" height="416" loading="lazy" alt="橘色的暴擊命中標記"><figcaption>暴擊</figcaption></figure>
+                    <figure><img src="assets/cb-kill.webp" width="416" height="416" loading="lazy" alt="紅色十字形的擊殺標記"><figcaption>擊殺</figcaption></figure>
+                </div>
+                <p class="note">可以只顯示暴擊，也能換成十字形、調大小和間距。</p>
+            </article>
+            <article class="cell c-fire reveal">
+                <h3>火焰畫面降低</h3>
+                <p>著火時火焰往下移、變淡，還是看得出在燒，但不會擋住視線。也可以整個隱藏。</p>
+                <div class="pair wide">
+                    <figure><img src="assets/cb-fire-off.webp" width="580" height="320" loading="lazy" alt="原版的火焰畫面，擋住畫面下方"><figcaption>原版</figcaption></figure>
+                    <figure><img src="assets/cb-fire-lo.webp" width="580" height="320" loading="lazy" alt="降低並變淡後的火焰畫面"><figcaption>降低之後</figcaption></figure>
+                </div>
+            </article>
+        </div>
+    </div>
+</section>
+
+<!-- ================= MODULES ================= -->
+<section class="sec" id="features" aria-labelledby="h-features">
+    <div class="wrap">
+        <div class="sec-head reveal">
+            <h2 id="h-features">21 個模組，Right Shift 就能調</h2>
+            <p class="lede">在遊戲裡的玻璃設定面板開關、調數值，HUD 的位置直接拖。</p>
+        </div>
+        <div class="groups reveal">
+            <div class="group">
+                <h3>HUD</h3>
+                <div class="chips">
+                    <span class="chip">裝備欄</span><span class="chip">藥水欄</span><span class="chip">座標顯示</span>
+                    <span class="chip">幀率顯示</span><span class="chip">背包預覽</span><span class="chip">按鍵顯示</span>
+                    <span class="chip">隱藏飽食度</span><span class="chip">彩虹 HUD</span>
                 </div>
             </div>
-        </section>
-        <section class="tile compact dark">
-            <div class="tile-copy reveal d1">
-                <p class="eyebrow">加載器</p>
-                <h3>全部幫你裝好</h3>
-                <p class="lede">
-                    Java · Fabric · 液玻 mod 一次搞定 你只按 Play
-                </p>
+            <div class="group">
+                <h3>畫面</h3>
+                <div class="chips">
+                    <span class="chip">準星</span><span class="chip">方塊外框</span><span class="chip">全亮</span>
+                    <span class="chip">手部位置</span><span class="chip">固定視野</span><span class="chip">經驗條流動</span>
+                    <span class="chip">視野縮放</span>
+                </div>
             </div>
-            <div class="tile-visual reveal d2">
-                <div style="width:120px;height:120px;border-radius:26px;background:linear-gradient(135deg,#0066cc,#5e5ce6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:64px;font-weight:600;">▶</div>
+            <div class="group">
+                <h3>戰鬥</h3>
+                <div class="chips">
+                    <span class="chip new">攻擊冷卻玻璃環</span><span class="chip new">命中標記</span><span class="chip new">火焰畫面降低</span>
+                    <span class="chip">點擊速度</span><span class="chip">關閉受傷晃動</span><span class="chip">舊版動畫</span>
+                </div>
             </div>
-        </section>
-    </div>
-</div>
-
-<!-- ============= VERSIONS ============= -->
-<section class="section dark" id="versions">
-    <div class="section-inner reveal">
-        <p class="eyebrow">版本</p>
-        <h2>十年<br>一個 launcher</h2>
-        <div class="versions">
-            <span class="version-chip">1.8.9</span>
-            <span class="version-chip">1.12.2 · Forge</span>
-            <span class="version-chip">1.13.2 · Legacy Fabric</span>
-            <span class="version-chip">1.14.4</span>
-            <span class="version-chip">1.15.2</span>
-            <span class="version-chip">1.16.5</span>
-            <span class="version-chip">1.17.1</span>
-            <span class="version-chip">1.20.1</span>
-            <span class="version-chip">1.21.1</span>
-            <span class="version-chip">26.2 · Preview</span>
         </div>
     </div>
 </section>
 
-<!-- ============= DOWNLOAD ============= -->
-<section class="section pearl" id="download">
-    <div class="section-inner reveal">
-        <p class="eyebrow">下載</p>
-        <h2>免安裝<br>解壓 · 開玩</h2>
-        <p class="lede">
-            Windows 10 / 11 · .NET 已內含 · 無需另裝
-        </p>
+<!-- ================= LAUNCHER ================= -->
+<section class="sec" id="launcher" aria-labelledby="h-launcher">
+    <div class="wrap sticky-grid">
+        <div class="sticky-copy reveal">
+            <p class="eyebrow">啟動器</p>
+            <h2 id="h-launcher">啟動器也是玻璃</h2>
+            <div class="feat">
+                <h3>搜 Modrinth，點一下就裝</h3>
+                <p>全站直搜，中文翻譯簡介，相容性自動判斷，每個版本的模組分開放。</p>
+            </div>
+            <div class="feat">
+                <h3>一組代碼就登入</h3>
+                <p>Microsoft 裝置代碼登入，多帳號切換，皮膚 PNG 拖進來就換。</p>
+            </div>
+            <div class="feat">
+                <h3>你只要按 Play</h3>
+                <p>Java、Fabric 或 Forge、玻璃模組全部自動裝好，模組有新版本會自己更新。</p>
+            </div>
+        </div>
+        <div class="shots">
+            <picture class="reveal">
+                <source srcset="assets/mods-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="assets/mods-light.webp" width="1374" height="880" loading="lazy" alt="啟動器的模組頁，列出 Modrinth 搜尋結果與下載按鈕">
+            </picture>
+            <picture class="reveal">
+                <source srcset="assets/account-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="assets/account-light.webp" width="1373" height="879" loading="lazy" alt="啟動器的帳號頁，可切換帳號與更換皮膚">
+            </picture>
+        </div>
+    </div>
+</section>
+
+<!-- ================= VERSIONS ================= -->
+<section class="sec" id="versions" aria-labelledby="h-versions">
+    <div class="wrap">
+        <div class="sec-head reveal">
+            <h2 id="h-versions">從 1.8.9 到 26.2</h2>
+            <p class="lede">12 個版本，同一套玻璃。啟動器會自己裝對的載入器。</p>
+        </div>
+        <div class="vgrid reveal">
+            <div class="ver"><strong>1.8.9</strong><span>2015 Forge</span></div>
+            <div class="ver"><strong>1.12.2</strong><span>2017 Forge</span></div>
+            <div class="ver"><strong>1.13.2</strong><span>2018 Legacy Fabric</span></div>
+            <div class="ver"><strong>1.14.4</strong><span>2019 Fabric</span></div>
+            <div class="ver"><strong>1.15.2</strong><span>2020 Fabric</span></div>
+            <div class="ver"><strong>1.16.5</strong><span>2021 Fabric</span></div>
+            <div class="ver"><strong>1.17.1</strong><span>2021 Fabric</span></div>
+            <div class="ver"><strong>1.18.2</strong><span>2022 Fabric</span></div>
+            <div class="ver"><strong>1.19.2</strong><span>2022 Fabric</span></div>
+            <div class="ver"><strong>1.20.1</strong><span>2023 Fabric</span></div>
+            <div class="ver"><strong>1.21.1</strong><span>2024 Fabric</span></div>
+            <div class="ver latest"><strong>26.2</strong><span>2026 Fabric 預覽</span></div>
+        </div>
+    </div>
+</section>
+
+<!-- ================= DOWNLOAD ================= -->
+<section class="sec dl" id="download" aria-labelledby="h-download">
+    <div class="wrap reveal">
+        <h2 id="h-download">下載 S1mp1e</h2>
+        <p class="lede">Windows 10 或 11。安裝好登入 Microsoft 帳號，選版本，按 Play。</p>
         <div class="btn-row">
-            <a class="btn" href="https://github.com/tien11668899/S1mp1e/releases/latest/download/S1mp1e-0.1.0-win-x64.zip">
-                下載 Windows 版
-            </a>
-            <a class="btn secondary" href="https://github.com/tien11668899/S1mp1e/releases/latest">
-                所有下載選項
-            </a>
+            <a class="btn btn-primary" data-dl href="https://github.com/tien11668899/S1mp1e/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>下載 Windows 版</a>
+            <a class="btn btn-ghost glass" href="https://github.com/tien11668899/S1mp1e/releases">所有版本</a>
         </div>
-        <p class="lede" style="font-size:14px;margin-top:24px;">
-            開源專案 · <a href="https://github.com/tien11668899/S1mp1e/blob/main/LICENSE">MIT 授權</a> ·
-            <a href="https://github.com/tien11668899/S1mp1e">在 GitHub 上檢視</a>
-        </p>
+        <p class="dl-meta" id="dlMeta" aria-live="polite">正在取得最新版本…</p>
+        <div class="fair">
+            <i class="ph ph-shield-check" aria-hidden="true"></i>
+            <p><b>只改畫面。</b>S1mp1e 的每個模組都只影響你看到的介面和 HUD，不改攻擊距離、判定、封包或任何遊戲邏輯。</p>
+        </div>
     </div>
 </section>
 
-<!-- ============= FOOTER ============= -->
+</main>
+
 <footer class="foot">
-    <div class="foot-inner">
-        <p>
-            S1mp1e 為社群作品 和 Mojang Studios Microsoft Corporation
-            Apple Inc. 均無隸屬關係 Minecraft 是 Mojang 的商標
-        </p>
-        <div class="foot-divider"></div>
-        <p>
-            © 2026 tien11668899 以 MIT 授權釋出
-            <a href="https://github.com/tien11668899/S1mp1e">GitHub</a> ·
-            <a href="https://github.com/tien11668899/S1mp1e/releases">Releases</a> ·
-            <a href="https://github.com/tien11668899/S1mp1e/issues">回報問題</a>
-        </p>
+    <div class="wrap">
+        <p>S1mp1e 是社群作品，與 Mojang Studios、Microsoft、Apple 均無隸屬關係。Minecraft 是 Mojang 的商標。</p>
+        <p>© 2026 tien11668899，以 <a href="https://github.com/tien11668899/S1mp1e/blob/main/LICENSE">MIT 授權</a>釋出。<a href="https://github.com/tien11668899/S1mp1e">GitHub</a>、<a href="https://github.com/tien11668899/S1mp1e/issues">回報問題</a></p>
     </div>
 </footer>
 
 <script>
-(function() {
-    // 1. Scroll-in reveal via IntersectionObserver — sections + tiles fade+slide up
-    //    on first enter viewport (only once, no unmount).
-    var io = new IntersectionObserver(function(entries) {
-        entries.forEach(function(e) {
-            if (e.isIntersecting) {
-                e.target.classList.add("in");
-                io.unobserve(e.target);
-            }
-        });
-    }, { threshold: 0.15, rootMargin: "0px 0px -60px 0px" });
-    document.querySelectorAll(".reveal").forEach(function(el) { io.observe(el); });
+(function () {
+    "use strict";
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // 2. Hero image 3D — starts angled back (like a laptop lid mid-open),
-    //    flattens as the user scrolls down + micro rise/zoom. Also mouse-move
-    //    adds gentle sideways rotateY for a live-glass feel. All rAF-throttled.
-    var heroImg = document.querySelector(".hero-photo img");
-    var heroBox = document.querySelector(".hero-photo");
-    if (heroImg && heroBox) {
-        var mx = 0, my = 0;             // mouse offset relative to box centre
-        var ticking = false;
-
-        function update() {
-            var rect = heroBox.getBoundingClientRect();
-            var vh = window.innerHeight || document.documentElement.clientHeight;
-            var progress = 1 - (rect.top / vh);
-            progress = Math.max(0, Math.min(1.4, progress));
-            var shift = -progress * 80;
-            var scale = 1 + progress * 0.03;
-            // Scroll tilt: -10deg (angled back) → 0deg (flat toward viewer) as
-            // hero enters top of viewport, then stays flat.
-            var flatProgress = Math.max(0, Math.min(1, progress * 1.6));
-            var rx = -10 * (1 - flatProgress) + my * 4;
-            var ry = mx * 6;
-            heroImg.style.setProperty("--parallax", shift.toFixed(1) + "px");
-            heroImg.style.setProperty("--pscale", scale.toFixed(3));
-            heroImg.style.setProperty("--rx", rx.toFixed(2) + "deg");
-            heroImg.style.setProperty("--ry", ry.toFixed(2) + "deg");
-            ticking = false;
-        }
-        function schedule() {
-            if (!ticking) { requestAnimationFrame(update); ticking = true; }
-        }
-
-        window.addEventListener("scroll", schedule, { passive: true });
-        heroBox.addEventListener("mousemove", function(ev) {
-            var r = heroBox.getBoundingClientRect();
-            mx = ((ev.clientX - r.left) / r.width) * 2 - 1;      // -1 … +1
-            my = ((ev.clientY - r.top) / r.height) * 2 - 1;
-            schedule();
+    /* ---------- reveal on first view ---------- */
+    var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+            if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
         });
-        heroBox.addEventListener("mouseleave", function() {
-            mx = 0; my = 0; schedule();
-        });
-        update();
+    }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+    document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+
+    /* ---------- gallery arrows (edge state from IntersectionObserver, no scroll listener) ---------- */
+    var track = document.getElementById("track"), prev = document.getElementById("prev"), next = document.getElementById("next");
+    if (track && prev && next) {
+        var figs = track.querySelectorAll("figure");
+        var step = function () { return figs[0].getBoundingClientRect().width + 20; };
+        prev.addEventListener("click", function () { track.scrollBy({ left: -step(), behavior: reduceMotion ? "auto" : "smooth" }); });
+        next.addEventListener("click", function () { track.scrollBy({ left: step(), behavior: reduceMotion ? "auto" : "smooth" }); });
+        var edge = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+                if (e.target === figs[0]) prev.disabled = e.intersectionRatio > 0.9;
+                if (e.target === figs[figs.length - 1]) next.disabled = e.intersectionRatio > 0.9;
+            });
+        }, { root: track, threshold: [0, 0.9, 1] });
+        edge.observe(figs[0]); edge.observe(figs[figs.length - 1]);
     }
+
+    /* ---------- refraction lens ---------- */
+    var stage = document.getElementById("stage"), lens = document.getElementById("lens"), view = document.getElementById("lensView");
+    var mapImg = document.getElementById("refract-map"), disp = document.getElementById("refract-disp");
+    var filt = document.getElementById("refract");
+    var kS = document.getElementById("kS"), kD = document.getElementById("kD"), kP = document.getElementById("kP");
+    var lw = 260, lh = 170, lr = 40, lx = 0, ly = 0, fx = 0.5, fy = 0.26;   // lens centre as a fraction of the stage
+
+    function sdRRect(px, py, bx, by, r) {
+        var wx = Math.abs(px) - (bx - r), wy = Math.abs(py) - (by - r);
+        var qx = Math.max(wx, 0), qy = Math.max(wy, 0);
+        return Math.min(Math.max(wx, wy), 0) + Math.hypot(qx, qy) - r;
+    }
+    function buildMap() {
+        var S = +kS.value, D = +kD.value, P = +kP.value;
+        document.getElementById("oS").value = S.toFixed(2);
+        document.getElementById("oD").value = D.toFixed(0);
+        document.getElementById("oP").value = P.toFixed(2);
+        var K = Math.max(2.1 * S, 1);                    // feDisplacementMap scale covers +-S
+        var c = document.createElement("canvas"); c.width = lw; c.height = lh;
+        var g = c.getContext("2d"), img = g.createImageData(lw, lh), d = img.data;
+        var bx = lw / 2, by = lh / 2, e = 0.5;
+        for (var y = 0; y < lh; y++) {
+            for (var x = 0; x < lw; x++) {
+                var px = x + 0.5 - bx, py = y + 0.5 - by, i = (y * lw + x) * 4;
+                var sd = sdRRect(px, py, bx, by, lr), ox = 0, oy = 0;
+                if (sd < 0) {
+                    var depth = -sd, f = Math.max(1 - depth / D, 0);
+                    if (f > 0) {
+                        var gx = sdRRect(px + e, py, bx, by, lr) - sdRRect(px - e, py, bx, by, lr);
+                        var gy = sdRRect(px, py + e, bx, by, lr) - sdRRect(px, py - e, bx, by, lr);
+                        var len = Math.hypot(gx, gy) || 1, r = S * Math.pow(f, P);
+                        ox = -gx / len * r; oy = -gy / len * r;   // sample from further inside: the rim bends
+                    }
+                }
+                d[i] = Math.round(127.5 + ox / K * 255);
+                d[i + 1] = Math.round(127.5 + oy / K * 255);
+                d[i + 2] = 128; d[i + 3] = 255;
+            }
+        }
+        g.putImageData(img, 0, 0);
+        var url = c.toDataURL();
+        mapImg.setAttribute("href", url);
+        mapImg.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", url);
+        disp.setAttribute("scale", K.toFixed(2));
+    }
+    function layoutLens() {
+        var sw = stage.clientWidth, sh = stage.clientHeight;
+        if (!sw || !sh) return;
+        var nw = Math.round(Math.min(260, sw * 0.46)), nh = Math.round(Math.min(170, sh * 0.5));
+        var sizeChanged = nw !== lw || nh !== lh;
+        lw = nw; lh = nh; lr = Math.round(Math.min(40, nh * 0.3));
+        lens.style.width = lw + "px"; lens.style.height = lh + "px"; lens.style.borderRadius = lr + "px";
+        view.style.backgroundSize = sw + "px " + sh + "px";
+        ["width", "height"].forEach(function (a) {
+            var v = a === "width" ? lw : lh;
+            filt.setAttribute(a, v); mapImg.setAttribute(a, v);
+        });
+        moveLens(fx * sw - lw / 2, fy * sh - lh / 2, true);
+        if (sizeChanged || !mapImg.getAttribute("href")) buildMap();
+    }
+    function moveLens(x, y, keepFraction) {
+        var sw = stage.clientWidth, sh = stage.clientHeight;
+        lx = Math.max(0, Math.min(sw - lw, x)); ly = Math.max(0, Math.min(sh - lh, y));
+        if (!keepFraction) { fx = (lx + lw / 2) / sw; fy = (ly + lh / 2) / sh; }
+        lens.style.transform = "translate(" + lx + "px," + ly + "px)";
+        view.style.backgroundPosition = (-lx) + "px " + (-ly) + "px";
+    }
+    if (stage && lens) {
+        var dragging = false, sx = 0, sy = 0, ox0 = 0, oy0 = 0;
+        lens.addEventListener("pointerdown", function (ev) {
+            dragging = true; lens.setPointerCapture(ev.pointerId);
+            sx = ev.clientX; sy = ev.clientY; ox0 = lx; oy0 = ly; stage.classList.add("touched");
+        });
+        lens.addEventListener("pointermove", function (ev) {
+            if (dragging) moveLens(ox0 + ev.clientX - sx, oy0 + ev.clientY - sy);
+        });
+        lens.addEventListener("pointerup", function () { dragging = false; });
+        lens.addEventListener("pointercancel", function () { dragging = false; });
+        lens.addEventListener("keydown", function (ev) {
+            var k = { ArrowLeft: [-12, 0], ArrowRight: [12, 0], ArrowUp: [0, -12], ArrowDown: [0, 12] }[ev.key];
+            if (k) { ev.preventDefault(); moveLens(lx + k[0], ly + k[1]); stage.classList.add("touched"); }
+        });
+        [kS, kD, kP].forEach(function (el) { el.addEventListener("input", buildMap); });
+        new ResizeObserver(layoutLens).observe(stage);
+        layoutLens();
+    }
+
+    /* ---------- crosshair wrap demo: same SDF as glass_ring.fsh / ring_arc.fsh ---------- */
+    var cv = document.getElementById("wrapCanvas");
+    if (cv) {
+        var ctx = cv.getContext("2d");
+        var wGap = document.getElementById("wGap"), wPad = document.getElementById("wPad"), wRot = document.getElementById("wRot");
+        var GUI = 58;                          // GUI px shown across the canvas (fits gap 10 + padding 6)
+        var W = 0, sc = 1, glassA = null, arcA = null, ang = null, geo = null, frame = null, running = false, t0 = 0;
+
+        function sdBox(px, py, bx, by, r) {
+            var wx = Math.abs(px) - (bx - r), wy = Math.abs(py) - (by - r);
+            var g = Math.max(wx, wy), qx = Math.max(wx, 0), qy = Math.max(wy, 0);
+            return (g > 0 ? Math.hypot(qx, qy) : g) - r;
+        }
+        function sdPlus(px, py, rc, ratio, gap) {
+            var a = rc * Math.min(Math.max(ratio, 0.08), 1);
+            if (gap < 0.02) {
+                var rr = Math.min(a, rc * 0.3);
+                return Math.min(sdBox(px, py, rc, a, rr), sdBox(px, py, a, rc, rr));
+            }
+            var g = rc * Math.min(gap, 0.92), c = (g + rc) / 2, h = (rc - g) / 2, r2 = Math.min(a, h * 0.9);
+            return Math.min(sdBox(px - c, py, h, a, r2), sdBox(px + c, py, h, a, r2),
+                            sdBox(px, py - c, a, h, r2), sdBox(px, py + c, a, h, r2));
+        }
+        function rebuild() {
+            var dpr = Math.min(window.devicePixelRatio || 1, 2);
+            W = Math.round(cv.clientWidth * dpr); if (!W) return;
+            cv.width = W; cv.height = W; sc = W / GUI;
+            // AttackRingModule.crosshairGeom + the fit block: S1mp1e cross, size 6, thickness 2, outline on
+            var s = 6, t = 2, gp = +wGap.value, pad = +wPad.value, out = 1, tw = 2;
+            var reach = t / 2 + gp + s + out, armHalf = t / 2 + out;
+            var rc = reach + pad + tw / 2;
+            var ratio = (armHalf + pad + tw / 2) / rc;
+            var gap = Math.max(0, gp - pad) / rc;
+            ratio = 0.08 + Math.round(Math.max(0, Math.min(15, (ratio - 0.08) / 0.84 * 15))) / 15 * 0.84;   // 16-step code
+            gap = Math.round(Math.max(0, Math.min(14, gap / 0.92 * 14))) / 14 * 0.92;                     // 15-step code
+            var rot = wRot.checked ? Math.PI / 4 : 0, cr = Math.cos(-rot), sr = Math.sin(-rot);
+            geo = { s: s, t: t, gp: gp, rot: rot };
+            document.getElementById("oGap").value = gp;
+            document.getElementById("oPad").value = pad.toFixed(1);
+            var n = W * W; glassA = new Float32Array(n); arcA = new Float32Array(n); ang = new Float32Array(n);
+            var aa = 1 / sc;
+            for (var y = 0; y < W; y++) {
+                for (var x = 0; x < W; x++) {
+                    var gx = (x + 0.5) / sc - GUI / 2, gy = (y + 0.5) / sc - GUI / 2;
+                    var px = gx * cr - gy * sr, py = gx * sr + gy * cr, i = y * W + x;
+                    var dc = sdPlus(px, py, rc, ratio, gap);
+                    var band = Math.abs(dc) - (tw + 3) / 2;                  // glass track: width + 2 * 1.5 margin
+                    var cov = Math.min(Math.max(0.5 - band / aa, 0), 1);
+                    var rim = Math.max(0, 1 - Math.abs(band + 0.6) / 0.9);    // bright inner rim
+                    glassA[i] = cov * (0.2 + 0.3 * rim);
+                    arcA[i] = Math.min(Math.max(0.5 - (Math.abs(dc) - tw / 2) / aa, 0), 1);
+                    var a = Math.atan2(px, -py); if (a < 0) a += Math.PI * 2;
+                    ang[i] = a / (Math.PI * 2);
+                }
+            }
+            frame = ctx.createImageData(W, W);
+            draw(reduceMotion || !running ? 0.62 : null);
+        }
+        function draw(fixed) {
+            if (!frame) return;
+            var p = fixed;
+            if (p == null) { var el = ((performance.now() - t0) / 1000) % 1.6; p = Math.min(el / 0.95, 1); }
+            var d = frame.data, n = W * W;
+            for (var i = 0, j = 0; i < n; i++, j += 4) {
+                var arc = ang[i] <= p ? arcA[i] : 0, gl = glassA[i];
+                var a = arc + gl * (1 - arc);
+                if (a <= 0) { d[j + 3] = 0; continue; }
+                d[j] = Math.round((10 * arc + 255 * gl * (1 - arc)) / a);
+                d[j + 1] = Math.round((132 * arc + 255 * gl * (1 - arc)) / a);
+                d[j + 2] = Math.round((255 * arc + 255 * gl * (1 - arc)) / a);
+                d[j + 3] = Math.round(a * 255);
+            }
+            ctx.putImageData(frame, 0, 0);
+            // the crosshair itself, on top (white bars, 1 px dark outline)
+            ctx.save(); ctx.translate(W / 2, W / 2); ctx.rotate(geo.rot); ctx.scale(sc, sc);
+            for (var k = 0; k < 4; k++) {
+                ctx.save(); ctx.rotate(k * Math.PI / 2);
+                ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(geo.gp - 1, -geo.t / 2 - 1, geo.s + 2, geo.t + 2);
+                ctx.fillStyle = "#fff"; ctx.fillRect(geo.gp, -geo.t / 2, geo.s, geo.t);
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+        function loop() { if (!running) return; draw(null); requestAnimationFrame(loop); }
+        [wGap, wPad, wRot].forEach(function (el) { el.addEventListener("input", rebuild); el.addEventListener("change", rebuild); });
+        new ResizeObserver(rebuild).observe(cv);
+        if (!reduceMotion) {
+            new IntersectionObserver(function (entries) {
+                var vis = entries[0].isIntersecting;
+                if (vis && !running) { running = true; t0 = performance.now(); requestAnimationFrame(loop); }
+                if (!vis) running = false;
+            }, { threshold: 0.2 }).observe(cv);
+        }
+    }
+
+    /* ---------- latest release ---------- */
+    var meta = document.getElementById("dlMeta");
+    fetch("https://api.github.com/repos/tien11668899/S1mp1e/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (rel) {
+            var a = (rel.assets || []).filter(function (x) { return /\.exe$/i.test(x.name); })[0] || (rel.assets || [])[0];
+            if (!a) throw 0;
+            document.querySelectorAll("[data-dl]").forEach(function (el) { el.href = a.browser_download_url; });
+            meta.textContent = "最新版本 " + rel.tag_name + "，" + (a.size / 1048576).toFixed(1) + " MB";
+        })
+        .catch(function () { meta.innerHTML = '從 <a href="https://github.com/tien11668899/S1mp1e/releases/latest">GitHub Releases</a> 下載最新版本'; });
 })();
 </script>
 </body>
