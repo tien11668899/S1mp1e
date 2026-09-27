@@ -38,6 +38,9 @@ float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
 // S1mp1e: continuous-curvature ("squircle") corner — a superellipse |x/a|^n + |y/a|^n = 1 (n = 2 is the circular corner;
 // iOS's continuous corner of radius R fits n ≈ 2.8 with a ≈ 1.31 R). Shared by the lens SDF and the highlight normal.
 uniform float cornerExponent;        // <= 2: plain rounded rect; > 2: squircle with this exponent
+uniform float backRim;               // S1mp1e: rim brightness on the edge FACING AWAY from the light, as a fraction of the
+                                     // light-facing edge. 1 = symmetric (the original |d| behaviour); <1 = directional
+                                     // (iOS 26's bright top rim, dim bottom). Sides (d≈0) are unaffected either way.
 
 float lengthP(float2 v, float n) {
     float2 p = pow(max(v, float2(0.0)), float2(n));
@@ -83,7 +86,10 @@ half4 main(float2 coord) {
     float2 normal = float2(cos(angle), sin(angle));
 
     float d = dot(grad, normal);
-    float intensity = pow(abs(d), max(falloff, 0.0));
+    float f = max(falloff, 0.0);
+    // Directional rim: the light-facing edge (d>0) at full strength, the opposite edge (d<0) scaled by backRim.
+    // backRim == 1 reduces exactly to pow(abs(d), falloff) — the original symmetric rim.
+    float intensity = pow(max(d, 0.0), f) + backRim * pow(max(-d, 0.0), f);
     // Skia expects premultiplied output colors.
     half a = half(color.a * intensity);
     half3 rgb = half3(color.rgb) * a;

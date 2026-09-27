@@ -330,16 +330,11 @@
             <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
         </Style>
 
-        <!-- rows inside the liquid-glass menu: rounded hover pill -->
+        <!-- rows inside the liquid-glass menu. The per-row :pointerover background swap is GONE — the single
+             sliding selection capsule (MenuCapsule) is now the ONLY hover/selection indicator (iOS 26 spec),
+             so a per-row highlight would double it. Rows keep transparent backgrounds; content never changes. -->
         <Style Selector="Border.menurow">
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.14"/>
-                </Transitions>
-            </Setter>
-        </Style>
-        <Style Selector="Border.menurow:pointerover">
-            <Setter Property="Background" Value="{DynamicResource MenuHover}"/>
+            <Setter Property="Background" Value="Transparent"/>
         </Style>
 
         <!-- Modrinth result row hover -->
@@ -468,28 +463,34 @@
                                  blur. The visible effect is a rim refraction band (that bends
                                  what's underneath, giving the convex-lens look) plus a rim
                                  highlight — the interior stays clear and colourless. -->
+                            <!-- Restore the pre-7934894 gentle CIRCLE-MAP lens. The regression commit both excluded the
+                                 NavRows (→ nothing to refract → opaque box; that exclusion is now removed above) AND swapped
+                                 this pill onto the strong Snell edge band (thickness 13.15, offset 55) which, sitting directly
+                                 over the selected row's own label, scrambled that label into a rainbow smear instead of a clean
+                                 rim. A gentle circle-map refraction (height 7 / amount 14, no Snell) bends only a thin rim of the
+                                 row content behind while the crisp label renders on top — the "real liquid glass" it used to be.
+                                 Independent of the shared MENU glass (ApplyMenuGlassTheme), so this does not touch the dropdowns. -->
                             <lg:LiquidGlassSurface x:Name="SelPill"
                                                    lg:LiquidGlassBackdrop.IsExcludedFromCapture="True"
                                                    Width="212" Height="40" CornerRadius="10"
                                                    Canvas.Left="0" Canvas.Top="0"
-                                                   RefractionHeight="10" RefractionAmount="14"
+                                                   RefractionHeight="7" RefractionAmount="14"
                                                    ChromaticAberration="False" BlurRadius="0"
                                                    Vibrancy="1.0" Brightness="0"
-                                                   TintColor="#00000000" SurfaceColor="#12FFFFFF"
-                                                   HighlightEnabled="True" HighlightOpacity="0.35"
-                                                   HighlightWidth="1.5" HighlightBlurRadius="1.2" HighlightAngle="45"
-                                                   ShadowEnabled="True" ShadowRadius="9"
-                                                   ShadowColor="#26000000" ShadowOpacity="1"
-                                           SnellRefraction="True"
-                                           SnellThickness="13.15"
-                                           SnellIor="1.4"
-                                           SnellOffset="55"
-                                           SnellDispersion="0.105"
-                                           BackdropZoom="1.0"
-                                           HighlightFalloff="0"/>
+                                                   TintColor="#00000000" SurfaceColor="#08FFFFFF"
+                                                   HighlightEnabled="True" HighlightOpacity="0.55"
+                                                   HighlightWidth="0.35" HighlightBlurRadius="0.25" HighlightAngle="60"
+                                                   ShadowEnabled="True" ShadowRadius="12"
+                                                   ShadowColor="#26000000" ShadowOpacity="1"/>
                         </Canvas>
 
-                        <StackPanel x:Name="NavRows" lg:LiquidGlassBackdrop.IsExcludedFromCapture="True" Spacing="4">
+                        <!-- NavRows are NOT excluded from the pill's backdrop capture: the sidebar SelPill is a real
+                             refractive lens and its ONLY refraction content is the selected row's icon + label sitting at
+                             its location (behind the acrylic, which the capture renders flat). Excluding them (the 7934894
+                             "text not drawn twice" change) left the lens with nothing to bend, so it read as an opaque box.
+                             The pill sits BEHIND the rows (PillLayer is z-below NavRows), so the crisp label still renders
+                             on top; only the rim refraction of that same content shows through — the iOS liquid-glass look. -->
+                        <StackPanel x:Name="NavRows" Spacing="4">
                             <!-- 開始遊戲 -->
                             <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="0">
@@ -1044,12 +1045,29 @@
             </StackPanel>
         </Button>
 
+        <!-- CAPTURE-ONLY backdrop parity (spec gap A): in the sealed S1MP1E_MENUSHOT harness this opaque
+             image is filled with an iOS-26 closed-menu wallpaper frame and shown BELOW the menu overlay but
+             ABOVE the launcher UI, so the menu glass refracts the same kind of wallpaper gradient iOS does and
+             the backdrop scrim dims a real wallpaper (RenderTargetBitmap omits the window acrylic → otherwise
+             black). Strictly inert in the live app: IsVisible stays False unless the harness turns it on. -->
+        <Image x:Name="CaptureBackdrop" IsVisible="False" ZIndex="150"
+               Stretch="UniformToFill" ClipToBounds="True"
+               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
         <!-- shared liquid-glass pop-up MENU overlay (lives in the window's own tree, so the
              LiquidGlassSurface refracts the real window content behind it — a Popup can't) -->
         <Panel x:Name="OverlayHost" IsVisible="False" ZIndex="200"
                lg:LiquidGlassBackdrop.IsExcludedFromCapture="True">
             <Border x:Name="MenuDismiss" Background="Transparent" PointerPressed="OnMenuDismiss"/>
+            <!-- iOS 26 context-menu backdrop scrim: dims the whole window behind the menu (never for
+                 the non-modal pull-down pickers). Sits above the dismiss catcher, below the menu Canvas;
+                 not hit-testable so clicks fall through to MenuDismiss. -->
+            <Border x:Name="MenuScrim" Background="Black" Opacity="0" IsHitTestVisible="False"/>
             <Canvas>
+                <!-- lit clone of the pressed anchor, drawn above the scrim so the anchor stays fully
+                     bright while everything else dims (iOS pressed-icon treatment). Filled in code. -->
+                <Border x:Name="AnchorClone" IsVisible="False" IsHitTestVisible="False"
+                        RenderTransformOrigin="50%,50%"/>
                 <!-- glass is DECORATIVE only (IsHitTestVisible=False); rows sit ON TOP and take the
                      pointer, exactly like the selection pill — never hit-test through the refraction. -->
                 <Panel x:Name="MenuRoot" Canvas.Left="0" Canvas.Top="0" Opacity="0"
@@ -1078,7 +1096,15 @@
                           HorizontalAlignment="Left" VerticalAlignment="Top"/>
                     <!-- the items are laid out at their final size and REVEALED by this clip as the glass grows -->
                     <Border x:Name="MenuClip" ClipToBounds="True">
-                        <StackPanel x:Name="MenuItems" Margin="4"/>
+                        <Panel>
+                            <!-- iOS 26 selection capsule: a single rigid stadium behind the rows that springs
+                                 from row-centre to row-centre under the pointer / keyboard focus. Fill + geometry
+                                 set in code (ApplyCapsuleTheme / MenuCapsuleTick). Hidden until first hover. -->
+                            <Canvas x:Name="MenuCapsuleLayer" IsHitTestVisible="False">
+                                <Border x:Name="MenuCapsule" IsHitTestVisible="False" Opacity="0"/>
+                            </Canvas>
+                            <StackPanel x:Name="MenuItems" Margin="4"/>
+                        </Panel>
                     </Border>
                 </Panel>
                 <!-- Mod detail sheet — same glass optics as MenuRoot but wider and

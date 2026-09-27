@@ -43,6 +43,12 @@ public class GlassSelect : Button
     /// <summary>Raised when the selected index changes (host writes it back after a pick).</summary>
     public event EventHandler? SelectionChanged;
 
+    // The two trigger glyphs, exposed so the host can animate them INDEPENDENTLY. iOS 26's pull-down close
+    // returns the grey value text first and the chevron ~110 ms LATER (spec IOS26_PULLDOWN_SPEC §3b), which the
+    // old single-StackPanel fade could not do. StartAnchorReturn drives these two on separate clocks.
+    public TextBlock? ValueText { get; private set; }
+    public Avalonia.Controls.Shapes.Path? Chevron { get; private set; }
+
     public GlassSelect()
     {
         Click += (_, _) => OpenRequested?.Invoke(this, this);
@@ -93,5 +99,7 @@ public class GlassSelect : Button
         row.Children.Add(value);
         row.Children.Add(chevron);
         Content = row;
+        ValueText = value;
+        Chevron = chevron;
     }
 }

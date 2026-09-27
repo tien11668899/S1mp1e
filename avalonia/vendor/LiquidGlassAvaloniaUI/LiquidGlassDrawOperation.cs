@@ -721,6 +721,7 @@ namespace LiquidGlassAvaloniaUI
             float angleRad = (float)(_parameters.HighlightAngleDegrees * (Math.PI / 180.0));
             uniforms["angle"] = angleRad;
             uniforms["falloff"] = (float)Clamp(_parameters.HighlightFalloff, 0.0, 8.0);
+            uniforms["backRim"] = (float)Clamp(_parameters.HighlightBackRim, 0.0, 1.0);
 
             using SKRuntimeEffectChildren children = new(s_highlightEffect);
             using SKShader? shader = s_highlightEffect.ToShader(uniforms, children);

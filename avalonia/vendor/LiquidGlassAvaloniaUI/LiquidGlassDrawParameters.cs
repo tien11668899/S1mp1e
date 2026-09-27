@@ -53,6 +53,7 @@ namespace LiquidGlassAvaloniaUI
         public double HighlightOpacity { get; set; }
         public double HighlightAngleDegrees { get; set; }
         public double HighlightFalloff { get; set; }
+        public double HighlightBackRim { get; set; }   // set from HighlightBackRim (default 1.0 = symmetric rim); <1 = directional (dim far edge)
 
         public double InteractiveProgress { get; set; }
         public Point InteractivePosition { get; set; }

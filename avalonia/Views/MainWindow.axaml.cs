@@ -102,7 +102,7 @@ public partial class MainWindow : Window
 
     private void SaveCfg()
     {
-        if (_hydrating) return;
+        if (_hydrating || _captureMode) return;   // capture mode never writes the user's config
         // Settings only — never write our in-memory account over what the itest CLI
         // put on disk (see ConfigStore.SaveUiOwned).
         ConfigStore.SaveUiOwned(_cfg);
@@ -135,6 +135,11 @@ public partial class MainWindow : Window
 
         Opened += (_, _) =>
         {
+            // Sealed frame-capture mode (spec: 60 fps PNG dump). Impossible to trigger without the env var; when set it
+            // takes over the window, never writes config/accounts, and exits by itself. Must be FIRST so nothing else runs.
+            var shotDir = Environment.GetEnvironmentVariable("S1MP1E_MENUSHOT");
+            if (!string.IsNullOrWhiteSpace(shotDir)) { _ = RunCaptureModeAsync(shotDir!); return; }
+
             // Hydrate settings from disk before any handler can fire back.
             _cfg = ConfigStore.Load();
             ApplyLoadedConfig();
@@ -152,6 +157,12 @@ public partial class MainWindow : Window
                 DetailScroller.ScrollChanged += (_, _) => UpdateEdgeScrims();
                 UpdateEdgeScrims();
             }
+
+            // Gap I — Esc dismisses any open pop-up (context menu, pull-down, sheet, gallery) with the SAME close
+            // animation as clicking the scrim/outside. Tunnel + handledEventsToo so it fires before a focused row/list
+            // swallows the key. No-op when nothing is open.
+            AddHandler(InputElement.KeyDownEvent, OnGlobalKeyDown,
+                RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
 
             // Edge-blur snapshot refresh is driven ONLY by the scroll tween tick
             // (see OnScrollTick). Hooking PropertyChanged/LayoutUpdated causes
@@ -512,42 +523,88 @@ public partial class MainWindow : Window
     private void ShowMenuFor(Control anchor, string[] items, int selected, bool[]? disabled, Action<int> onPick, double padRight = 0)
     {
         bool IsDisabled(int i) => disabled is not null && i < disabled.Length && disabled[i];
+        // Two paradigms behind one flag: a GlassSelect value picker is a PULL-DOWN (covers the value, non-modal, no scrim);
+        // anything else (account chip, +, skin, download) is an iOS CONTEXT MENU (emerges beside the anchor, modal scrim).
+        bool fades = anchor is S1mp1e.Controls.GlassSelect;
+        bool contextMenu = !fades;
+        _menuOnPick = onPick; _menuDisabled = disabled;
+        if (!_capWired) { _capWired = true; MenuItems.PointerExited += (_, _) => OnMenuPointerExited(); }
+        static bool IsDestructive(string s)
+        {
+            s = s.Trim();
+            return s == "登出" || s.StartsWith("刪除") || s.StartsWith("移除") || s.StartsWith("Remove") || s.StartsWith("Delete");
+        }
         MenuItems.Children.Clear();
         _menuRows.Clear();
         _menuCellLabels.Clear();
-        int cols = items.Length >= 8 ? 3 : 1;
-        int rowsCount = (items.Length + cols - 1) / cols;
+        // Request 3: the old 3-column version GRID is retired. A long pull-down (the version picker, and likewise the
+        // menu-key picker) is now a SINGLE vertical column of loader-style rows inside a smooth-scrolling viewport; short
+        // menus stay a plain single column. So every row is a left-aligned single-column row now (never centred grid cells).
+        int rowsCount = items.Length;
+        ResetCapsuleForOpen(fades, selected, grid: false, items.Length);
         Border MakeRow(int i)
         {
             int idx = i;
             bool dis = IsDisabled(i);
-            var row = BuildMenuRow(items[i], i == selected, dis, centered: cols > 1);   // grid cells centre their [check label]
+            var row = BuildMenuRow(items[i], i == selected, dis, centered: false,
+                                   contextMenu: contextMenu, destructive: IsDestructive(items[i]));
+            // Hover moves the selection capsule onto this row (spec §10.1); disabled rows are skipped (capsule clamps).
+            row.PointerEntered += (_, _) => OnRowHover(idx);
+            row.PointerMoved   += (_, _) => OnRowHover(idx);
             row.Tapped += (_, _) =>
             {
                 if (dis) return;   // disabled → swallow click, leave menu open
+                ShowCapsuleAt(idx, animate: false);   // keep the capsule lit on the clicked row through the collapse (spec §10.7)
                 try { onPick(idx); } catch (Exception ex) { LogCrash(ex); }
                 CloseGlassMenu();
             };
-            // Re-measured (dark open, ordinals 16-41): all rows AND the check appear within one 17 ms frame — no centre-out
-            // stagger; on close they vanish bottom-first by well under a frame.
-            int r = i / cols;
-            double openDelay = 0;
-            double closeDelay = Math.Min(0.008, 0.004 * (rowsCount - 1 - r));
+            // iOS 26 context menu: a slight top-first positional reveal (~1 frame per row, capped); pull-downs stay in lock-step.
+            double openDelay = contextMenu ? Math.Min(0.05, 0.012 * i) : 0;
+            // context cuts every row together in ~1 frame (iOS spec §4); pull-down keeps a small bottom-first stagger.
+            double closeDelay = contextMenu ? 0 : Math.Min(0.008, 0.004 * (rowsCount - 1 - i));
             _menuRows.Add(new MenuRowAnim(row, i == selected ? row.Tag as Control : null, openDelay, closeDelay));
             return row;
         }
-        if (cols > 1)
+
+        // Measure one row for the pitch, then decide whether this pull-down is tall enough to need scrolling. The viewport is
+        // capped to ~8.5 rows (a half row peeking signals more) AND to whatever fits inside the window with a margin. Only
+        // pull-downs (fades) ever scroll; context menus and short pickers stay their natural height.
+        double rowPitch;
         {
-            // Multi-column layout — UniformGrid handles equal-width cells better than
-            // WrapPanel here (WrapPanel with a hard Width refuses to stretch children).
-            const double cellW = MenuCellW;
-            var grid = new Avalonia.Controls.Primitives.UniformGrid
-            {
-                Columns = cols, Rows = rowsCount,
-                Width = cellW * cols,
-            };
-            for (int i = 0; i < items.Length; i++) grid.Children.Add(MakeRow(i));
-            MenuItems.Children.Add(grid);
+            var probe = BuildMenuRow(items.Length > 0 ? items[0] : "", false, false, centered: false, contextMenu: contextMenu);
+            probe.Measure(Size.Infinity);
+            rowPitch = Math.Max(1, probe.DesiredSize.Height);
+        }
+        _menuRowPitch = rowPitch;
+        // Panel corner + the concentric capsule inset are both fixed now that the row pitch is known (both depend only on the
+        // menu KIND and the pitch). _menuRadius is the nominal panel corner; the panel is DRAWN as a squircle of semi-axis
+        // a = 1.31 * _menuRadius (see ApplyMenuFrame), so for the capsule (a full-height stadium, corner = pitch/2) to nest
+        // concentrically the uniform gap is a - pitch/2. Applied identically to value pickers and context menus.
+        _menuRadius = contextMenu ? CtxCornerRadius : MenuPanelRadius;   // context menus round more (iOS ~0.13*width); pull-downs keep the card corner
+        _capInset = Math.Max(4.0, 1.31 * _menuRadius - rowPitch / 2.0);
+        _menuScrolling = false;
+        double viewportH = 0;
+        if (fades)
+        {
+            double marginsV = 2 * _capInset;               // MenuItems top+bottom padding (symmetric _capInset each side)
+            double maxFit = Math.Max(rowPitch, ClientSize.Height - 32 - marginsV);   // always leave a 16 px window margin top+bottom
+            double cap = Math.Min(8.5 * rowPitch, maxFit);
+            double naturalH = items.Length * rowPitch;
+            if (naturalH > cap + 1) { _menuScrolling = true; viewportH = cap; }
+        }
+
+        if (_menuScrolling)
+        {
+            EnsureLazyMenuScroller();
+            _menuScrollPanel!.Children.Clear();
+            for (int i = 0; i < items.Length; i++) _menuScrollPanel.Children.Add(MakeRow(i));
+            _menuScroller!.Height = viewportH;
+            _menuScroller.Offset = new Vector(0, 0);
+            _menuScrollTarget = double.NaN;
+            MenuItems.Children.Add(_menuScroller);
+            // Open scrolled so the CURRENT value is visible near the TOP (a slight peek above signals more), but NOT
+            // highlighted (Request 2 already keeps the capsule off it). Applied once the extent is known (see below / settle).
+            _menuInitScrollY = Math.Max(0, (selected - 0.5) * rowPitch);
         }
         else
         {
@@ -555,6 +612,7 @@ public partial class MainWindow : Window
         }
 
         OverlayHost.IsVisible = true;
+        MenuScrim.Opacity = 0;   // the scrim is opaque black shown via Opacity; keep it clear until AnimateMenu fades it in
         // Ensure any previously-opened sheet/gallery is out of the way and the
         // MenuRoot panel is the visible one — ShowLocalModDetailAsync flips
         // MenuRoot to invisible, and if we don't flip it back the next menu opens
@@ -564,36 +622,17 @@ public partial class MainWindow : Window
         if (SkinGalleryRoot is not null) SkinGalleryRoot.IsVisible = false;
         // Plain dropdown menus don't get the frosted sheet backdrop — they should
         // feel lightweight, not modal.
-        ApplyMenuGlassTheme();
+        ApplyMenuGlassTheme(contextMenu);
         // re-measure from scratch: an earlier menu left its final size pinned on MenuItems
         MenuItems.Width = double.NaN;
         MenuItems.Height = double.NaN;
-        MenuItems.Margin = new Thickness(4, 9, 4, 8);   // provisional: the padded side is picked once flipUp is known (same total)
+        MenuItems.Margin = new Thickness(4, _capInset, 4, _capInset);   // top/bottom = the concentric capsule inset (symmetric)
         MenuItems.Measure(Size.Infinity);
         var ds = MenuItems.DesiredSize;
         double h = ds.Height;
         // width follows the content: each row already carries the iOS side padding (check gutter + generous right space);
         // never narrower than the trigger it grows out of
         double w = Math.Max(ds.Width, anchor.Bounds.Width);
-        _menuRadius = MenuPanelRadius;   // one corner for every menu, the same as the launcher's other glass panels
-        if (cols > 1 && selected >= 0 && selected < items.Length && _menuCellLabels.Count == items.Length
-            && selected < _menuRows.Count && _menuRows[selected].Check is { } gridCheck)
-        {
-            // Version grid: every label stays centred in its cell (the selected one is NOT pushed aside); the ✓ floats in
-            // the middle of the empty gap to the LEFT of its label — between the neighbouring number's right edge and this
-            // number's left edge, nudged toward the number.
-            int k = selected % cols;
-            double wl = _menuCellLabels[selected].DesiredSize.Width;
-            double cellCX = k * MenuCellW + MenuCellW / 2;
-            double labelLeft = cellCX - wl / 2;
-            // the gap between the neighbouring number and this one (first column: as if the neighbour were as wide as this
-            // label, so every column puts the ✓ at the same distance from its number)
-            double gap = k > 0
-                ? labelLeft - ((k - 1) * MenuCellW + MenuCellW / 2 + _menuCellLabels[selected - 1].DesiredSize.Width / 2)
-                : MenuCellW - wl;
-            // the ✓ sits in the RIGHT quarter of that gap: clearly this number's, without moving the number itself
-            gridCheck.RenderTransform = new TranslateTransform(labelLeft - 0.25 * gap - cellCX, 0);
-        }
 
         var pr = anchor.TranslatePoint(new Point(anchor.Bounds.Width, anchor.Bounds.Height), OverlayHost)
                  ?? new Point(0, 0);
@@ -606,14 +645,18 @@ public partial class MainWindow : Window
         // covers it (right edge +12 past the chevron, top 13 above the value centre — measured on iOS). Anything else
         // (the account chip, the ⊕ button, the skin button) stays visible, so the menu sits clear of it — above or below
         // with a 6 DIP gap — and aligns to the anchor's near edge (left edges for a left-side chip, right edges otherwise).
-        bool fades = anchor is S1mp1e.Controls.GlassSelect;
+        // 'fades' was decided at the top of this method. A left-side chip aligns its LEFT edges (biased ~6 pt outward per
+        // iOS 26); a right-side context anchor aligns right edges; a pull-down covers the value (+12 past the chevron).
         bool leftSide = !fades && (pt.X + pr.X) / 2 < OverlayHost.Bounds.Width / 2;
         double right;
         if (leftSide)
         {
-            _menuLeft = Math.Max(8, pt.X);
+            // iOS 26: the context menu's left edge sits ~5-7 pt OUTWARD (left) of the anchor's left edge. Allow it nearer the
+            // window edge than the usual 8 DIP inset so a near-edge anchor (the account chip at x=12) still gets the full bias.
+            const double ctxEdgeMin = 4;
+            _menuLeft = Math.Max(ctxEdgeMin, pt.X - CtxLeftBias);
             right = Math.Min(OverlayHost.Bounds.Width - 8, _menuLeft + w);
-            _menuLeft = Math.Max(8, right - w);
+            _menuLeft = Math.Max(ctxEdgeMin, right - w);
         }
         else
         {
@@ -621,40 +664,73 @@ public partial class MainWindow : Window
             _menuLeft = Math.Max(8, right - w);
         }
         double anchorCY = (pt.Y + pr.Y) / 2;
-        double topIfDown = fades ? anchorCY - 13 : pr.Y + 6;
+        double topIfDown = fades ? anchorCY - 13 : pr.Y + CtxMenuGap;   // context menu: clear gap below the anchor; pull-down covers it
         double availBelow = OverlayHost.Bounds.Height - topIfDown - 8;
         bool flipUp = availBelow < h + 4;
-        _menuTop = flipUp ? Math.Max(8, (fades ? anchorCY + 13 : pt.Y - 6) - h) : Math.Max(8, topIfDown);
+        _menuTop = flipUp ? Math.Max(8, (fades ? anchorCY + 13 : pt.Y - CtxMenuGap) - h) : Math.Max(8, topIfDown);
         _menuW = w;
         _menuH = h;
         _btnCX = pr.X - anchor.Bounds.Width / 2;
         _btnW = anchor.Bounds.Width;
         _menuFlipUp = flipUp;
-        // The seed = the anchor's own box. For a value box it lies inside the final rect (top and right barely move,
-        // as measured); for a chip it lies outside it, so the bubble rises/drops out of the chip into place.
-        _seedR = Math.Min(right, anchorRight);
-        _seedL = Math.Max(_menuLeft, Math.Min(_seedR - 24, pt.X));
         if (fades)
         {
+            // Pull-down: the seed = the anchor's own box, lying INSIDE the final rect (top and right barely move) — the value
+            // balloons in place. Origin top-right (set in AnimateMenu).
+            _seedR = Math.Min(right, anchorRight);
+            _seedL = Math.Max(_menuLeft, Math.Min(_seedR - 24, pt.X));
             _seedT = Math.Max(_menuTop, pt.Y);
             _seedB = Math.Min(_menuTop + h, Math.Max(_seedT + 12, pr.Y));
         }
         else
         {
-            _seedT = pt.Y;
-            _seedB = Math.Max(_seedT + 12, pr.Y);
+            // Context menu (iOS 26 "emerge from anchor"): the panel is a UNIFORM scale about its pinned corner (top-left when
+            // growing down, bottom-left when flipped up) — both axes scale by the SAME factor, the pinned edges never move.
+            // Verified by a gradient-edge re-measure of 下拉深 (2).mp4: width% == height% at every open frame (the earlier
+            // brightness-diff re-measure's "near-full-width, height-only grow" was a detector artifact where the menu grey
+            // equals the scrimmed wallpaper and only the low-contrast top is missed). Seed a small WIDE nub (spec §2:
+            // iOS's first frame is a rounded RECT ~0.28 w x 0.12 h, not a point) so the emergence reads as iOS's does and the
+            // blob is first-visible ~1 frame in (with the phase-seed in SetupMenuAnim). The floors are small so the diluted
+            // overshoot / fitted spring stay within tolerance.
+            double seedW = (ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark ? CtxSeedWDark : CtxSeedWLight);
+            _seedL = _menuLeft;
+            _seedR = _menuLeft + seedW * w;
+            if (flipUp) { _seedB = _menuTop + h; _seedT = _seedB - CtxSeedH * h; }   // flipped: pinned bottom-left, grows up
+            else        { _seedT = _menuTop;     _seedB = _seedT + CtxSeedH * h; }   // pinned top-left, grows down + right
         }
+        // Backdrop scrim floor (spec §7/§13.1): the account switcher is fully modal; the small +/skin/download popups dim
+        // lightly; pull-downs are non-modal and get NO scrim (defining difference from the context menu).
+        bool darkNow = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        _scrimLevel = fades ? 0
+            : ReferenceEquals(anchor, AccountChip) ? (darkNow ? 0.53 : 0.22)   // dark floor 1-0.53=0.47 ~= iOS 0.481
+            : (darkNow ? 0.16 : 0.13);
+        // Keep the pressed anchor lit above the scrim: paint a full-brightness clone into the overlay (spec §6/§13.10).
+        if (contextMenu) SetupAnchorClone(anchor, pt, flipUp); else HideAnchorClone();
         // lay the items out at their FINAL size once; the clip reveals them as the glass grows
-        // the padded side (top when growing down, bottom when flipped up) holds the trigger; the other side is tight
-        MenuItems.Margin = flipUp ? new Thickness(4, 8, 4, 9) : new Thickness(4, 9, 4, 8);   // top pad 0.78 P / bottom 0.77 P (label centre to edge)
+        // top/bottom padding = _capInset (symmetric both ways of flip) so the top-row and bottom-row selection capsules sit
+        // the SAME gap from the panel edge as the left/right sides — the capsule corner stays concentric with the panel's.
+        MenuItems.Margin = new Thickness(4, _capInset, 4, _capInset);
         MenuItems.Width = Math.Max(0, w - MenuItems.Margin.Left - MenuItems.Margin.Right);
         MenuItems.Height = Math.Max(0, h - MenuItems.Margin.Top - MenuItems.Margin.Bottom);
+
+        // Scroll pull-down: force the viewport to lay out now (so its extent is known) and open scrolled to the current value
+        // near the top. Re-applied at settle too, in case the extent only resolves after the first real layout pass.
+        if (_menuScrolling && _menuScroller is not null)
+        {
+            _menuScroller.UpdateLayout();
+            ApplyMenuInitScroll();
+        }
 
         // a dropdown's value text blurs in place and is absorbed by the glass born on top of it
         if (_menuAnchor is not null && !ReferenceEquals(_menuAnchor, anchor)) RestoreAnchor(_menuAnchor);
         _menuAnchor = anchor;
         _anchorFades = anchor is S1mp1e.Controls.GlassSelect;
         _anchorGen++;   // stops a value-return tail still running on this trigger
+        // The backdrop below is frozen with ONE capture taken right now — before the trigger's value text has faded — so the
+        // glass kept refracting a blurred copy of the trigger's own blue "26.2 ⌃⌄" for the whole morph (the "blue text
+        // behind the menu" the user reported). iOS's glass never shows its own trigger's text: keep the trigger out of the
+        // capture while the menu owns it; RestoreAnchor / FinishAnchorReturn put it back.
+        if (_anchorFades) LiquidGlassAvaloniaUI.LiquidGlassBackdrop.SetIsExcludedFromCapture(anchor, true);
 
         // Freeze the backdrop for the morph: ONE capture whose clip already covers the FINAL menu (plus its overshoot), then
         // no re-captures while the glass grows — otherwise every growth frame re-rasterises the window (the jank).
@@ -664,7 +740,73 @@ public partial class MainWindow : Window
             LiquidGlassAvaloniaUI.LiquidGlassBackdrop.FreezeForAnimation(MenuGlass,
                 new Rect(o.X - 0.06 * _menuW, o.Y - (_menuFlipUp ? 0.14 * _menuH : 0), _menuW * 1.12, _menuH * 1.14));
         }
-        AnimateMenu(open: true);
+        // In capture mode the harness drives the animation on a virtual clock; don't start the live RAF loop here.
+        if (!_captureMode) AnimateMenu(open: true);
+    }
+
+    // ---- pressed-anchor clone: a full-brightness copy of the anchor drawn above the scrim so it stays lit while
+    // everything else dims, with the iOS long-press lift.
+    //
+    // DUPLICATE-LAYER FIX: the previous version painted a live VisualBrush copy of the anchor 1.06x / 5 px offset
+    // ABOVE the scrim while the REAL anchor stayed visible (dimmed) underneath — the user saw the chip text twice,
+    // offset vertically. We now (a) SNAPSHOT the anchor to a static bitmap (a live VisualBrush would vanish the moment
+    // its source is hidden, so it can't be used together with hiding the source) and (b) HIDE the live anchor for as
+    // long as the lit clone is up. Exactly ONE copy is ever visible: the lit, lifted clone above the dim; on close the
+    // live anchor's opacity is restored in HideAnchorClone. ----
+    private Control? _clonedAnchor;   // the live anchor hidden while its lit snapshot clone shows
+
+    private void SetupAnchorClone(Control anchor, Point pt, bool flipUp)
+    {
+        try
+        {
+            double w = anchor.Bounds.Width, h = anchor.Bounds.Height;
+            if (w < 1 || h < 1) { HideAnchorClone(); return; }
+            double scale = (TopLevel.GetTopLevel(this)?.RenderScaling) ?? 1.0;
+            // Snapshot the chip content to a bitmap at exact display resolution. A live VisualBrush would go blank the
+            // instant we hide its source (verified), so a static copy is the only way to keep exactly one lit chip.
+            var px = new PixelSize(Math.Max(1, (int)Math.Round(w * scale)), Math.Max(1, (int)Math.Round(h * scale)));
+            var snap = new RenderTargetBitmap(px, new Vector(96 * scale, 96 * scale));
+            // Grayscale (not LCD-subpixel) text AA in the snapshot: subpixel fringes baked into a bitmap read as a coloured
+            // horizontal ghost when the bitmap is later resampled. Grayscale AA has none, so the clone stays clean.
+            Avalonia.Media.TextOptions.SetTextRenderingMode(anchor, Avalonia.Media.TextRenderingMode.Antialias);
+            snap.Render(anchor);
+            // Request 1: the lit clone sits pixel-exactly OVER the original anchor — no size lift and no positional shift,
+            // so the pressed chip keeps EXACTLY its size and place; only its lighting changes (it stays bright above the
+            // scrim). (Earlier this baked a +6 % lift into the clone's size and nudged it a few px toward the menu.)
+            _ = flipUp;
+            double cw = w, ch = h;
+            AnchorClone.Width = cw;
+            AnchorClone.Height = ch;
+            Canvas.SetLeft(AnchorClone, pt.X);
+            Canvas.SetTop(AnchorClone, pt.Y);
+            AnchorClone.RenderTransform = null;
+            var ib = new ImageBrush(snap) { Stretch = Stretch.Fill };
+            RenderOptions.SetBitmapInterpolationMode(AnchorClone, BitmapInterpolationMode.HighQuality);
+            AnchorClone.Background = ib;
+            AnchorClone.IsVisible = true;
+            // Hide the live anchor so the only visible copy is the lit clone above the scrim (no double). This MUST be set at
+            // ANIMATION priority: SetAccountView's sign-in crossfade runs with FillMode.Forward, which leaves an Animation-
+            // priority Opacity=1 committed on AccountChip; a plain (LocalValue) anchor.Opacity=0 cannot override that, so the
+            // live chip stayed visible UNDER the lifted clone -> the two overlapping chips the user reported (spec §11 G10).
+            anchor.SetValue(OpacityProperty, 0.0, Avalonia.Data.BindingPriority.Animation);
+            _clonedAnchor = anchor;
+        }
+        catch (Exception ex) { LogCrash(ex); HideAnchorClone(); }
+    }
+
+    private void HideAnchorClone()
+    {
+        AnchorClone.IsVisible = false;
+        AnchorClone.Background = null;
+        AnchorClone.RenderTransform = null;
+        if (_clonedAnchor is not null)
+        {
+            // Restore at the SAME (Animation) priority we hid it at, so it wins over any Forward-filled value still sitting
+            // there (a plain set would be shadowed by that animation-priority value and leave the chip invisible).
+            _clonedAnchor.SetValue(OpacityProperty, 1.0, Avalonia.Data.BindingPriority.Animation);
+            Avalonia.Media.TextOptions.SetTextRenderingMode(_clonedAnchor, Avalonia.Media.TextRenderingMode.Unspecified);
+            _clonedAnchor = null;
+        }
     }
 
     private async void CloseGlassMenu()
@@ -700,6 +842,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { LogCrash(ex); }
         OverlayHost.IsVisible = false;
+        MenuScrim.Opacity = 0;
+        HideAnchorClone();
         LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
         if (menuClose && _menuAnchor is not null)
         {
@@ -711,20 +855,309 @@ public partial class MainWindow : Window
 
     private void OnMenuDismiss(object? sender, PointerPressedEventArgs e) => CloseGlassMenu();
 
+    // Gap I — keyboard dismiss: Esc closes whatever pop-up is open, using the same close path (and animation) as a
+    // click outside. Only acts while the overlay is up so it never eats Esc elsewhere.
+    private void OnGlobalKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (!OverlayHost.IsVisible) return;
+        var k = e.Key;
+        if (k == Avalonia.Input.Key.Escape) { CloseGlassMenu(); e.Handled = true; return; }
+        // Keyboard selection-capsule movement (spec §10.6): Up/Down/Home/End move it (no wrap), Enter/Space commit.
+        if (!_capActive || !_menuSettled) return;
+        switch (k)
+        {
+            case Avalonia.Input.Key.Down: KeyMoveCapsule(+1, false, false); e.Handled = true; break;
+            case Avalonia.Input.Key.Up:   KeyMoveCapsule(-1, false, false); e.Handled = true; break;
+            case Avalonia.Input.Key.Home: KeyMoveCapsule(0, true, false);   e.Handled = true; break;
+            case Avalonia.Input.Key.End:  KeyMoveCapsule(0, false, true);   e.Handled = true; break;
+            case Avalonia.Input.Key.Enter:
+            case Avalonia.Input.Key.Space: CommitCapsule(); e.Handled = true; break;
+        }
+    }
+
     private double _menuLeft, _menuTop, _menuW, _menuH, _btnCX, _btnW;
     private double _seedL, _seedT, _seedR, _seedB;   // the trigger box the menu grows out of / collapses into
     private int _menuAnimGen;               // a newer open/close supersedes a running animation
     private const double MenuCellW = 106;          // version-grid cell width (3 columns)
     private readonly System.Collections.Generic.List<TextBlock> _menuCellLabels = new();   // grid-cell labels, index == item
-    private const double MenuPanelRadius = 16;   // unified with the launcher's cards/sheets; drawn as a continuous (squircle) corner
+    private const double MenuPanelRadius = 20;   // unified with the launcher's cards/sheets; drawn as a continuous (squircle) corner (iOS 26 ~0.13*width; a = 1.31*R)
     private double _menuRadius = MenuPanelRadius;
+
+    // ---- iOS 26 context-menu scale (spec §8/§11): every size is 1 DIP = 1 iOS pt, held in ONE knob so it can be
+    // re-tuned to the launcher's target device scale later without touching the individual numbers. ----
+    private const double IosPt        = 1.0;            // DIP per iOS pt
+    private const double CtxRowHeight = 44 * IosPt;     // row pitch 44 pt
+    private const double CtxTextSize  = 17 * IosPt;     // body text 17 pt SF Pro
+    private const double CtxRowPadH   = 14 * IosPt;     // row left/right inset
+    private const double CtxCheckGutter = 26 * IosPt;   // leading ✓ gutter (icon-column analogue)
+    private const double CtxMenuGap   = 14 * IosPt;     // anchor-bottom -> menu-top gap (spec §8: 14-17 pt)
+    private const double CtxLeftBias  = 6  * IosPt;     // menu left edge sits ~5-7 pt outward of the anchor's left edge
+    // Context-menu corner: iOS keeps it ~0.12-0.13 * menu width (spec §9); on our ~225 DIP account menu that is ~28-29 DIP,
+    // drawn as a superellipse a = 1.31 * this radius. Its own knob so the pull-down keeps MenuPanelRadius (=20).
+    private const double CtxCornerRadius = 28 * IosPt;
+    // iOS 26 dark context-menu body. The spec's clear-glass model (0.41 alpha / rgb 102) composited to interior L~179 over
+    // the harness wallpaper (L~232 behind the menu) — a light silver SHEET, where iOS 26 reads as a DARK OPAQUE grey
+    // (interior L~96-106) that holds its darkness regardless of the (bright) backdrop and keeps the white rows crisp.
+    // Re-solved from the settled grabs: iOS's effective alpha is ~0.66 over a dark tint; because the launcher menu sits over
+    // a BRIGHTER wallpaper region than iOS's did (232 vs 184), matching iOS's ABSOLUTE L needs a touch more opacity so the
+    // body is backdrop-independent. alpha 0.80 over neutral rgb 71 -> interior L ~103 over 232 / ~94 over 184 (iOS 96-106).
+    // [DESIGN-INTENT NOTE — needs user sign-off: this makes the dark context body a near-opaque dark grey, which reverses the
+    //  2026-09-19 "clear glass / 只是一個透明片" decision for THIS one menu. It is the iOS-26-faithful choice ("identical to
+    //  iOS 26"); to revert to clear glass, restore Color.FromArgb(0x69,0x66,0x66,0x68) here — one knob, nothing else changes.]
+    private static readonly Color CtxBodyGrey = Color.FromArgb(0xCC, 0x47, 0x47, 0x47);
+
+    // Context-menu "emerge from anchor" seed (spec §2; iOS blob ~0.28 w x 0.12 h of the final panel, aspect ~1.75 at the
+    // first visible frame). The panel is born as a WIDE, short rounded-rect nub pinned at the anchor's bottom edge and a
+    // phase-seeded spring grows it, so the first frame reads as a rounded RECT the way iOS does, not a growing round dot.
+    // The width floor is the widest the harness scale-spring fit tolerates: a bigger floor lifts the fitted response past
+    // iOS+5 % (the scale spring is fit on 0.5*(wf+hf), so the width floor inflates it). Height floor ~0 -> wide+short.
+    // Per theme because light's response budget (iOS 0.282 +-5 %) is tighter than dark's (0.310), so light caps narrower.
+    private const double CtxSeedWDark  = 0.16;   // dark nub width fraction  -> first-frame aspect wider (iOS ~1.75; capped by the spring-response tolerance since this menu is taller-than-wide; 0.16 keeps response margin)
+    private const double CtxSeedWLight = 0.12;   // light nub width fraction (kept narrow: widening improved blob aspect but diluted the bbox overshoot below iOS-0.5pp and pulled settle-to-2% too early — a net-worse trade)
+    private const double CtxSeedH      = 0.01;   // near-zero height floor: the nub is wide and short like iOS's
+    // Phase-seed the OPEN spring this far into its own trajectory (iOS scale-spring t0 ~ -37 ms) so the nub is first-visible
+    // ~1 frame in (iOS 16.7 ms) WITHOUT altering the spring's response / damping / overshoot (intrinsic, recovered by the
+    // fit regardless of phase). Kept as small as the wide seed allows, because settle-to-2 % is anti-correlated with
+    // first-visible on this phase axis (a bigger advance brings the 2 % re-entry earlier) — iOS's later settle is
+    // crisp-capture rim jitter, not a slower spring, so the residual settle gap is a documented capture artifact.
+    private const double CtxOpenPhaseSeedDark  = 0.018;
+    private const double CtxOpenPhaseSeedLight = 0.014;
+
     private bool _menuFlipUp;   // popover above anchor instead of below
     private Control? _menuAnchor;           // the trigger of the open menu
     private bool _anchorFades;              // dropdown triggers hand their value text over to the glass
     private int _anchorGen;                 // cancels a value-return tail
     private long _closeStartTicks;
+
+    // ---- deterministic 60 fps frame-capture harness (inert unless S1MP1E_MENUSHOT names a folder) ----
+    private bool _captureMode;              // sealed capture run: never writes config/accounts, virtual clock
+    private long _capMs;                    // virtual clock (ms) driven by the capture pump
+    private long NowMs() => _captureMode ? _capMs : Environment.TickCount64;
+
+    // ---- backdrop-scrim + context-menu animation state (shared by the live RAF loop and the capture pump) ----
+    private double _scrimLevel;             // the floor this menu's scrim dims to (0 = non-modal pull-down: no scrim)
+    private double _scrimFrom;              // scrim opacity captured at close-start, so the un-dim can outlast the shape
+    private S1mp1e.Controls.GlassMotion.Spring? _mSw, _mSh;   // the open springs for the running animation
+    private bool _mOpen, _mDark;
+    private double _mCloseW, _mCloseH, _mFadeT, _mFadeP, _mScrimCloseDur;
+    private Control? _mFadeAnchor;          // the anchor whose value the glass absorbs (fades path only)
     private readonly Avalonia.Media.BlurEffect _anchorBlur = new() { Radius = 0 };
+    // ---- pull-down trigger-text RETURN (spec IOS26_PULLDOWN_SPEC §3b): after the glass collapses, the grey value text
+    // re-forms and springs back on a HIGH-DAMPING spring (response ~0.47, dampingFraction ~0.80), blurred-then-sharp, and
+    // the chevron returns LAST (~110 ms after the text). Split state so both the live RAF loop and the capture pump drive it.
+    private S1mp1e.Controls.GlassMotion.Spring? _retSpring;   // value opacity (monotone) + a small scale rebound (the visible 回彈)
+    private S1mp1e.Controls.GlassSelect? _retAnchor;
+    private long _retStartMs;
+    private double _retBlur0, _retBlur1;                       // value edge-sharpen (blur-clear) window; dark clears later than light
+    private const double RetChevronDelay = 0.11;              // chevron begins ~110 ms after the text and finishes with it
     private readonly System.Collections.Generic.List<MenuRowAnim> _menuRows = new();
+
+    // ---- iOS 26 selection capsule (spec IOS26_MENU_SELECTION_SPEC.md): a SINGLE rigid stadium behind the rows that
+    // springs from row-centre to row-centre under the pointer / keyboard focus, fades in on first hover and out on
+    // leave, and is the ONLY selection/hover indicator (no check marks, no per-row background). ----
+    private readonly S1mp1e.Controls.GlassMotion.Spring _capX = new(0.11, 0);   // left  (constant for single-column; tracks cell for a grid)
+    private readonly S1mp1e.Controls.GlassMotion.Spring _capY = new(0.11, 0);   // top   (the tracked axis)
+    private int _capIndex = -1;          // row the capsule currently targets (-1 = none shown)
+    private int _capHome = -1;           // MOUSE idle-home row (always -1 now: the capsule fades out on leave, never springs back — Request 2)
+    private int _capKeyHome = -1;        // KEYBOARD first-reveal row (a value picker may still light the current value on the first arrow key)
+    private bool _capGrid;               // grid menu (per-cell rounded rect) vs single-column (full-width stadium)
+    private bool _capActive;             // a menu is open and the capsule is usable
+    private bool _menuSettled;           // open morph finished -> capsule geometry (row layout at scale 1) is valid
+    private double _capOpacity, _capOpacityTarget;   // driven manually so the capture harness is deterministic
+    private double _capW, _capH, _capCorner;         // this menu's capsule size (every row is the same size)
+    // Uniform gap between the capsule and the menu-panel edge, EQUAL on all four sides (top / bottom / left / right).
+    // Chosen so the capsule's rounded corner is CONCENTRIC with the panel's: panel drawn corner (a = 1.31 * _menuRadius,
+    // the settled squircle semi-axis every lens/rim/clip uses) = capsule corner (rowPitch/2) + _capInset. Set per menu in
+    // ShowMenuFor; drives the capsule's horizontal inset (CapsuleTargetPos) AND MenuItems' top/bottom padding.
+    private double _capInset = 10;
+    private bool _capLoopRunning;
+    private int _capItemCount;
+    private Action<int>? _menuOnPick;    // the open menu's pick action (for Enter/Space commit)
+    private bool[]? _menuDisabled;       // the open menu's disabled mask
+    private bool _capWired;              // one-time PointerExited wiring on MenuItems
+
+    // ---- Request 3: scrollable single-column pull-down (version / menu-key picker) ----
+    private ScrollViewer? _menuScroller;          // the scroll viewport; created lazily, reused across opens
+    private StackPanel? _menuScrollPanel;         // its single-column row stack
+    private bool _menuScrolling;                  // the currently-open menu uses the scroll viewport
+    private double _menuRowPitch;                 // one row's height (drives the 8.5-row cap + keyboard paging)
+    private double _menuInitScrollY;              // open-scroll target: current value near the top
+    private double _menuScrollTarget = double.NaN;// smooth-scroll tween target for the menu viewport
+    private DispatcherTimer? _menuScrollTimer;
+    private readonly System.Diagnostics.Stopwatch _menuScrollSw = new();
+
+    private void ApplyCapsuleTheme()
+    {
+        bool dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        // Dark: additive-ish white ~15 % (+~26 L over the body). Light: black ~16 %. Flat, neutral, no rim/shadow (spec §2-3).
+        MenuCapsule.Background = new SolidColorBrush(dark ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)
+                                                         : Color.FromArgb(0x29, 0x00, 0x00, 0x00));
+    }
+
+    // Prepare the capsule when a menu opens. Value pickers (GlassSelect / fades) rest on the current value; action
+    // menus (account switcher, +, download, skin) open with NO capsule and fade it in on first hover (spec §10.8).
+    private void ResetCapsuleForOpen(bool fades, int selected, bool grid, int itemCount)
+    {
+        _capActive = true;
+        _menuSettled = false;
+        _capIndex = -1;
+        _capGrid = grid;
+        _capItemCount = itemCount;
+        // Request 2: value pickers no longer indicate the current value with the capsule — it is NOT pre-placed on open and
+        // does NOT spring back to the current value on leave. _capHome (mouse pre-place / spring-back home) is always -1 now,
+        // exactly like an action menu: the capsule appears under the pointer and fades out in place on leave. The keyboard's
+        // first arrow may still reveal it on the current value, so that lives in a separate _capKeyHome.
+        _capHome = -1;
+        _capKeyHome = fades ? selected : -1;
+        _capOpacity = 0; _capOpacityTarget = 0;
+        MenuCapsule.Opacity = 0;
+        ApplyCapsuleTheme();
+    }
+
+    private void HideCapsuleInstant()
+    {
+        _capActive = false;
+        _menuSettled = false;
+        _capIndex = -1;
+        _capOpacity = 0; _capOpacityTarget = 0;
+        MenuCapsule.Opacity = 0;
+    }
+
+    // Top-left (in the capsule Canvas frame) for row i, also computing this menu's fixed capsule size.
+    private (double x, double y) CapsuleTargetPos(int i)
+    {
+        var row = _menuRows[i].Row;
+        var tl = row.TranslatePoint(new Point(0, 0), MenuCapsuleLayer) ?? new Point(0, 0);
+        double rw = row.Bounds.Width, rh = row.Bounds.Height;
+        if (_capGrid)
+        {
+            _capW = rw * 0.92; _capH = rh; _capCorner = Math.Min(_capW, _capH) * 0.30;
+            return (tl.X + (rw - _capW) / 2, tl.Y);
+        }
+        // single column: rigid stadium (spec §1: corner = height/2, x fixed). The side inset = _capInset, the SAME uniform gap
+        // used top/bottom (MenuItems padding), so the capsule nests concentrically inside the panel's corner on every side.
+        _capW = Math.Max(0, _menuW - 2 * _capInset); _capH = rh; _capCorner = _capH / 2;
+        return (_capInset, tl.Y);
+    }
+
+    // Move / show the capsule on row i.
+    //   animate=false : pre-place / click commit — snap position AND light it instantly.
+    //   animate=true, first appearance (currently invisible) : snap to the row and FADE IN in place (spec §4a: opacity
+    //     only, no slide from wherever the springs were).
+    //   animate=true, already visible : SPRING from the current row to row i (spec §4b).
+    private void ShowCapsuleAt(int i, bool animate)
+    {
+        if (!_capActive || i < 0 || i >= _menuRows.Count) return;
+        var (x, y) = CapsuleTargetPos(i);
+        MenuCapsule.Width = _capW;
+        MenuCapsule.Height = _capH;
+        MenuCapsule.CornerRadius = new CornerRadius(_capCorner);
+        _capIndex = i;
+        _capOpacityTarget = 1;
+        bool firstAppear = _capOpacity < 0.02;
+        if (animate && !firstAppear)
+        {
+            _capX.Retarget(x); _capY.Retarget(y);
+        }
+        else
+        {
+            _capX.Snap(x); _capY.Snap(y);
+            Canvas.SetLeft(MenuCapsule, x);
+            Canvas.SetTop(MenuCapsule, y);
+            if (!animate) { _capOpacity = 1; MenuCapsule.Opacity = 1; }   // pre-place / click: lit at once
+        }
+        StartCapsuleLoop();
+    }
+
+    // Advance the capsule one frame; returns true once springs are settled and opacity has reached its target.
+    private bool CapsuleTick(double dt)
+    {
+        _capX.Update(dt);
+        _capY.Update(dt);
+        double rate = (_capOpacityTarget >= _capOpacity ? 1.0 / 0.165 : 1.0 / 0.175);   // fade in ~165 ms / out ~175 ms (spec §4a/4c)
+        double step = rate * dt;
+        if (_capOpacity < _capOpacityTarget) _capOpacity = Math.Min(_capOpacityTarget, _capOpacity + step);
+        else                                 _capOpacity = Math.Max(_capOpacityTarget, _capOpacity - step);
+        Canvas.SetLeft(MenuCapsule, _capX.X);
+        Canvas.SetTop(MenuCapsule, _capY.X);
+        MenuCapsule.Opacity = _capOpacity;
+        bool springDone = _capX.Settle(0.5) & _capY.Settle(0.5);
+        bool opDone = Math.Abs(_capOpacity - _capOpacityTarget) < 0.001;
+        return springDone && opDone;
+    }
+
+    private void StartCapsuleLoop()
+    {
+        if (_captureMode) return;   // the capture harness drives CapsuleTick on the virtual clock instead
+        if (_capLoopRunning) return;
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null) { CapsuleTick(1.0); return; }
+        _capLoopRunning = true;
+        var clock = new S1mp1e.Controls.GlassMotion.Clock();
+        void Frame()
+        {
+            if (!_capActive) { _capLoopRunning = false; return; }
+            double dt = clock.Tick();
+            bool done = CapsuleTick(dt);
+            if (done) { _capLoopRunning = false; return; }
+            top.RequestAnimationFrame(_ => Frame());
+        }
+        Frame();
+    }
+
+    // Pointer moved onto row i (skips disabled rows so the capsule clamps, matching the finger drag).
+    private void OnRowHover(int i)
+    {
+        if (!_capActive || !_menuSettled) return;
+        if (_menuDisabled is not null && i < _menuDisabled.Length && _menuDisabled[i]) return;
+        if (i == _capIndex && _capOpacityTarget >= 1) return;
+        ShowCapsuleAt(i, animate: true);
+    }
+
+    // Pointer left the rows: a value picker springs back to its current value (stays lit); an action menu fades out.
+    private void OnMenuPointerExited()
+    {
+        if (!_capActive || !_menuSettled) return;
+        if (_capHome >= 0) ShowCapsuleAt(_capHome, animate: true);
+        else { _capOpacityTarget = 0; StartCapsuleLoop(); }
+    }
+
+    private int SkipDisabled(int i, int dir)
+    {
+        if (dir == 0) dir = 1;
+        while (i >= 0 && i < _capItemCount)
+        {
+            if (!(_menuDisabled is not null && i < _menuDisabled.Length && _menuDisabled[i])) return i;
+            i += dir;
+        }
+        return -1;
+    }
+
+    // Keyboard focus movement (spec §10.6): Up/Down step one row, Home/End jump to the ends, no wrap. The first key
+    // press while the capsule is hidden just reveals it (current value for a picker, first row for an action menu).
+    private void KeyMoveCapsule(int delta, bool toHome, bool toEnd)
+    {
+        if (!_capActive || !_menuSettled || _capItemCount <= 0) return;
+        bool hidden = _capIndex < 0 || _capOpacityTarget < 0.5;
+        int target;
+        if (hidden) target = _capKeyHome >= 0 ? _capKeyHome : 0;   // first arrow reveals the current value (picker) or the first row
+        else if (toHome) target = 0;
+        else if (toEnd) target = _capItemCount - 1;
+        else target = Math.Clamp(_capIndex + delta, 0, _capItemCount - 1);
+        target = SkipDisabled(target, toEnd ? -1 : (delta != 0 ? delta : 1));
+        if (target < 0) return;
+        EnsureMenuRowVisible(target);   // Request 3: scroll the capsule's row into view (keyboard Up/Down/Home/End)
+        ShowCapsuleAt(target, animate: true);
+    }
+
+    private void CommitCapsule()
+    {
+        if (!_capActive || _capIndex < 0 || _capIndex >= _capItemCount) return;
+        if (_menuDisabled is not null && _capIndex < _menuDisabled.Length && _menuDisabled[_capIndex]) return;
+        int idx = _capIndex;
+        try { _menuOnPick?.Invoke(idx); } catch (Exception ex) { LogCrash(ex); }
+        CloseGlassMenu();
+    }
 
     private sealed class MenuRowAnim
     {
@@ -750,93 +1183,23 @@ public partial class MainWindow : Window
     //   trigger (u^1.5; ~75 ms dark / ~50 ms light), rows blur out bottom-first within ~40 ms, and the value text
     //   re-forms blurred-to-sharp a beat later (StartAnchorReturn).
     // Driven from animation-frame callbacks, never from Render. Returns false if a newer open/close took over.
+    // The per-frame math lives in MenuTick so BOTH the live loop here and the deterministic capture pump run identically.
     private System.Threading.Tasks.Task<bool> AnimateMenu(bool open)
     {
-        int gen = ++_menuAnimGen;
+        int gen = SetupMenuAnim(open);
         var done = new System.Threading.Tasks.TaskCompletionSource<bool>();
-        MenuRoot.Opacity = 1;
-        MenuItems.Opacity = 1;
-        MenuItems.Effect = null;
-        MenuItems.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
-        MenuItems.VerticalAlignment = _menuFlipUp ? Avalonia.Layout.VerticalAlignment.Bottom : Avalonia.Layout.VerticalAlignment.Top;
-        MenuItems.RenderTransformOrigin = new RelativePoint(1, _menuFlipUp ? 1 : 0, RelativeUnit.Relative);
-        bool dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
-
-        // width (left/right edges): measured left-edge peak ~195 ms, +3.5 % — a 0.27 s / bounce 0.27 spring (sim peak 212 ms,
-        // +2.8 %). The height lands first (84 ms), then the width finishes: 'drop, then widen', never a single pop.
-        var sw = new S1mp1e.Controls.GlassMotion.Spring(0.27, open ? 0 : 1).Tune(0.27, 0.27);
-        var sh = new S1mp1e.Controls.GlassMotion.Spring(0.150, open ? 0 : 1).Tune(0.150, 0.46);   // height: sim peak 83 ms, +11.5% (measured 84 ms, +11-12%)
-        sw.Retarget(1);
-        sh.Retarget(1);
         var clock = new S1mp1e.Controls.GlassMotion.Clock();
-        long t0 = Environment.TickCount64;
-        if (!open) _closeStartTicks = t0;
+        long t0 = NowMs();
         var top = TopLevel.GetTopLevel(this);
-        // close: width and height collapse on their own power curves (measured T 124/112 ms dark, 105/95 ms light) while the
-        // glass opacity LEADS the geometry (half gone by ~25 ms, gone by ~85 ms; dark u^0.94, light u^1.37).
-        double closeW = dark ? 0.124 : 0.105, closeH = dark ? 0.112 : 0.095, fadeT = 0.085, fadeP = dark ? 0.94 : 1.37;
-        if (open) MenuGlass.ShadowEnabled = false;   // the mask-blurred shadow would be re-rendered on every growth frame
-        Control? anchor = _anchorFades ? _menuAnchor : null;
 
         void Frame()
         {
             if (gen != _menuAnimGen) { done.TrySetResult(false); return; }
-            double t = (Environment.TickCount64 - t0) / 1000.0;
+            double t = (NowMs() - t0) / 1000.0;
             double dt = clock.Tick();
-            bool finished;
-            if (open)
+            if (MenuTick(t, dt))
             {
-                sw.Update(dt);
-                sh.Update(dt);
-                double lens = 1 - MenuSmooth(0.07, 0.30, t);   // labels start magnified inside the bubble (+3.5 % still at 218 ms)
-                ApplyMenuFrame(sw.X, sh.X,
-                    cornerK: MenuSmooth(0.15, 0.34, t),
-                    glassA: MenuSmooth(0.0, 0.15, t),
-                    labelScale: 1 + 0.18 * lens,
-                    zoom: 1.05 + 0.13 * lens);
-                // rows: presence 90-200 ms, sharp 150-235 ms, all rows together, and the check arrives WITH its row
-                foreach (var r in _menuRows)
-                {
-                    SetMenuRow(r, MenuSmooth(0.09, 0.20, t), 5 * (1 - MenuSmooth(0.15, 0.235, t)));
-                    if (r.Check is not null) r.Check.Opacity = MenuSmooth(0.15, 0.235, t);
-                }
-                if (anchor is not null)
-                {
-                    anchor.Opacity = 1 - MenuSmooth(0.0, 0.05, t);
-                    SetAnchorBlur(anchor, 4 * MenuSmooth(0.0, 0.035, t));
-                }
-                bool wDone = sw.Settle(0.0008), hDone = sh.Settle(0.0008);
-                finished = t > 0.45 && wDone && hDone;
-            }
-            else
-            {
-                double uw = Math.Clamp(t / closeW, 0, 1), uh = Math.Clamp(t / closeH, 0, 1);
-                double gw = Math.Pow(uw, 1.6), gh = Math.Pow(uh, 1.1);          // measured: width u^1.6, height u^1.1, no overshoot
-                double glassA = 1 - Math.Pow(Math.Clamp(t / fadeT, 0, 1), fadeP);
-                ApplyMenuFrame(1 - gw, 1 - gh, cornerK: 1 - gw, glassA: glassA, labelScale: 1, zoom: 1.05);
-                bool rowsGone = true;
-                foreach (var r in _menuRows)
-                {
-                    double k = Math.Clamp((t - r.CloseDelay) / 0.035, 0, 1);
-                    SetMenuRow(r, 1 - k, 5 * k);
-                    rowsGone &= k >= 1;
-                }
-                finished = uw >= 1 && uh >= 1 && t >= fadeT && rowsGone;
-            }
-            if (finished)
-            {
-                if (open)
-                {
-                    ApplyMenuFrame(1, 1, 1, 1, 1, 1.05);
-                    MenuGlass.ShadowEnabled = true;
-                    LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);   // back to live captures now the glass is still
-                    foreach (var r in _menuRows)
-                    {
-                        SetMenuRow(r, 1, 0);
-                        if (r.Check is not null) r.Check.Opacity = 1;
-                    }
-                    if (anchor is not null) { anchor.Opacity = 0; SetAnchorBlur(anchor, 0); }
-                }
+                if (open) FinishMenuAnim();
                 done.TrySetResult(true);
                 return;
             }
@@ -847,10 +1210,794 @@ public partial class MainWindow : Window
         {
             ApplyMenuFrame(open ? 1 : 0, open ? 1 : 0, open ? 1 : 0, open ? 1 : 0, 1, 1.05);
             foreach (var r in _menuRows) SetMenuRow(r, open ? 1 : 0, 0);
+            MenuScrim.Opacity = open ? _scrimLevel : 0;
             done.TrySetResult(true);
         }
         else Frame();   // the first frame lays down the seed state synchronously
         return done.Task;
+    }
+
+    /// <summary>Build the springs and per-run state for one open/close; used by both the live loop and the capture pump.
+    /// Split "drop-then-widen" springs for the PULL-DOWN (matched to 下拉深/下拉淺); ONE uniform spring for both axes on the
+    /// CONTEXT-MENU path (spec §3: response 0.28 s, dampingFraction 0.78 -> Tune(0.28, 0.22)).</summary>
+    private int SetupMenuAnim(bool open)
+    {
+        int gen = ++_menuAnimGen;
+        MenuRoot.Opacity = 1;
+        MenuItems.Opacity = 1;
+        MenuItems.Effect = null;
+        // Pull-down grows from its top-RIGHT (over the value); context menu is born at its top-LEFT and grows down+right.
+        MenuItems.HorizontalAlignment = _anchorFades ? Avalonia.Layout.HorizontalAlignment.Right : Avalonia.Layout.HorizontalAlignment.Left;
+        MenuItems.VerticalAlignment = _menuFlipUp ? Avalonia.Layout.VerticalAlignment.Bottom : Avalonia.Layout.VerticalAlignment.Top;
+        MenuItems.RenderTransformOrigin = new RelativePoint(_anchorFades ? 1 : 0, _menuFlipUp ? 1 : 0, RelativeUnit.Relative);
+        _mDark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        _mOpen = open;
+
+        if (_anchorFades)
+        {
+            // iOS 26 pull-down opens on TWO different springs (spec IOS26_PULLDOWN_SPEC §4):
+            //  - HEIGHT is the fast "drop": response 0.12 s, DEADBEAT (dampingFraction ~1.0, 0 % overshoot). It lands first
+            //    (~120-180 ms), squaring the nub into a full-height bulging ellipse. (Corrects the old "+11 % height
+            //    overshoot" belief — the dedicated 下拉深/下拉淺 clips are deadbeat.)
+            //  - WIDTH is the slow, visible spring: response 0.36 s, dampingFraction ~0.70 (bounce 0.30), overshoot ~3.6-3.9 %.
+            //    It grows left and settles ~420 ms — the "widen" you actually watch.
+            _mSw = new S1mp1e.Controls.GlassMotion.Spring(0.36, open ? 0 : 1).Tune(0.36, 0.30);
+            _mSh = new S1mp1e.Controls.GlassMotion.Spring(0.12, open ? 0 : 1).Tune(0.12, 0.0);
+        }
+        else
+        {
+            // iOS 26 context menu: ONE uniform spring, both axes together. Re-measured PER THEME (harness gradient-edge fit):
+            //  - response: iOS DARK 0.310 s, iOS LIGHT 0.282 s (light is the faster one). We drive dark 0.31 and light 0.29
+            //    (fit lands ~0.285, within 5 % of iOS 0.282, and only ~5 % faster than the old 0.305 so the light settle
+            //    stays within a frame of iOS 266.7 ms). One knob per theme so they can be re-tuned independently.
+            //  - bounce: DARK 0.28 with the wide-nub seed lands the fitted damping ~0.745 (iOS 0.751, within 0.03) and the
+            //    diluted bbox overshoot ~3.0 % (iOS 3.03 %, within 0.5 pp). LIGHT 0.255 lands damping ~0.772 (iOS 0.794,
+            //    within 0.03) and lifts the overshoot toward iOS; iOS light's 2.79 % overshoot is still physically
+            //    inconsistent with its own 0.794 damping (crisp-capture rim-glow), so the residual is a documented artifact.
+            double resp   = _mDark ? 0.315 : 0.285;
+            double bounce = _mDark ? 0.29  : 0.255;   // dark: a touch more bounce/response rings ~1 frame longer -> the 2% settle moves toward iOS's 316.7 ms while damping/overshoot stay in tolerance
+            _mSw = new S1mp1e.Controls.GlassMotion.Spring(resp, open ? 0 : 1).Tune(resp, bounce);
+            _mSh = new S1mp1e.Controls.GlassMotion.Spring(resp, open ? 0 : 1).Tune(resp, bounce);
+        }
+        _mSw.Retarget(1);
+        _mSh.Retarget(1);
+        // Phase-seed the context OPEN spring (spec §1/§2, iOS scale-spring t0 ~ -37 ms): advance it ~1.5 frames so the wide
+        // nub is first-visible ~1 frame in like iOS, without changing response/damping/overshoot. Pull-downs and the close
+        // keep their own onset (they were matched to the other recordings and must not shift).
+        if (open && !_anchorFades)
+        {
+            double adv = _mDark ? CtxOpenPhaseSeedDark : CtxOpenPhaseSeedLight;
+            _mSw.Update(adv);
+            _mSh.Update(adv);
+        }
+
+        long now = NowMs();
+        if (!open) { _closeStartTicks = now; _scrimFrom = MenuScrim.Opacity; HideCapsuleInstant(); }
+        // Close power curves: width u^1.6 / height u^1.1 (no overshoot); glass opacity LEADS the shape.
+        if (_anchorFades)
+        {
+            // PULL-DOWN close — matched to 下拉深/下拉淺 (T 124/112 ms dark, 105/95 ms light). Do NOT change.
+            _mCloseW = _mDark ? 0.124 : 0.105; _mCloseH = _mDark ? 0.112 : 0.095;
+            _mFadeT = 0.085; _mFadeP = _mDark ? 0.94 : 1.37;
+        }
+        else
+        {
+            // CONTEXT close — the re-measured iOS 26 clip collapses the shape in ~66.7 ms in BOTH themes (faster than the
+            // spec's 85-100 ms band and than the old 100/83 ms curves). Speed the shape to ~66.7 ms; in LIGHT speed the glass
+            // fade further (the bright light rim otherwise sweeps the fixed interior sample box ~1 frame past the row cut, so
+            // the "content cut" read 66.7 ms — a faster fade drops the rim out of the box by iOS's 50 ms).
+            _mCloseW = 0.085; _mCloseH = 0.078;
+            _mFadeT = _mDark ? 0.085 : 0.060; _mFadeP = _mDark ? 0.94 : 1.37;
+        }
+        // the scrim un-dim (250 ms) must outlast the ~100 ms shape collapse (spec §1/§7); only when this menu had a scrim.
+        _mScrimCloseDur = _scrimFrom > 0.001 ? 0.30 : 0.0;
+        _mFadeAnchor = _anchorFades ? _menuAnchor : null;   // context anchors stay lit (the clone), so they are never faded
+        // A prior close-return may have left the two trigger glyphs mid-spring; reset them so the OPEN fade composes from a
+        // clean, fully-lit trigger (the open fades the parent control; the glyphs must be at 1 underneath it).
+        if (open && _mFadeAnchor is S1mp1e.Controls.GlassSelect gsAnchor)
+        {
+            if (gsAnchor.ValueText is not null) { gsAnchor.ValueText.Opacity = 1; gsAnchor.ValueText.RenderTransform = null; }
+            if (gsAnchor.Chevron  is not null)   gsAnchor.Chevron.Opacity  = 1;
+        }
+        // the mask-blurred shadow would be re-rendered on every growth frame; skip it while growing (live only).
+        if (open && !_captureMode) MenuGlass.ShadowEnabled = false;
+        return gen;
+    }
+
+    /// <summary>One frame of the menu morph at animation time <paramref name="t"/> (s) with spring step <paramref name="dt"/>.
+    /// Returns true once the animation has fully finished. No self-scheduling and no completion snap (see FinishMenuAnim).</summary>
+    private bool MenuTick(double t, double dt)
+    {
+        if (_mSw is null || _mSh is null) return true;
+        if (_mOpen)
+        {
+            _mSw.Update(dt);
+            _mSh.Update(dt);
+            if (_anchorFades)
+            {
+                // ---- PULL-DOWN open (iOS 26, spec IOS26_PULLDOWN_SPEC): a glass nub balloons out of the value into a fat,
+                // bulging ellipse (height drops first, §4), squares into a rounded rect, and its grey tint fills in LATE
+                // (§7). The content is genuinely LENSED — magnified at the fat-ellipse frame, then de-magnified/sharpened
+                // as the ellipse squares off (§6). The grey value text + chevron fade out together in ~2 frames (§3a). ----
+                double corner = MenuSmooth(0.15, 0.34, t);   // n: ellipse (2) while small -> settled squircle during the last third
+                // Ellipse-ness e(t): ~0 while the nub is tiny, ~1 at the fat, full-height ellipse (height done, corner not yet
+                // squared), back to ~0 when settled. Keys the lens to the SHAPE (peaks mid-open at the oval), not to t=0.
+                double hFrac = Math.Clamp(_mSh.X, 0, 1);
+                double e = hFrac * (1 - corner);
+                ApplyMenuFrame(_mSw.X, _mSh.X,
+                    cornerK: corner,
+                    glassA: MenuSmooth(0.15, 0.23, t),   // §7: near-transparent lens until ~150 ms, then the grey tint fills fast
+                    labelScale: 1 + 0.20 * e,            // §6: interior magnification m = 1 + 0.20*e, peaks at the fat ellipse
+                    zoom: 1.05);
+                foreach (var r in _menuRows)
+                {
+                    double d = r.OpenDelay;
+                    double op = MenuSmooth(0.02 + d, 0.11 + d, t);   // §6: readable in ~6 frames (fast-in), NOT a slow ramp
+                    SetMenuRow(r, op, 5 * e);                         // blur clears as the ellipse squares off (e -> 0): sharpen
+                    if (r.Check is not null) r.Check.Opacity = op;
+                }
+                if (_mFadeAnchor is not null)
+                {
+                    // §3a: the grey value text AND chevron fade out together, very fast (~2 frames / ~33 ms) to near-zero.
+                    _mFadeAnchor.Opacity = 1 - MenuSmooth(0.0, 0.033, t);
+                    SetAnchorBlur(_mFadeAnchor, 4 * MenuSmooth(0.0, 0.030, t));
+                }
+                MenuScrim.Opacity = _scrimLevel * MenuSmooth(0.0, 0.22, t);   // (no scrim for pull-downs: _scrimLevel==0)
+                bool wD = _mSw.Settle(0.0008), hD = _mSh.Settle(0.0008);
+                return t > 0.45 && wD && hD;
+            }
+            // ---- CONTEXT-MENU open (iOS 26 "emerge from anchor"): the ENTIRE menu — glass body AND its rows — grows as
+            // one scaled object from the pinned corner, and gains opacity as it grows. Body-alpha and row opacity both
+            // track the panel SCALE (gaps B/C), reproducing iOS's faint translucent miniature (rows visible inside the
+            // small blob) rather than an opaque block that fills, then drops the rows in at full size. ----
+            double s = 0.5 * (_mSw.X + _mSh.X);   // panel scale (0 = seed nub, 1 = settled)
+            // iOS dark body-alpha-vs-scale (measured in opus-fix/ios_body.py): ~0.24 floor while small, then a ramp that
+            // KEEPS DEEPENING as the panel settles. iOS's per-frame body alpha crosses 90% only ~117 ms in (scale ~0.92) —
+            // the old 1.60/0.30 ramp hit 90% at scale ~0.71 (~83 ms), arriving opaque ~2 frames too abruptly. DARK now ramps
+            // so 90% lands at scale ~0.92 (aK 1.254 / aS0 0.394); LIGHT keeps its (unflagged) 1.60/0.30 whitish fill-in.
+            double aK  = _mDark ? 1.254 : 1.60;
+            double aS0 = _mDark ? 0.394 : 0.30;
+            double bodyA = Math.Clamp(0.24 + aK * (s - aS0), 0.24, 1.0);
+            ApplyMenuFrame(_mSw.X, _mSh.X,
+                cornerK: MenuSmooth(0.0, 0.10, t),   // corner establishes its ~constant radius fast (reads rounder while small)
+                glassA: bodyA,
+                labelScale: 1, zoom: 1.05);
+            // Rows track scale (gap B): a faint low-opacity miniature while the panel is small (iOS shows the rows as a
+            // faint ghost inside the growing blob), then a steep rise near full size. Measured iOS row-detail-energy is
+            // ~0.1 at scale 0.5-0.7 and crosses 50 % at scale ~0.85 / 90 % ~0.95 (opus ios_body.py) -> this curve lands
+            // the launcher's energy-50 % ~100 ms and 90 % ~150 ms (gap G) while keeping the early miniature iOS-faint.
+            // Row opacity: the rows are already geometrically scaled with the panel (ApplyMenuFrame's contentScale), so they
+            // read as a miniature; a faint scale-tracked FLOOR gives their earliest presence (iOS shows ~0.1 row energy from
+            // the first frame), while the MAIN opacity is a TIME ramp that runs past the ~130 ms shape-settle so the
+            // row-detail energy lands 50 % ~100 ms / 90 % ~150 ms (iOS; gap G). The ✓ lands with its row.
+            // Early-growth miniature: iOS's rows are already faintly legible inside the small blob (row-detail energy ~0.10 at
+            // frame 2). DARK's floor 0.07 matched; LIGHT read only ~0.04 — the faint white rows were too blurred while small,
+            // so the birth blob looked featureless. LIGHT gets a higher floor and a shorter blur window so the miniature rows
+            // carry edges early, lifting frame-2 energy toward iOS ~0.095 without moving the 50%/90% crossings.
+            double rowFloor = (_mDark ? 0.07 : 0.185) * MenuSmooth(0.10, 0.32, s);
+            // dark: the opaque body raised the settled row contrast (bigger normaliser), pushing the energy 50%/90% crossings
+            // ~1 frame late — speed the dark rise back so 50% lands ~100 ms / 90% ~150 ms (iOS). light: unchanged rise, but a
+            // higher floor + a shorter blur window so the early miniature rows carry edges (frame-2 energy toward iOS ~0.095).
+            double riseHi = _mDark ? 0.150 : 0.140;
+            double blurHi = _mDark ? 0.130 : 0.042;
+            foreach (var r in _menuRows)
+            {
+                double d = r.OpenDelay;                                        // small top-first positional stagger
+                double rise = MenuSmooth(0.01 + 0.6 * d, riseHi + 0.6 * d, t);
+                double rowOp = Math.Max(rowFloor, rise);
+                SetMenuRow(r, rowOp, 5 * (1 - MenuSmooth(0.01 + 0.6 * d, blurHi + 0.6 * d, t)));
+                if (r.Check is not null) r.Check.Opacity = rowOp;
+            }
+            if (_mFadeAnchor is not null)
+            {
+                _mFadeAnchor.Opacity = 1 - MenuSmooth(0.0, 0.05, t);
+                SetAnchorBlur(_mFadeAnchor, 4 * MenuSmooth(0.0, 0.035, t));
+            }
+            // Scrim fades in to its floor (spec §7). Windows tuned so the 10->floor read matches iOS (dark 150 / light 116.7 ms).
+            double scrimInWin = _mDark ? 0.185 : 0.15;
+            MenuScrim.Opacity = _scrimLevel * MenuSmooth(0.0, scrimInWin, t);
+            bool wDone = _mSw.Settle(0.0008), hDone = _mSh.Settle(0.0008);
+            return t > 0.45 && wDone && hDone && (_scrimLevel <= 0 || t >= scrimInWin);
+        }
+        else
+        {
+            double uw = Math.Clamp(t / _mCloseW, 0, 1), uh = Math.Clamp(t / _mCloseH, 0, 1);
+            double gw = Math.Pow(uw, 1.6), gh = Math.Pow(uh, 1.1);           // measured: width u^1.6, height u^1.1, no overshoot
+            double pw = 1 - gw, ph = 1 - gh;
+            bool rowsGone = true;
+            if (_anchorFades)
+            {
+                // ---- PULL-DOWN close (iOS 26, spec §5/§7): the grey tint de-fills FIRST (leading the shape), the glass
+                // deforms back through an ellipse (squircle n~4.5 -> ellipse n~2) and collapses toward the trigger; the
+                // content LENSES (magnifies) through the deforming glass as it goes. Near-critically damped, NO glass
+                // rebound — only the trigger value TEXT rebounds afterwards (StartAnchorReturn, §3b). ----
+                double glassA = 1 - Math.Pow(Math.Clamp(t / _mFadeT, 0, 1), _mFadeP);   // tint leads the shape out
+                double corner = pw;                                  // squircle -> ellipse as it collapses
+                double eC = Math.Clamp(ph, 0, 1) * (1 - corner);     // ellipse-ness during the collapse (peaks mid)
+                ApplyMenuFrame(pw, ph, cornerK: corner, glassA: glassA, labelScale: 1 + 0.20 * eC, zoom: 1.05);
+                double rowCut = 0.035;
+                foreach (var r in _menuRows)
+                {
+                    double k = Math.Clamp((t - r.CloseDelay) / rowCut, 0, 1);
+                    SetMenuRow(r, 1 - k, 5 * k);
+                    rowsGone &= k >= 1;
+                }
+                return uw >= 1 && uh >= 1 && t >= _mFadeT && rowsGone;
+            }
+            // ---- CONTEXT-MENU close (iOS 26, gap D): the row content drops to a faint GHOST in ~1 frame, and that ghost
+            // (plus a translucent body that fades as it shrinks) collapses WITH the panel — not an opaque block over an
+            // empty rect. Body alpha reuses the open scale-ramp (so it fades to ~0 as the panel vanishes); the rows scale
+            // down via ApplyMenuFrame's contentScale. ----
+            double s = 0.5 * (pw + ph);
+            double bodyA = Math.Clamp(0.24 + 1.60 * (s - 0.30), 0.0, 1.0);   // no floor on close: the glass fades right out
+            ApplyMenuFrame(pw, ph, cornerK: pw, glassA: bodyA, labelScale: 1, zoom: 1.05);
+            // Contrast drops to a faint ghost BEFORE the shape moves (spec §4). DARK: an instant 1-frame cut — the ghost is
+            // present from the first close frame while the panel is still full size, so the interior-detail energy reads
+            // <0.15 at frame 0 like iOS (rows_close_cut ~0). LIGHT: persists ~3 frames as it blurs out (iOS reads ~50 ms).
+            const double ghost = 0.06;
+            double rowVis, rblur;
+            // iOS cuts the row CONTENT to a faint ghost in the FIRST close frame — BEFORE the shape moves (spec §4). DARK is a
+            // hard 1-frame cut to the ghost. LIGHT is NOT held crisp either: the previous curve started the first close frame
+            // at full contrast (energy 1.00) then faded over 50 ms, so the very first frame still showed crisp black rows
+            // while iOS already reads ~0.18. LIGHT now STARTS already-ghosted (~0.20 at frame 0, iOS ~0.18) and deepens to the
+            // 0.06 floor over ~3 frames, its band energy crossing 15% ~50 ms like iOS — a cut, not a fade-from-full.
+            if (_mDark) { rowVis = ghost; rblur = 5; }
+            else { double k = MenuSmooth(0.016, 0.058, t); rowVis = 0.20 * (1 - k) + ghost * k; rblur = 3 + 2 * k; }
+            rowVis *= Math.Clamp(s / 0.15, 0, 1);                  // the ghost only vanishes once the panel is nearly gone
+            foreach (var r in _menuRows)
+            {
+                SetMenuRow(r, rowVis, rblur);
+                rowsGone &= rowVis < 0.02;
+            }
+            // Scrim clears slower than the shape and outlasts it (spec §1/§5/§7). Windows tuned so 10->90 % fade-out reads
+            // iOS's 183 ms (dark) / 150 ms (light) while still outlasting the ~66.7 ms shape collapse.
+            double scrimWin = _mDark ? 0.23 : 0.195;
+            MenuScrim.Opacity = _scrimFrom * (1 - MenuSmooth(0.0, scrimWin, t));
+            return uw >= 1 && uh >= 1 && t >= _mFadeT && rowsGone && t >= _mScrimCloseDur;
+        }
+    }
+
+    /// <summary>Snap the open animation to its settled state (called once when MenuTick reports finished).</summary>
+    private void FinishMenuAnim()
+    {
+        ApplyMenuFrame(1, 1, 1, 1, 1, 1.05);
+        MenuGlass.ShadowEnabled = true;
+        if (!_captureMode) LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);   // back to live captures now the glass is still
+        foreach (var r in _menuRows)
+        {
+            SetMenuRow(r, 1, 0);
+            if (r.Check is not null) r.Check.Opacity = 1;
+        }
+        MenuScrim.Opacity = _scrimLevel;
+        if (_mFadeAnchor is not null) { _mFadeAnchor.Opacity = 0; SetAnchorBlur(_mFadeAnchor, 0); }
+        _menuSettled = true;
+        // Request 2: the capsule is NO LONGER pre-placed on the current value for value pickers (_capHome is -1). It appears
+        // only under the pointer. (This line stays as a guard for any future menu that would want a resting capsule.)
+        if (_capActive && _capHome >= 0) ShowCapsuleAt(_capHome, animate: false);
+        // Scroll pull-down: make sure it is scrolled to the current value near the top now the extent is final.
+        if (_menuScrolling && _menuScroller is not null) ApplyMenuInitScroll();
+    }
+
+    // ================= deterministic 60 fps frame-capture harness =================
+    // Sealed capture mode: enabled ONLY when the env var S1MP1E_MENUSHOT names an output folder. It never writes the user's
+    // config/accounts (in-memory fake state), drives the menu on a virtual clock (NowMs -> _capMs, spring dt = 1/60), and
+    // renders the WHOLE window (so the backdrop scrim is included) to PNG for both themes x {context menu, pull-down}.
+    private const int CapOpenMs = 700, CapCloseMs = 450;
+
+    private async System.Threading.Tasks.Task RunCaptureModeAsync(string outDir)
+    {
+        _captureMode = true;
+        try
+        {
+            System.IO.Directory.CreateDirectory(outDir);
+            // In-memory fake identity so the account switcher has rows WITHOUT touching %APPDATA%\S1mp1e.
+            _cfg = new LauncherConfig
+            {
+                Accounts = new System.Collections.Generic.List<SavedAccount>
+                {
+                    new() { Name = "Steve",     Uuid = "00000000000000000000000000000001" },
+                    new() { Name = "Alex",      Uuid = "00000000000000000000000000000002" },
+                    new() { Name = "Herobrine", Uuid = "00000000000000000000000000000003" },
+                    new() { Name = "Notch",     Uuid = "00000000000000000000000000000004" },
+                    new() { Name = "S1mp1e",    Uuid = "00000000000000000000000000000005" },
+                },
+            };
+            _cfg.Account = _cfg.Accounts[0];
+
+            // Show the start page (VersionBox + the sidebar account chip both live here) and reveal the signed-in chip.
+            _selected = 0;
+            // Capture-only: load the FULL supported-version list into the picker (normal mode does this via
+            // RefreshInstalledVersionsAsync, which the sealed harness skips) so the version pull-down actually has enough
+            // rows to scroll — otherwise it would show only the 5 XAML defaults. This is UI state only; nothing is persisted.
+            VersionBox.Options = string.Join("|", SupportedVersions);
+            VersionBox.SelectedIndex = 0;
+            MovePill(0, animate: false);
+            UpdateNavWeights(0);
+            ShowPage(0);
+            if (ChipName is not null) ChipName.Text = _cfg.Account.Name;
+            if (ChipSub  is not null) ChipSub.Text  = $"Microsoft · {_cfg.Accounts.Count} 個帳號";
+            SetAccountView(signedIn: true, animate: false);
+            foreach (var gs in this.GetVisualDescendants().OfType<GlassSelect>())
+                gs.OpenRequested += (_, src) => { if (!_captureMode) ShowGlassMenu(src); };
+
+            await System.Threading.Tasks.Task.Delay(400);   // let the window, chip and backdrop settle (wall time; frame timing is virtual)
+            await NextFrameAsync();
+            // Wait for the window to reach its FINAL laid-out size before any capture: on a loaded machine the window opens at
+            // a smaller default and resizes a beat later, and the right-side pull-down ROI is measured in fixed pixels, so a
+            // capture taken mid-resize corrupts the pull-down (and only the pull-down, being far from the origin). Poll until
+            // ClientSize is stable across two frames, up to ~2 s. Frame timing stays virtual; this is wall-clock settling only.
+            {
+                Size prev = ClientSize;
+                for (int i = 0; i < 40; i++)
+                {
+                    await System.Threading.Tasks.Task.Delay(50);
+                    await NextFrameAsync();
+                    Size cur = ClientSize;
+                    if (i >= 2 && cur.Width > 900 && Math.Abs(cur.Width - prev.Width) < 0.5 && Math.Abs(cur.Height - prev.Height) < 0.5) break;
+                    prev = cur;
+                }
+            }
+
+            double scale = (TopLevel.GetTopLevel(this)?.RenderScaling) ?? 1.0;
+            var manifestSets = new System.Collections.Generic.List<object>();
+
+            foreach (var dark in new[] { true, false })
+            {
+                string theme = dark ? "dark" : "light";
+                if (Application.Current is { } app)
+                    app.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+                await System.Threading.Tasks.Task.Delay(350);   // theme + acrylic backdrop repaint
+                await NextFrameAsync();
+
+                // context menu (account switcher) and one pull-down (version picker)
+                foreach (var (menu, anchor, open) in new (string, Control, Action)[]
+                {
+                    ("context",  AccountChip, () => ShowAccountSwitcher()),
+                    ("pulldown", VersionBox,  () => ShowGlassMenu(VersionBox)),
+                })
+                {
+                    var (openTimes, closeTimes) = await CaptureMenuSetAsync(outDir, theme, menu, open);
+                    var ar = AnchorRectDip(anchor);
+                    manifestSets.Add(new
+                    {
+                        theme, menu,
+                        anchorRectDip = new[] { ar.X, ar.Y, ar.Width, ar.Height },
+                        openFrames = openTimes.Count, closeFrames = closeTimes.Count,
+                        openFrameTimesMs = openTimes, closeFrameTimesMs = closeTimes,
+                    });
+                }
+
+                // Selection-capsule hover sequences (capture-only; run.py ignores these labels). Both the account switcher
+                // and the version picker now behave the same: the capsule stays hidden until the pointer is over a row, then
+                // follows it, then fades out in place on leave (Request 2 removed the value picker's current-value resting).
+                await CaptureCapsuleSequenceAsync(outDir, theme, "ctxhover", () => ShowAccountSwitcher(), valuePicker: false);
+                await CaptureCapsuleSequenceAsync(outDir, theme, "pdhover", () => ShowGlassMenu(VersionBox), valuePicker: true);
+
+                // Pull-down CLOSE + trigger-text RETURN (spec §3b) — outside-dismiss and select-dismiss (same close, §9).
+                await CapturePulldownReturnAsync(outDir, theme, "pdretout", pickValue: false);
+                await CapturePulldownReturnAsync(outDir, theme, "pdretsel", pickValue: true);
+
+                // ---- three NEW capture-only sequences, one per user request (run.py ignores these labels) ----
+                // Request 1: the account chip before press vs while the switcher is open — same size, same position.
+                await CaptureAccountChipSizeAsync(outDir, theme);
+                // Request 2: the version picker capsule appears only under the pointer (no pre-placement / no jump-back).
+                await CaptureVersionHoverAsync(outDir, theme);
+                // Request 3: the version picker as a single scrolling column (wheel down/up with edge fades, then a click).
+                await CaptureVersionScrollAsync(outDir, theme);
+            }
+
+            var manifest = new
+            {
+                generatedUtc = DateTime.UtcNow.ToString("o"),
+                fps = 60,
+                frameStepMs = 1000.0 / 60.0,
+                windowSizeDip = new[] { ClientSize.Width, ClientSize.Height },
+                windowSizePx = new[] { (int)Math.Ceiling(ClientSize.Width * scale), (int)Math.Ceiling(ClientSize.Height * scale) },
+                dpiScale = scale,
+                openMs = CapOpenMs, closeMs = CapCloseMs,
+                sets = manifestSets,
+            };
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(outDir, "manifest.json"),
+                System.Text.Json.JsonSerializer.Serialize(manifest, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex) { LogCrash(ex); }
+        finally
+        {
+            try { Close(); } catch { }
+            Environment.Exit(0);
+        }
+    }
+
+    // Drive ONE menu's open then close on the virtual clock, rendering every frame. Returns the frame-time lists.
+    private async System.Threading.Tasks.Task<(System.Collections.Generic.List<double> open, System.Collections.Generic.List<double> close)>
+        CaptureMenuSetAsync(string outDir, string theme, string menu, Action open)
+    {
+        var openTimes = new System.Collections.Generic.List<double>();
+        var closeTimes = new System.Collections.Generic.List<double>();
+
+        // Gap A — backdrop parity, CONTEXT MENU ONLY: the account-switcher sits over the acrylic sidebar, which
+        // RenderTargetBitmap cannot capture (→ black), so its translucency, rim and modal scrim can't be compared.
+        // Put the iOS-26 home-screen wallpaper there (laid out BEFORE open() so the glass freeze samples it). The
+        // non-modal PULL-DOWN has no scrim and already renders over the launcher's own OPAQUE detail pane (its real
+        // backdrop, over which its frozen split-spring measures cleanly); forcing the settings-page wallpaper behind
+        // it only destabilises that fit without adding anything to compare, so we leave it on the real detail pane.
+        if (menu == "context") { SetCaptureBackdrop(theme, menu); await NextFrameAsync(); }
+        else CaptureBackdrop.IsVisible = false;
+
+        // OPEN — ShowMenuFor lays out the geometry (AnimateMenu is skipped in capture mode).
+        open();
+        await NextFrameAsync();
+        SetupMenuAnim(open: true);
+        int openN = (int)Math.Round(CapOpenMs / (1000.0 / 60.0));
+        for (int f = 0; f <= openN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{menu}_open_{f:D3}.png"));
+            openTimes.Add(Math.Round(f * 1000.0 / 60.0, 3));
+        }
+
+        // CLOSE — same geometry, spring-less accelerating collapse; scrim outlasts the shape.
+        SetupMenuAnim(open: false);
+        int closeN = (int)Math.Round(CapCloseMs / (1000.0 / 60.0));
+        for (int f = 0; f <= closeN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{menu}_close_{f:D3}.png"));
+            closeTimes.Add(Math.Round(f * 1000.0 / 60.0, 3));
+        }
+
+        // teardown for the next set
+        OverlayHost.IsVisible = false;
+        MenuScrim.Opacity = 0;
+        HideAnchorClone();
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
+        await NextFrameAsync();
+        return (openTimes, closeTimes);
+    }
+
+    private Rect AnchorRectDip(Control a)
+    {
+        var p = a.TranslatePoint(new Point(0, 0), this) ?? new Point(0, 0);
+        return new Rect(p.X, p.Y, a.Bounds.Width, a.Bounds.Height);
+    }
+
+    // Capture-only: open a menu, settle it, then drive the SELECTION CAPSULE through a hover sequence mirroring the iOS
+    // drag recordings (enter, step rows with dwell, a two-row jump, leave, re-enter, click a row -> collapse). For a value
+    // picker it first holds a few frames on the pre-placed capsule. Frames land as {theme}_{label}_{NNN}.png (run.py ignores
+    // these — only *_context_* / *_pulldown_* open/close are measured). Deterministic: virtual clock, CapsuleTick per frame.
+    private async System.Threading.Tasks.Task CaptureCapsuleSequenceAsync(string outDir, string theme, string label, Action open, bool valuePicker)
+    {
+        if (label.StartsWith("ctx")) { SetCaptureBackdrop(theme, "context"); await NextFrameAsync(); }
+        else CaptureBackdrop.IsVisible = false;
+
+        open();
+        await NextFrameAsync();
+        // Fast-forward the open morph to settled without saving frames.
+        SetupMenuAnim(open: true);
+        int openN = (int)Math.Round(CapOpenMs / (1000.0 / 60.0));
+        for (int f = 0; f <= openN; f++) { _capMs = (long)Math.Round(f * 1000.0 / 60.0); MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0); }
+        await NextFrameAsync();
+        FinishMenuAnim();   // settle rows/scrim, mark _menuSettled, pre-place the value-picker capsule
+        await NextFrameAsync();
+
+        int idx = 0;
+        long ms = 0;
+        async System.Threading.Tasks.Task Hold(int frames)
+        {
+            for (int i = 0; i < frames; i++)
+            {
+                _capMs = ms; ms += (long)Math.Round(1000.0 / 60.0);
+                CapsuleTick(1.0 / 60.0);
+                await NextFrameAsync();
+                SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{label}_{idx:D3}.png"));
+                idx++;
+            }
+        }
+
+        int n = _capItemCount;
+        if (valuePicker) await Hold(8);                       // rest on the pre-placed capsule
+        ShowCapsuleAt(0, animate: true); await Hold(10);      // pointer enters the first row (fade in)
+        for (int r = 1; r < Math.Min(n, 4); r++) { ShowCapsuleAt(r, animate: true); await Hold(8); }   // step down
+        if (n >= 3) { ShowCapsuleAt(Math.Max(0, Math.Min(n, 4) - 3), animate: true); await Hold(10); }  // a two-row jump up
+        OnMenuPointerExited(); await Hold(14);               // leave the rows (fade out, or spring back to value)
+        ShowCapsuleAt(Math.Min(n - 1, 1), animate: true); await Hold(10);   // re-enter
+        // click a row: keep the capsule lit, hold one frame, then run the collapse
+        int clickRow = Math.Min(n - 1, 2);
+        ShowCapsuleAt(clickRow, animate: false);
+        await NextFrameAsync();
+        SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{label}_{idx:D3}.png")); idx++;
+        SetupMenuAnim(open: false);
+        int closeN = (int)Math.Round(CapCloseMs / (1000.0 / 60.0));
+        for (int f = 0; f <= closeN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{label}_{idx:D3}.png"));
+            idx++;
+        }
+
+        OverlayHost.IsVisible = false;
+        MenuScrim.Opacity = 0;
+        HideAnchorClone();
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
+        await NextFrameAsync();
+    }
+
+    // Capture-only: a pull-down CLOSE followed by the TRIGGER-TEXT RETURN (spec §3b), so the strip shows the whole
+    // "縮回去…文字淡出後回彈": full menu -> liquid collapse into the trigger -> grey value text springs back (blurred-then-sharp)
+    // -> chevron returns LAST. Backdrop stays OFF so the launcher's own trigger (VersionBox) is visible for the return
+    // (the return is on the launcher's trigger, not over iOS's wallpaper). pickValue=false is outside-dismiss, true is
+    // select-dismiss — identical closes per spec §9, captured separately so both are on record. run.py ignores these labels.
+    private async System.Threading.Tasks.Task CapturePulldownReturnAsync(string outDir, string theme, string label, bool pickValue)
+    {
+        CaptureBackdrop.IsVisible = false;
+        ShowGlassMenu(VersionBox);
+        await NextFrameAsync();
+        SetupMenuAnim(open: true);
+        int openN = (int)Math.Round(CapOpenMs / (1000.0 / 60.0));
+        for (int f = 0; f <= openN; f++) { _capMs = (long)Math.Round(f * 1000.0 / 60.0); MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0); }
+        await NextFrameAsync();
+        FinishMenuAnim();
+        await NextFrameAsync();
+
+        int idx = 0;
+        if (pickValue && _capItemCount > 0)   // select-dismiss: keep the capsule lit on the picked row through the close
+        {
+            ShowCapsuleAt(Math.Min(_capItemCount - 1, 1), animate: false);
+            await NextFrameAsync();
+        }
+
+        SetupMenuAnim(open: false);
+        int closeN = (int)Math.Round(CapCloseMs / (1000.0 / 60.0));
+        for (int f = 0; f <= closeN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{label}_{idx:D3}.png"));
+            idx++;
+        }
+        // hide the overlay exactly as the live close does, then run the trigger-text return on the virtual clock
+        OverlayHost.IsVisible = false;
+        MenuScrim.Opacity = 0;
+        HideAnchorClone();
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
+        SetupAnchorReturn(VersionBox);
+        int retN = (int)Math.Round(620 / (1000.0 / 60.0));   // ~620 ms window (dark recovery ~360 ms + chevron-last + margin)
+        for (int f = 0; f <= retN; f++)
+        {
+            bool done = AnchorReturnTick(f == 0 ? 0 : 1.0 / 60.0, f / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_{label}_{idx:D3}.png"));
+            idx++;
+            if (done) break;
+        }
+        FinishAnchorReturn();
+        await NextFrameAsync();
+    }
+
+    // ---- Request 1 (capture-only): the account chip BEFORE press vs while the switcher is OPEN — same size, same place.
+    // "before" is the closed launcher (real chip); "open" is the settled account switcher, where the lit clone must sit
+    // pixel-exactly over the same spot at the same size (no lift, no shift). No wallpaper backdrop so both are comparable.
+    private async System.Threading.Tasks.Task CaptureAccountChipSizeAsync(string outDir, string theme)
+    {
+        CaptureBackdrop.IsVisible = false;
+        OverlayHost.IsVisible = false;
+        await NextFrameAsync();
+        SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_acctsize_before.png"));
+
+        ShowAccountSwitcher();
+        await NextFrameAsync();
+        SetupMenuAnim(open: true);
+        int openN = (int)Math.Round(CapOpenMs / (1000.0 / 60.0));
+        for (int f = 0; f <= openN; f++) { _capMs = (long)Math.Round(f * 1000.0 / 60.0); MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0); }
+        await NextFrameAsync();
+        FinishMenuAnim();
+        await NextFrameAsync();
+        SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_acctsize_open.png"));
+
+        OverlayHost.IsVisible = false;
+        MenuScrim.Opacity = 0;
+        HideAnchorClone();
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
+        await NextFrameAsync();
+    }
+
+    // ---- Request 2 (capture-only): the version picker's capsule appears ONLY under the pointer. Frames: settled with the
+    // mouse NOT over any row (NO capsule), then the pointer enters a row and moves across rows (capsule follows), then the
+    // pointer leaves (capsule fades out IN PLACE — it does NOT jump back to the current value).
+    private async System.Threading.Tasks.Task CaptureVersionHoverAsync(string outDir, string theme)
+    {
+        CaptureBackdrop.IsVisible = false;
+        ShowGlassMenu(VersionBox);
+        await NextFrameAsync();
+        SetupMenuAnim(open: true);
+        int openN = (int)Math.Round(CapOpenMs / (1000.0 / 60.0));
+        for (int f = 0; f <= openN; f++) { _capMs = (long)Math.Round(f * 1000.0 / 60.0); MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0); }
+        await NextFrameAsync();
+        FinishMenuAnim();
+        await NextFrameAsync();
+
+        int idx = 0; long ms = 0;
+        async System.Threading.Tasks.Task Hold(int frames)
+        {
+            for (int i = 0; i < frames; i++)
+            {
+                _capMs = ms; ms += (long)Math.Round(1000.0 / 60.0);
+                CapsuleTick(1.0 / 60.0);
+                await NextFrameAsync();
+                SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verhover_{idx:D3}.png"));
+                idx++;
+            }
+        }
+
+        int n = _capItemCount;
+        await Hold(8);                                                   // settled, pointer off the rows -> NO capsule
+        ShowCapsuleAt(0, animate: true); await Hold(10);                 // pointer enters the first row (fade in)
+        for (int r = 1; r < Math.Min(n, 4); r++) { ShowCapsuleAt(r, animate: true); await Hold(8); }   // move across rows
+        OnMenuPointerExited(); await Hold(16);                           // leave -> fade out IN PLACE (no jump to current value)
+
+        SetupMenuAnim(open: false);
+        int closeN = (int)Math.Round(CapCloseMs / (1000.0 / 60.0));
+        for (int f = 0; f <= closeN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verhover_{idx:D3}.png"));
+            idx++;
+        }
+        OverlayHost.IsVisible = false; MenuScrim.Opacity = 0; HideAnchorClone();
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
+        await NextFrameAsync();
+    }
+
+    // ---- Request 3 (capture-only): the version picker as a single SCROLLING column. Frames: the open morph (viewport
+    // size), settled scrolled so 26.2 is near the top (bottom edge fade present, NOT highlighted), a wheel-scroll DOWN then
+    // back UP (top/bottom edge fades appear and disappear), then a click on a row followed by the collapse.
+    private async System.Threading.Tasks.Task CaptureVersionScrollAsync(string outDir, string theme)
+    {
+        CaptureBackdrop.IsVisible = false;
+        ShowGlassMenu(VersionBox);
+        await NextFrameAsync();
+        int idx = 0;
+        SetupMenuAnim(open: true);
+        int openN = (int)Math.Round(CapOpenMs / (1000.0 / 60.0));
+        for (int f = 0; f <= openN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verscroll_{idx:D3}.png"));
+            idx++;
+        }
+        FinishMenuAnim();
+        await NextFrameAsync();
+        SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verscroll_{idx:D3}.png")); idx++;   // settled, scrolled to current value
+
+        // Scroll gradually top -> bottom -> top so intermediate frames show BOTH edge fades at once (the list is only a bit
+        // taller than the viewport, so one real wheel notch would jump straight to the end; here we step in small amounts).
+        double extentAll = _menuScroller?.ScrollBarMaximum.Y ?? 0;
+        void ScrollTo(double y)
+        {
+            if (_menuScroller is null) return;
+            _menuScroller.Offset = new Vector(0, Math.Max(0, Math.Min(extentAll, y)));
+            OnMenuScrollChanged();
+        }
+        const int scrollSteps = 8;
+        for (int s = 1; s <= scrollSteps; s++) { ScrollTo(extentAll * s / scrollSteps); await NextFrameAsync(); SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verscroll_{idx:D3}.png")); idx++; }   // down
+        for (int s = scrollSteps - 1; s >= 0; s--) { ScrollTo(extentAll * s / scrollSteps); await NextFrameAsync(); SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verscroll_{idx:D3}.png")); idx++; }   // back up
+
+        // Click a visible row: light the capsule on it, hold a frame, then run the collapse.
+        int clickRow = Math.Min(_capItemCount - 1, 2);
+        ShowCapsuleAt(clickRow, animate: false);
+        await NextFrameAsync();
+        SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verscroll_{idx:D3}.png")); idx++;
+        SetupMenuAnim(open: false);
+        int closeN = (int)Math.Round(CapCloseMs / (1000.0 / 60.0));
+        for (int f = 0; f <= closeN; f++)
+        {
+            _capMs = (long)Math.Round(f * 1000.0 / 60.0);
+            MenuTick(f / 60.0, f == 0 ? 0 : 1.0 / 60.0);
+            await NextFrameAsync();
+            SaveWindowPng(System.IO.Path.Combine(outDir, $"{theme}_verscroll_{idx:D3}.png"));
+            idx++;
+        }
+        OverlayHost.IsVisible = false; MenuScrim.Opacity = 0; HideAnchorClone();
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(MenuGlass);
+        await NextFrameAsync();
+    }
+
+    // Gap A — load the iOS-26 closed-menu wallpaper for this (theme, menu) into the capture-only backdrop image.
+    // ctx_* = the home-screen wallpaper the context menu opens over; pd_* = the settings page the pull-down covers.
+    // These are near-featureless grey/black gradients (spec §7, blur-invariant), so UniformToFill across the window
+    // reproduces the same wallpaper region the glass sits over without needing pixel-exact px/pt alignment.
+    private void SetCaptureBackdrop(string theme, string menu)
+    {
+        try
+        {
+            string key = menu == "pulldown" ? $"pd_{theme}" : $"ctx_{theme}";
+            var uri = new Uri($"avares://S1mp1e/Assets/capture/{key}.png");
+            Bitmap bmp = new Bitmap(AssetLoader.Open(uri));
+            // Backdrop PARITY (capture-only, DARK context only): iOS 26's Settings menu sat over a wallpaper region of L~184,
+            // but the launcher's account chip anchors bottom-left over a BRIGHTER region of the same wallpaper (L~229). With the
+            // now-opaque dark body, the body reading is backdrop-independent, but that brighter surround (a) throws the measured
+            // body-vs-backdrop LIFT (iOS -88) too deep and (b) makes the dark side-by-side strip read brighter than iOS around
+            // the menu. Dim the DARK ctx wallpaper to iOS's level so the menu is composited/compared over an equivalent
+            // backdrop. LIGHT is left untouched: its translucent "Regular" body is tuned to its own backdrop and dimming would
+            // break its (in-tolerance) measured lift. Asset stays pristine; this is a virtual-capture-only adjustment.
+            if (menu == "context" && theme == "dark") bmp = DimBitmapToBlack(bmp, 0.80);
+            CaptureBackdrop.Source = bmp;
+            CaptureBackdrop.IsVisible = true;
+        }
+        catch (Exception ex) { LogCrash(ex); }
+    }
+
+    // Scale a bitmap's colour channels toward black by <paramref name="factor"/> (alpha untouched), for capture backdrop
+    // parity. Channel ORDER is irrelevant here — the wallpaper is near-neutral grey and all three colour bytes are scaled
+    // equally — so this is correct whether the decoded pixels are BGRA or RGBA; the alpha byte (index +3) is left alone.
+    private static Bitmap DimBitmapToBlack(Bitmap src, double factor)
+    {
+        try
+        {
+            var size = src.PixelSize;
+            int stride = size.Width * 4;
+            int bytes = stride * size.Height;
+            var scratch = System.Runtime.InteropServices.Marshal.AllocHGlobal(bytes);
+            var buf = new byte[bytes];
+            try
+            {
+                src.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), scratch, bytes, stride);
+                System.Runtime.InteropServices.Marshal.Copy(scratch, buf, 0, bytes);
+            }
+            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(scratch); }
+            for (int i = 0; i < bytes; i += 4)
+            {
+                buf[i]     = (byte)(buf[i]     * factor);
+                buf[i + 1] = (byte)(buf[i + 1] * factor);
+                buf[i + 2] = (byte)(buf[i + 2] * factor);
+            }
+            var wb = new WriteableBitmap(size, src.Dpi, PixelFormat.Bgra8888, AlphaFormat.Premul);
+            using (var fb = wb.Lock())
+                System.Runtime.InteropServices.Marshal.Copy(buf, 0, fb.Address, bytes);
+            return wb;
+        }
+        catch { return src; }   // any format surprise: fall back to the undimmed wallpaper rather than crash the capture
+    }
+
+    // Render the whole window (root content, so the scrim + menu + backdrop are all included) into a PNG.
+    private void SaveWindowPng(string path)
+    {
+        try
+        {
+            var root = (this.Content as Control) ?? (Control)this;
+            var sizeDip = ClientSize;
+            if (sizeDip.Width < 1 || sizeDip.Height < 1) return;
+            double scale = (TopLevel.GetTopLevel(this)?.RenderScaling) ?? 1.0;
+            var px = new PixelSize(
+                Math.Max(1, (int)Math.Ceiling(sizeDip.Width * scale)),
+                Math.Max(1, (int)Math.Ceiling(sizeDip.Height * scale)));
+            using var rtb = new RenderTargetBitmap(px, new Vector(96 * scale, 96 * scale));
+            rtb.Render(root);
+            rtb.Save(path);
+        }
+        catch (Exception ex) { LogCrash(ex); }
+    }
+
+    // Await one compositor frame so the state just set is laid out before we snapshot it. Frame TIMING stays virtual.
+    private System.Threading.Tasks.Task NextFrameAsync()
+    {
+        var tcs = new System.Threading.Tasks.TaskCompletionSource();
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null) { tcs.SetResult(); return tcs.Task; }
+        top.RequestAnimationFrame(_ => tcs.SetResult());
+        return tcs.Task;
     }
 
     private static double MenuSmooth(double a, double b, double t)
@@ -876,29 +2023,86 @@ public partial class MainWindow : Window
     {
         a.Opacity = 1;
         if (ReferenceEquals(a.Effect, _anchorBlur)) a.Effect = null;
+        LiquidGlassAvaloniaUI.LiquidGlassBackdrop.SetIsExcludedFromCapture(a, false);
     }
 
-    /// <summary>After a dropdown closes, its value text comes back in place — invisible, then a blurred ghost, then
-    /// sharp — measured at ~+160 ms dark / ~+115 ms light after the close started, sharp ~100-120 ms later.</summary>
+    /// <summary>After a pull-down closes, its grey value text re-forms in place and SPRINGS back — invisible, then a
+    /// blurred bright blob, then sharp — on a high-damping spring, and the chevron returns ~110 ms LATER (spec §3b).
+    /// This is the user's core "縮回去…文字淡出後回彈" ask. Driven by the live RAF loop; the capture pump uses the same
+    /// Setup/Tick/Finish trio on the virtual clock.</summary>
     private void StartAnchorReturn(Control a)
     {
+        if (a is not S1mp1e.Controls.GlassSelect gs) { RestoreAnchor(a); return; }
         int g = ++_anchorGen;
-        bool dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
-        const double d = 0.10;                                        // contrast starts returning ~+100 ms after the close began
-        double b0 = dark ? 0.185 : 0.217, b1 = dark ? 0.286 : 0.31;   // ...sharp by ~+286 ms dark / ~+305 ms light
-        long start = _closeStartTicks;
+        SetupAnchorReturn(gs);
         var top = TopLevel.GetTopLevel(this);
-        if (top is null) { RestoreAnchor(a); return; }
+        if (top is null) { FinishAnchorReturn(); return; }
+        var clock = new S1mp1e.Controls.GlassMotion.Clock();
         void Frame()
         {
             if (g != _anchorGen) return;   // a new menu took this trigger over
-            double t = (Environment.TickCount64 - start) / 1000.0;
-            a.Opacity = MenuSmooth(d, 0.30, t);
-            SetAnchorBlur(a, 4 * (1 - MenuSmooth(b0, b1, t)));
-            if (t >= b1 && t >= 0.30) { RestoreAnchor(a); return; }
+            double dt = clock.Tick();
+            double t = (NowMs() - _retStartMs) / 1000.0;
+            if (AnchorReturnTick(dt, t)) { FinishAnchorReturn(); return; }
             top.RequestAnimationFrame(_ => Frame());
         }
         Frame();
+    }
+
+    /// <summary>Arm the trigger-text return: value + chevron start hidden, the value carries a high-damping spring.</summary>
+    private void SetupAnchorReturn(S1mp1e.Controls.GlassSelect a)
+    {
+        bool dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        _retAnchor = a;
+        _retStartMs = NowMs();
+        // §3b: response ~0.45-0.50 s, dampingFraction ~0.78-0.81 (bounce ~0.20), overshoot 1-3 % (opacity stays monotone;
+        // the spring drives the SCALE rebound and the easing curve).
+        _retSpring = new S1mp1e.Controls.GlassMotion.Spring(0.47, 0).Tune(0.47, 0.20);
+        _retSpring.Retarget(1);
+        // Edges clear later than brightness (blurred-then-sharp): dark legibility recovery ~344-368 ms, light ~174-189 ms.
+        _retBlur0 = 0.05; _retBlur1 = dark ? 0.36 : 0.185;
+        a.Opacity = 1;   // the parent trigger is lit; the two child glyphs carry the return on their own clocks
+        if (a.ValueText is not null) { a.ValueText.Opacity = 0; a.ValueText.RenderTransformOrigin = new RelativePoint(1, 0.5, RelativeUnit.Relative); }
+        if (a.Chevron  is not null)   a.Chevron.Opacity  = 0;
+        SetAnchorBlur(a, 4);
+    }
+
+    /// <summary>One frame of the trigger-text return at spring step <paramref name="dt"/> (s) and time <paramref name="t"/>
+    /// (s since the return began). Returns true once finished.</summary>
+    private bool AnchorReturnTick(double dt, double t)
+    {
+        var a = _retAnchor;
+        if (a is null || _retSpring is null) return true;
+        _retSpring.Update(dt);
+        double p = _retSpring.X;                    // 0 -> ~1.02 -> 1 (high-damping spring, slight overshoot)
+        double op = Math.Clamp(p, 0, 1);            // opacity is MONOTONIC (no visible opacity bounce, §3b)
+        if (a.ValueText is not null)
+        {
+            a.ValueText.Opacity = op;
+            // the visible "回彈": the text re-coalesces from the anchor (right) side and scales 0.97 -> 1.0 with the spring's
+            // tiny overshoot (a cross-mode-safe substitute for the dark clip's ~15 px horizontal reform, spec §3b.4).
+            double sc = 0.97 + 0.03 * p;
+            a.ValueText.RenderTransform = Math.Abs(sc - 1) < 0.002 ? null : new ScaleTransform(sc, sc);
+        }
+        SetAnchorBlur(a, 4 * (1 - MenuSmooth(_retBlur0, _retBlur1, t)));   // edges sharpen after brightness
+        if (a.Chevron is not null)
+            a.Chevron.Opacity = t <= RetChevronDelay ? 0 : MenuSmooth(RetChevronDelay, _retBlur1 + 0.02, t);   // chevron LAST
+        return t >= _retBlur1 && Math.Abs(p - 1) < 0.01;
+    }
+
+    private void FinishAnchorReturn()
+    {
+        var a = _retAnchor;
+        if (a is not null)
+        {
+            a.Opacity = 1;
+            if (a.ValueText is not null) { a.ValueText.Opacity = 1; a.ValueText.RenderTransform = null; }
+            if (a.Chevron  is not null)   a.Chevron.Opacity  = 1;
+            if (ReferenceEquals(a.Effect, _anchorBlur)) a.Effect = null;
+            LiquidGlassAvaloniaUI.LiquidGlassBackdrop.SetIsExcludedFromCapture(a, false);   // text is back: capture it again
+        }
+        _retAnchor = null;
+        _retSpring = null;
     }
 
     /// <summary>One frame of the menu morph. pw / ph are the width / height spring positions (0 = the trigger box,
@@ -920,7 +2124,10 @@ public partial class MainWindow : Window
         double capsule = Math.Min(w, h) / 2;
         double k = Math.Clamp(cornerK, 0, 1);
         double a = Math.Max(0, Math.Min(capsule, capsule + (1.31 * _menuRadius - capsule) * k));
-        double n = 2 + 0.8 * k;
+        // Settled continuous-corner exponent. Context stays ~2.5 (soft, re-measured); the PULL-DOWN settles SQUARER
+        // (n ~4.5, spec IOS26_PULLDOWN_SPEC §5) while still being born near-elliptical (n~2 while small), so the morph
+        // reads ellipse -> squircle. Birth is near-elliptical in both because k -> 0 as the nub shrinks.
+        double n = 2 + (_anchorFades ? 2.5 : 0.5) * k;
         MenuGlass.CornerRadius = new CornerRadius(a);
         MenuGlass.CornerExponent = n;
         var outline = LiquidGlassAvaloniaUI.LiquidGlassShapes.CreateSquircleGeometry(new Rect(0, 0, w, h), a, n);
@@ -932,13 +2139,16 @@ public partial class MainWindow : Window
         MenuRimPath.Opacity = glassA;
         MenuGlass.BackdropZoom = 1.0;   // faithful: interior stays 1× — the circle-map lens does the edge magnification, not a zoom
         _ = zoom;                       // (kept in the signature; the reference panel has no centre magnifier)
-        MenuItems.RenderTransform = Math.Abs(labelScale - 1) < 0.002 ? null : new ScaleTransform(labelScale, labelScale);
+        // context: the content scales WITH the box (iOS scales the menu's content as the panel grows — verified by the row
+        // pitch growing 64 -> 86 -> 107 px through the open); pull-down uses labelScale for its lens magnify instead.
+        double contentScale = _anchorFades ? labelScale : (w / Math.Max(1.0, _menuW));
+        MenuItems.RenderTransform = Math.Abs(contentScale - 1) < 0.002 ? null : new ScaleTransform(contentScale, contentScale);
     }
 
     /// <summary>Menu glass per theme, from the reference: dark = a translucent cool-grey frosted panel (the rows behind
     /// read as soft blobs) with a bright top rim; light = a near-opaque frosted white with a darker hairline and a
     /// clearly visible drop shadow. Both bend the backdrop at the rim with the 26.2 edge model.</summary>
-    private void ApplyMenuGlassTheme()
+    private void ApplyMenuGlassTheme(bool contextMenu = false)
     {
         bool dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
         var g = MenuGlass;
@@ -958,114 +2168,116 @@ public partial class MainWindow : Window
         g.Vibrancy = 1.0;   // glass.fsh: no colour grading of any kind
         g.Brightness = 0;                 // the two-point body/card solve needs no pre-gain; the surface colour does the lift
         g.TintColor = Colors.Transparent;
-        // The recorded dark menu body sits +24 L ABOVE the card under it (L49 over L25): the glass adds light. Our page is
-        // lighter (L43), so the surface must lift to ≈L67 to keep that separation — a cool grey at ~68% over the backdrop.
-        g.SurfaceColor = dark ? Color.FromArgb(0x55, 0x2A, 0x2A, 0x2C) : Color.FromArgb(0x9A, 0xFC, 0xFC, 0xFE);   // a light readability scrim only; the glass itself is clear
+        // Body tint. The iOS 26 dark CONTEXT menu is a ~41 %-opaque neutral grey (spec §10): body sits +24 L above the card
+        // under it (measured L49 over L25). We match that for the context menu (0.41 alpha over an L102 grey -> +24 L over the
+        // launcher's card). The PULL-DOWN stays the near-clear sheet (user's 2026-09-19 "只是一個透明片" decision), and the
+        // light menus stay the whitish "Regular" material. [Design-intent note: the grey context body partly reverses the
+        // clear-glass look for that one menu — it is the iOS-faithful choice; flip CtxBodyGrey to revert.]
+        g.SurfaceColor = (contextMenu && dark) ? CtxBodyGrey
+                       : dark ? Color.FromArgb(0x55, 0x2A, 0x2A, 0x2C) : Color.FromArgb(0x9A, 0xFC, 0xFC, 0xFE);
         // Recorded rim: a SOFT luminous glow (top edge L92 vs body L49), brightest along the top, not a crisp outline.
         g.HighlightEnabled = true;   // Fresnel rim: uniform all round (not directional), ~3 px, white at ~14 %
         // Measured dark rim: a ~1 px hairline at 1.99x the body on top (1.88x bottom), wider/softer on the sides (FWHM 8-12 px,
         // 1.45-1.8x). HighlightWidth 0.5 -> a 1 px stroke (the vendored stroke is 2*width, no longer rounded up to 2 px).
-        g.HighlightOpacity = dark ? 0.30 : 0.22;
-        g.HighlightFalloff = 0;
+        // iOS 26 directional rim (spec §10; confirmed by the pull-down re-measure): a bright specular TOP + BOTTOM rim with a
+        // soft inner glow, and thin DARK refraction hairlines on the LEFT/RIGHT. The Fresnel highlight (white, additive, |·|)
+        // handles the symmetric bright top+bottom; the side darks come from MenuRimPath's cross-axis gradient (source-only,
+        // no vendor edit needed — see the rim-path brush below).
+        // iOS 26 dark rim is DIRECTIONAL: bright specular TOP (+64 L), a weaker bottom (~+20 L, ~1/3 the top), thin dark side
+        // hairlines. The context menu uses the vendor's new HighlightBackRim (0.33 = bottom at 1/3 top) with a brighter, wider
+        // top glow; the pull-down keeps the symmetric rim it was tuned to.
+        g.HighlightOpacity = contextMenu ? (dark ? 0.85 : 0.30) : (dark ? 0.34 : 0.24);
+        // dark context: directional (bright top, ~1/3 bottom) per iOS §10; light context: symmetric bright top+bottom (§10 light).
+        g.HighlightBackRim = (contextMenu && dark) ? 0.33 : 1.0;
+        g.HighlightFalloff = 1.5;        // concentrate the bright specular on the top (and, symmetric-mode, bottom), dim on the sides
         g.HighlightWidth = 1.5;
-        g.HighlightBlurRadius = 1.2;
-        g.HighlightAngle = -70;           // light from above
+        g.HighlightBlurRadius = contextMenu ? 8 : 6;   // context: wider soft top inner-glow (~16 px); pull-down keeps ~12 px
+        g.HighlightAngle = -90;          // straight down: top edge is the light-facing one
         g.ShadowEnabled = true;
-        // ShadowRadius is the mask-blur sigma; reach ~ 2 sigma. Measured: dark reach 0.25 P (-1..-2 L), light 0.51 P below (-17 L).
-        g.ShadowRadius = 9;   // glass.fsh: exp falloff, expand 18 px, factor 0.11 * 0.6
-        g.ShadowOffset = new Vector(0, 2);
-        g.ShadowColor = Color.FromArgb(0x26, 0, 0, 0);
-        g.ShadowOpacity = 1;
-        MenuRimPath.Stroke = dark
-            ? new LinearGradientBrush
-            {
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                GradientStops = new GradientStops { new GradientStop(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF), 0),   // faint top-only hairline (top/bottom 1.06);
-                                                    new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 0.45) },  // the glow does the rim work
-            }
-            : new SolidColorBrush(Color.FromArgb(0x1A, 0, 0, 0));   // light: the 1 px dark hairline (-10 % top)
-    }
-
-    // one menu row: [✓ | label], rounded hover pill (Border.menurow)
-    private Border BuildMenuRow(string text, bool selected) => BuildMenuRow(text, selected, disabled: false);
-    private Border BuildMenuRow(string text, bool selected, bool disabled, bool centered = false)
-    {
-        // Convention: an item whose label starts with "＋ " or "+ " is an "add" action —
-        // the ＋ glyph moves from the left of the text to the right (col-1) slot so
-        // it visually matches the check-column of the other rows.
-        var isPlus = text.StartsWith("＋ ") || text.StartsWith("+ ");
-        var displayText = isPlus ? text.Substring(2).TrimStart() : text;
-
-        Control right;
-        if (isPlus)
+        // With the backdrop scrim now carrying the depth, the drop shadow is minimal in dark and a soft downward-biased
+        // lobe in light (spec §9/§13.9; light reach measured ~40-65 px below, so softer + offset down, not the tight r6).
+        if (dark)
         {
-            var plus = new TextBlock
-            {
-                Text = "＋", FontSize = 15,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            };
-            plus.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextMain"));
-            right = plus;
+            g.ShadowRadius = 8;
+            g.ShadowOffset = new Vector(0, 2);
+            g.ShadowColor = Color.FromArgb(0x0A, 0, 0, 0);   // near-off: depth is the scrim + rim
         }
         else
         {
-            var check = new Avalonia.Controls.Shapes.Path
-            {
-                Width = 8, Height = 7.5, Stretch = Stretch.Uniform,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                StrokeThickness = 1.6, StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round,
-                Data = Geometry.Parse("M0,3.2 L3.4,6.6 L9,0"),
-                Opacity = selected ? 1 : 0,
-            };
-            check.Bind(Avalonia.Controls.Shapes.Path.StrokeProperty, this.GetResourceObservable("TextMain"));
-            right = check;
+            g.ShadowRadius = 18;
+            g.ShadowOffset = new Vector(0, 6);               // downward-biased soft lobe
+            g.ShadowColor = Color.FromArgb(0x2A, 0, 0, 0);
         }
-        Grid.SetColumn(right, 0);   // iOS: the ✓ lives in a leading gutter, labels share one left inset
+        g.ShadowOpacity = 1;
+        // Cross-axis (left->right) gradient: dark at the very edges (the L/R refraction hairlines), clear across the middle
+        // (where the Fresnel glow does the bright top/bottom). One brush, source-only — the launcher's rim path can only vary
+        // along a single axis, and this is the axis that yields the dark side hairlines iOS shows.
+        var sideDark = dark ? Color.FromArgb(0x42, 0, 0, 0) : Color.FromArgb(0x24, 0, 0, 0);
+        var clearSide = Color.FromArgb(0, 0, 0, 0);
+        MenuRimPath.Stroke = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
+            GradientStops = new GradientStops
+            {
+                new GradientStop(sideDark, 0.0),
+                new GradientStop(clearSide, 0.14),
+                new GradientStop(clearSide, 0.86),
+                new GradientStop(sideDark, 1.0),
+            },
+        };
+    }
 
-        var label = new TextBlock { Text = displayText, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, FontSize = 13 };
-        // Disabled rows render in the secondary/muted colour and don't get the hover
-        // cursor so they read as "greyed out and non-interactive" at a glance.
-        label.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable(disabled ? "TextSub" : "TextMain"));
-        Grid.SetColumn(label, 1);
+    // one menu row: just a label inside a transparent Border (Border.menurow). NO check mark and NO reserved check
+    // gutter anywhere (iOS 26 spec §6/§10.5) — the single sliding selection capsule is the ONLY selection/hover cue.
+    private Border BuildMenuRow(string text, bool selected) => BuildMenuRow(text, selected, disabled: false);
+    private Border BuildMenuRow(string text, bool selected, bool disabled, bool centered = false,
+                               bool contextMenu = false, bool destructive = false)
+    {
+        _ = selected;   // selection is shown by the capsule's position now, never per-row
+        // Context-menu rows follow the iOS 26 scale (row 44 / text 17, ONE knob IosPt); destructive rows use systemRed.
+        bool darkTheme = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        var destColor = darkTheme ? Color.FromRgb(0xFA, 0x78, 0x7A) : Color.FromRgb(0xD4, 0x29, 0x2E);   // spec §11 rendered systemRed
+        double textSize = contextMenu ? CtxTextSize : 13;
+        // An "add" row keeps its leading ＋ inline (it is an affordance, not a check mark), so we render the label text
+        // verbatim — no gutter, no glyph reflow.
+        var label = new TextBlock { Text = text, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, FontSize = textSize };
+        // Disabled rows render in the secondary/muted colour and don't get the hover cursor. Destructive rows render systemRed.
+        if (destructive && !disabled) label.Foreground = new SolidColorBrush(destColor);
+        else label.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable(disabled ? "TextSub" : "TextMain"));
 
         Control content;
         if (centered)
         {
-            // multi-column (version grid): the label is centred in its cell whether or not it is selected; the ✓ is laid
-            // over it (also centred) and ShowMenuFor slides it into the gap left of the label, so it never shifts the text
+            // multi-column (version grid): the label is centred in its cell; the capsule sits behind it.
             label.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
-            right.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
-            Grid.SetColumn(label, 0);
-            Grid.SetColumn(right, 0);
             var cell = new Grid { ClipToBounds = false };
             cell.Children.Add(label);
-            if (selected || isPlus) cell.Children.Add(right);
             _menuCellLabels.Add(label);
             content = cell;
         }
         else
         {
-            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("19,*") };
-            grid.Children.Add(right);
-            grid.Children.Add(label);
-            content = grid;
+            label.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+            content = label;
         }
 
         var row = new Border
         {
-            CornerRadius = new CornerRadius(12),
+            CornerRadius = new CornerRadius(contextMenu ? 10 : 12),
             Margin = new Thickness(4, 0),
-            Padding = centered ? new Thickness(10, 7, 10, 7) : new Thickness(10, 7, 26, 7),   // iOS: labels left-aligned, generous empty space to the right
+            // Context menu: fixed 44 pt row pitch, content vertically centred, iOS side inset. Pull-down keeps its tighter look.
+            Height = contextMenu ? CtxRowHeight : double.NaN,
+            Padding = contextMenu ? new Thickness(CtxRowPadH, 0)
+                    : centered   ? new Thickness(10, 7, 10, 7)
+                                 : new Thickness(14, 7, 14, 7),   // iOS: labels left-aligned, symmetric inset (no check gutter)
             Background = Brushes.Transparent,
             Cursor = new Avalonia.Input.Cursor(disabled ? Avalonia.Input.StandardCursorType.Arrow : Avalonia.Input.StandardCursorType.Hand),
             Child = content,
             Opacity = disabled ? 0.55 : 1,
         };
         row.Classes.Add(disabled ? "menurow-disabled" : "menurow");
-        row.Tag = right;   // the ✓ (or ＋) — AnimateMenu lands the selected row's ✓ last
+        row.Tag = null;
         return row;
     }
 
@@ -1124,7 +2336,12 @@ public partial class MainWindow : Window
             if (ThemeBox is not null)
                 ThemeBox.SelectedIndex = s.Theme switch { "light" => 1, "dark" => 2, _ => 0 };
             if (MenuKeyBox is not null)
-                SetGlassSelect(MenuKeyBox, S1mp1eModConfig.LabelFor(s.MenuKey));
+            {
+                // The shared modules.json is the live truth: an in-game rebind writes it,
+                // so prefer its GLFW code over the launcher's own remembered LWJGL one.
+                var shared = S1mp1eModConfig.ReadMenuKey(EffectiveMcDir());
+                SetGlassSelect(MenuKeyBox, S1mp1eModConfig.LabelFor(shared ?? s.MenuKey));
+            }
             if (Application.Current is not null)
                 Application.Current.RequestedThemeVariant = s.Theme switch
                 {
@@ -1241,18 +2458,20 @@ public partial class MainWindow : Window
         SaveCfg();
     }
 
-    // The in-game config-GUI open key (1.8.9 client). Writes launcher settings AND the
-    // per-instance modules.json the mod reads (LWJGL keycode). The in-game rebind writes
-    // the same field, so either path works.
+    // The in-game config-GUI open key. Writes launcher settings (LWJGL code, unchanged so
+    // existing configs stay valid) AND the SHARED <.minecraft>/s1mp1e-mods/modules.json the
+    // client mod reads on every version (GLFW code). The in-game rebind writes the same
+    // field, so either path works and both apply to all versions at once.
     private void OnMenuKeyChanged(object? sender, EventArgs e)
     {
         if (_hydrating) return;
         var label = (sender as GlassSelect)?.SelectedText ?? MenuKeyBox.SelectedText ?? "Right Shift";
-        int code = 54;
-        foreach (var c in S1mp1eModConfig.KeyChoices) if (c.Label == label) { code = c.Code; break; }
-        _cfg.Settings.MenuKey = code;
+        int lwjgl = 54, glfw = 344;
+        foreach (var c in S1mp1eModConfig.KeyChoices)
+            if (c.Label == label) { lwjgl = c.Lwjgl; glfw = c.Glfw; break; }
+        _cfg.Settings.MenuKey = lwjgl;
         SaveCfg();
-        try { S1mp1eModConfig.WriteMenuKey(CurrentInstanceDir(), code); } catch (Exception ex) { LogCrash(ex); }
+        try { S1mp1eModConfig.WriteMenuKey(EffectiveMcDir(), glfw); } catch (Exception ex) { LogCrash(ex); }
     }
 
     // MC versions >= 1.13 only work through Fabric in this launcher (Forge modding
@@ -1830,6 +3049,116 @@ public partial class MainWindow : Window
         var step = diff * t;
         var next = cur + step;
         DetailScroller.Offset = new Vector(DetailScroller.Offset.X, next);
+    }
+
+    // ================= Request 3: scrollable single-column pull-down =================
+    // The version / menu-key pickers open into this reused ScrollViewer instead of the old 3-column grid. Smooth wheel
+    // scrolling (same exp-decay feel as the detail pane), an iOS soft edge fade driven by scroll offset, and the selection
+    // capsule (which lives in the un-scrolled MenuCapsuleLayer) re-pinned to its row on every scroll.
+    private void EnsureLazyMenuScroller()
+    {
+        if (_menuScroller is not null) return;
+        _menuScrollPanel = new StackPanel();
+        _menuScroller = new ScrollViewer
+        {
+            Content = _menuScrollPanel,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,   // no scrollbar clutter — the edge fade + a half-row peek signal scrolling
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        // Intercept the wheel BEFORE the ScrollViewer's own snap-scroll and drive the smooth tween ourselves.
+        _menuScroller.AddHandler(InputElement.PointerWheelChangedEvent, OnMenuScrollWheel,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        _menuScroller.ScrollChanged += (_, _) => OnMenuScrollChanged();
+    }
+
+    // Pull-down (下拉選單) ONLY: the user asked for NO edge fade in the dropdown — the scrolling version list is hard-clipped
+    // at the viewport edges (crisp rows, no top/bottom dissolve). _menuScroller is used exclusively by pull-downs (context
+    // menus / short pickers never scroll), so clearing its mask here is scoped to the dropdown and leaves every other menu's
+    // fades untouched. Kept as a method (still called on open / scroll) so any previously-set mask is cleared.
+    private void UpdateMenuScrollFade()
+    {
+        if (_menuScroller is null) return;
+        _menuScroller.OpacityMask = null;
+    }
+
+    private void ApplyMenuInitScroll()
+    {
+        if (_menuScroller is null) return;
+        double max = _menuScroller.ScrollBarMaximum.Y;
+        _menuScroller.Offset = new Vector(0, max <= 0 ? 0 : Math.Clamp(_menuInitScrollY, 0, max));
+        _menuScrollTarget = double.NaN;
+        UpdateMenuScrollFade();
+    }
+
+    // Scroll changed (wheel, keyboard, or the open pre-scroll): refresh the edge fade and rigidly re-pin the capsule to its
+    // current row (the row moved under a stationary pointer; pointer-enter events retarget it to whatever row it now covers).
+    private void OnMenuScrollChanged()
+    {
+        UpdateMenuScrollFade();
+        if (_menuScrolling && _capActive && _menuSettled && _capOpacity > 0.01
+            && _capIndex >= 0 && _capIndex < _menuRows.Count)
+        {
+            var (x, y) = CapsuleTargetPos(_capIndex);   // TranslatePoint already reflects the new scroll offset
+            _capX.Snap(x); _capY.Snap(y);
+            Canvas.SetLeft(MenuCapsule, x);
+            Canvas.SetTop(MenuCapsule, y);
+        }
+    }
+
+    private void OnMenuScrollWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (_menuScroller is null || !_menuScrolling) return;
+        e.Handled = true;
+        double extent = _menuScroller.ScrollBarMaximum.Y;
+        if (extent <= 0) return;
+        if (double.IsNaN(_menuScrollTarget)) _menuScrollTarget = _menuScroller.Offset.Y;
+        _menuScrollTarget = Math.Max(0, Math.Min(extent, _menuScrollTarget - e.Delta.Y * ScrollStep));
+        if (_captureMode) { _menuScroller.Offset = new Vector(0, _menuScrollTarget); _menuScrollTarget = double.NaN; return; }
+        if (_menuScrollTimer is null)
+            _menuScrollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(3), DispatcherPriority.Render, OnMenuScrollTick);
+        if (!_menuScrollTimer.IsEnabled) { _menuScrollSw.Restart(); _menuScrollTimer.Start(); }
+    }
+
+    private void OnMenuScrollTick(object? sender, EventArgs e)
+    {
+        if (_menuScroller is null || !OverlayHost.IsVisible || double.IsNaN(_menuScrollTarget)) { _menuScrollTimer?.Stop(); return; }
+        var dt = _menuScrollSw.Elapsed.TotalSeconds; _menuScrollSw.Restart();
+        if (dt > 0.05) dt = 0.05;
+        double extent = _menuScroller.ScrollBarMaximum.Y;
+        if (extent > 0) _menuScrollTarget = Math.Max(0, Math.Min(extent, _menuScrollTarget));
+        double cur = _menuScroller.Offset.Y;
+        double diff = _menuScrollTarget - cur;
+        if (Math.Abs(diff) < 0.3)
+        {
+            _menuScroller.Offset = new Vector(0, _menuScrollTarget);
+            _menuScrollTimer?.Stop(); _menuScrollTarget = double.NaN;
+            return;
+        }
+        _menuScroller.Offset = new Vector(0, cur + diff * (1.0 - Math.Exp(-ScrollDecay * dt)));
+    }
+
+    // Keyboard paging: bring row i fully into the viewport (snap in capture, smooth-tween live).
+    private void EnsureMenuRowVisible(int i)
+    {
+        if (!_menuScrolling || _menuScroller is null || i < 0 || i >= _menuRows.Count) return;
+        double vh = _menuScroller.Bounds.Height; if (vh < 1) vh = _menuScroller.Height;
+        if (vh < 1 || double.IsNaN(vh)) return;
+        double rowTop = i * _menuRowPitch;               // uniform single column → content coords are exact
+        double rowBot = rowTop + _menuRowPitch;
+        double y = _menuScroller.Offset.Y;
+        double max = _menuScroller.ScrollBarMaximum.Y;
+        double newY = y;
+        if (rowTop < y) newY = rowTop;
+        else if (rowBot > y + vh) newY = rowBot - vh;
+        newY = Math.Clamp(newY, 0, max <= 0 ? 0 : max);
+        if (Math.Abs(newY - y) < 0.5) return;
+        if (_captureMode) { _menuScroller.Offset = new Vector(0, newY); return; }
+        _menuScrollTarget = newY;
+        if (_menuScrollTimer is null)
+            _menuScrollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(3), DispatcherPriority.Render, OnMenuScrollTick);
+        if (!_menuScrollTimer.IsEnabled) { _menuScrollSw.Restart(); _menuScrollTimer.Start(); }
     }
 
     // 皮膚 card 切換 → menu: 尋找 (mineskin gallery) / 導入 (file picker)

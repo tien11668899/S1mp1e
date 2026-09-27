@@ -140,6 +140,11 @@ namespace LiquidGlassAvaloniaUI
         public static readonly StyledProperty<double> HighlightFalloffProperty =
             AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(HighlightFalloff), 1.0);
 
+        // Rim brightness on the edge facing AWAY from the light, as a fraction of the light-facing edge.
+        // 1.0 = symmetric (original behaviour); <1 = directional (iOS 26 bright-top / dim-bottom rim).
+        public static readonly StyledProperty<double> HighlightBackRimProperty =
+            AvaloniaProperty.Register<LiquidGlassSurface, double>(nameof(HighlightBackRim), 1.0);
+
         public static readonly StyledProperty<bool> ShadowEnabledProperty =
             AvaloniaProperty.Register<LiquidGlassSurface, bool>(nameof(ShadowEnabled), true);
 
@@ -472,6 +477,12 @@ namespace LiquidGlassAvaloniaUI
             set => SetValue(HighlightFalloffProperty, value);
         }
 
+        public double HighlightBackRim
+        {
+            get => GetValue(HighlightBackRimProperty);
+            set => SetValue(HighlightBackRimProperty, value);
+        }
+
         public bool ShadowEnabled
         {
             get => GetValue(ShadowEnabledProperty);
@@ -589,6 +600,7 @@ namespace LiquidGlassAvaloniaUI
                 HighlightOpacity = HighlightOpacity,
                 HighlightAngleDegrees = HighlightAngle,
                 HighlightFalloff = HighlightFalloff,
+                HighlightBackRim = HighlightBackRim,
                 ShadowEnabled = ShadowEnabled,
                 ShadowRadius = ShadowRadius,
                 ShadowOffset = ShadowOffset,
@@ -656,6 +668,7 @@ namespace LiquidGlassAvaloniaUI
                 || change.Property == HighlightOpacityProperty
                 || change.Property == HighlightAngleProperty
                 || change.Property == HighlightFalloffProperty
+                || change.Property == HighlightBackRimProperty
                 || change.Property == InnerShadowEnabledProperty
                 || change.Property == InnerShadowRadiusProperty
                 || change.Property == InnerShadowOffsetProperty
@@ -711,6 +724,7 @@ namespace LiquidGlassAvaloniaUI
                    || property == HighlightOpacityProperty
                    || property == HighlightAngleProperty
                    || property == HighlightFalloffProperty
+                   || property == HighlightBackRimProperty
                    || property == ShadowEnabledProperty
                    || property == ShadowRadiusProperty
                    || property == ShadowOffsetProperty
