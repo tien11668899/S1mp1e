@@ -112,8 +112,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        // App / taskbar icon: the glass "S".
-        Icon = new WindowIcon(new Bitmap(AssetLoader.Open(new Uri("avares://S1mp1e/Assets/s1mp1e.png"))));
+        // App / taskbar icon and the sidebar brand mark follow the light / dark theme.
+        ApplyBrandIcons();
+        ActualThemeVariantChanged += (_, _) => ApplyBrandIcons();
 
         // Smooth morph/slide for the liquid-glass selection pill.
         SelPill.Transitions = new Transitions
@@ -3953,6 +3954,16 @@ public partial class MainWindow : Window
     private UpdateInfo? _pendingUpdate;
 
     // Query GitHub for a newer release; reveal the bottom banner if one exists.
+    /// <summary>"One layer" app icon: the white squircle in light mode, the dark squircle in dark mode.</summary>
+    private void ApplyBrandIcons()
+    {
+        bool dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        var uri = new Uri(dark ? "avares://S1mp1e/Assets/s1mp1e-dark.png" : "avares://S1mp1e/Assets/s1mp1e.png");
+        var bmp = new Bitmap(AssetLoader.Open(uri));
+        Icon = new WindowIcon(bmp);
+        if (BrandIcon is not null) BrandIcon.Source = bmp;
+    }
+
     private async void CheckForUpdatesAsync()
     {
         try

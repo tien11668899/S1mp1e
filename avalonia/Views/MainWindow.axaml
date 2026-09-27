@@ -422,7 +422,7 @@
 
                     <!-- brand -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="8,0,0,16">
-                        <Image Source="avares://S1mp1e/Assets/s1mp1e.png" Width="28" Height="28"/>
+                        <Image x:Name="BrandIcon" Source="avares://S1mp1e/Assets/s1mp1e.png" Width="28" Height="28"/>
                         <TextBlock Text="S1mp1e" FontSize="15" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
                     </StackPanel>

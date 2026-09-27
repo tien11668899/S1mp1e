@@ -12,8 +12,10 @@
 <meta property="og:description" content="液態玻璃 Minecraft 啟動器與客戶端。戰鬥三件套、21 個模組，1.8.9 到 26.2。">
 <meta property="og:image" content="https://tien11668899.github.io/S1mp1e/assets/icon.png">
 <meta property="og:type" content="website">
-<link rel="icon" href="assets/favicon-32.png" sizes="32x32">
-<link rel="icon" href="assets/icon.png" sizes="512x512">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" media="(prefers-color-scheme: light)">
+<link rel="icon" href="assets/favicon-32-dark.png" sizes="32x32" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/icon.png" sizes="512x512" media="(prefers-color-scheme: light)">
+<link rel="icon" href="assets/icon-dark.png" sizes="512x512" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="preload" as="image" href="assets/start-light.webp" media="(prefers-color-scheme: light)">
 <link rel="preload" as="image" href="assets/start-dark.webp" media="(prefers-color-scheme: dark)">
@@ -121,6 +123,7 @@ section { scroll-margin-top: 52px; }
 .lnav .vw { height: 100%; display: flex; align-items: center; gap: 24px; }
 .lnav-name { display: flex; align-items: center; gap: 8px; font-size: 21px; font-weight: 600; letter-spacing: .011em; color: var(--ink); margin-right: auto; }
 .lnav-name:hover { text-decoration: none; }
+.lnav-name picture { display: flex; }
 .lnav-name img { width: 24px; height: 24px; border-radius: 6px; }
 .lnav-links { display: flex; gap: 24px; }
 .lnav-links a { font-size: 12px; color: var(--ink); opacity: .88; letter-spacing: -0.01em; }
@@ -359,7 +362,7 @@ input[type=range] { width: 100%; accent-color: var(--btn); height: 28px; }
 
 <nav class="lnav" aria-label="S1mp1e">
     <div class="vw">
-        <a class="lnav-name" href="#top"><img src="assets/icon.png" alt="" width="24" height="24">S1mp1e</a>
+        <a class="lnav-name" href="#top"><picture><source srcset="assets/icon-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/icon.png" alt="" width="24" height="24"></picture>S1mp1e</a>
         <div class="lnav-links">
             <a href="#overview">總覽</a>
             <a href="#glass">玻璃</a>
