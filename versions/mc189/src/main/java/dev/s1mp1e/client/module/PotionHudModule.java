@@ -1,77 +1,85 @@
 package dev.s1mp1e.client.module;
 
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import javax.imageio.ImageIO;
+
+import dev.s1mp1e.client.HudBounds;
+import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
-import dev.s1mp1e.client.HudBounds;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.potion.Potion;
 import net.minecraft.potion.PotionEffect;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraft.util.ResourceLocation;
 
 /**
- * Your own active potion effects: localised name, level and time left.
+ * Your own active potion effects, each shown as its vanilla ICON hugged by a colour OUTLINE that
+ * follows the icon's REAL silhouette — exactly like {@link ArmorHudModule}. No name, no level, no
+ * time: just the icon plus the outline that clings to its actual curve, tinted the effect's own
+ * colour with a flowing ripple (shared trace/draw via {@link Silhouette}). The mc1211 redesign.
  *
- * <p>Fair play: {@code mc.thePlayer.getActivePotionEffects()} only — the same
- * list the vanilla inventory screen already prints for the player.
+ * <p>Fair play: reads {@code mc.thePlayer.getActivePotionEffects()} only — the same list the vanilla
+ * inventory already shows.
  *
- * <p>1.8.9 predates the potion registry, so this is the old flat-array world:
- * effects carry a numeric id and the {@link Potion} object is looked up in
- * {@code Potion.potionTypes[id]}, a 256-slot array that is mostly null. Two
- * consequences worth guarding: the id has to be range-checked (mods can hand
- * out ids this client's array does not know), and {@code getActivePotionEffects}
- * returns a HashMap's values view, whose iteration order is unstable — sorting
- * by id keeps the list from reshuffling itself frame to frame.
+ * <p>1.8.9 has no atlas sprite / mixin for the potion icons (they live on the shared
+ * {@code textures/gui/container/inventory.png} sheet), so the icon is drawn straight from that sheet
+ * (18&times;18 tile at {@code u=idx%8*18, v=198+idx/8*18}, scaled to 16&times;16) and the silhouette
+ * alpha mask comes from a one-time {@code BufferedImage} read of the same sheet.
  */
-public final class PotionHudModule extends Module implements HudBounds {
+public final class PotionHudModule extends Module implements HudBounds, HudRenderer {
 
-    private int lastW = 80, lastH = 22;   // last rendered footprint (post-scale), for the HUD editor
+    private static final int CELL = 20;   // per-effect cell (icon 16 + 1px outline + margin), matches ArmorHUD
+    private static final ResourceLocation INVENTORY_TEX =
+            new ResourceLocation("textures/gui/container/inventory.png");
+    /** contour points (x,y pairs) per status-icon index; empty = read failed (retried next frame). */
+    private static final Map<Integer, int[]> CACHE = new HashMap<Integer, int[]>();
+    private static PotionHudModule instance;
 
-    private static final int PAD = 3;
-    /** Grey used for the timer, matching vanilla's inventory effect list. */
-    private static final int TIME_COLOR = 0xFF7F7F7F;
-    private static final String[] ROMAN = {
-        "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"
-    };
+    /** The inventory sheet's ARGB pixels, loaded once for the silhouette alpha mask. */
+    private static int[] sheetArgb;
+    private static int   sheetW;
+    private static boolean sheetTried;
 
-    private final Setting posX  = add(Setting.integer("X", 4, 0, 4000));
-    private final Setting posY  = add(Setting.integer("Y", 160, 0, 4000));
-    private final Setting color = add(Setting.color("Text Colour", 0xFFFFFFFF));
-    private final Setting bg    = add(Setting.bool("Background", true));
-    private final Setting scale = add(Setting.number("Scale", 1.0D, 0.5D, 2.0D));
+    public final Setting posX  = add(Setting.integer("X", 4, 0, 4000));
+    public final Setting posY  = add(Setting.integer("Y", 160, 0, 4000));
+    public final Setting scale = add(Setting.number("Scale", 1.0D, 0.5D, 2.0D));
+    public final Setting hideVanilla = add(Setting.bool("Hide vanilla effects", true));
+    private int lastW = CELL, lastH = CELL;
 
     public PotionHudModule() {
         super("PotionHUD", "HUD");
-        // Purely additive readout of your own data -- on by default so a fresh
-        // install shows something without hand-editing config. The behaviour-
-        // changing modules (crosshair replacement, old animations, no-hurt-cam)
-        // stay OFF until the player opts in via their keybind.
+        instance = this;
+        // Additive readout of your own data; on by default. Driven centrally by
+        // HudRenderDispatcher, so this module subscribes to no Forge event.
         this.enabled = true;
-
-        // Self-registering; the handler bails on !enabled. ModuleManager must
-        // NOT register this instance again or every line would draw twice.
-        MinecraftForge.EVENT_BUS.register(this);
     }
 
-    @SubscribeEvent
-    public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
-        if (!enabled) return;
-        if (event.type != RenderGameOverlayEvent.ElementType.TEXT) return;
+    /**
+     * Parity gate matching mc1211's {@code replacesVanilla()}. On 1.8.9 the vanilla effect list is drawn
+     * only on inventory screens ({@code InventoryEffectRenderer}), not as a HUD element, so there is no
+     * top-right HUD overlay to suppress without adding ASM — this gate is therefore a no-op on the HUD
+     * and the setting is kept purely for schema parity with the newer lines.
+     */
+    public static boolean replacesVanilla() {
+        PotionHudModule m = instance;
+        return m != null && m.enabled && m.hideVanilla.boolValue;
+    }
 
+    @Override
+    public void renderHud() {
+        if (!enabled) return;
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null || mc.theWorld == null) return;
-        if (mc.gameSettings.showDebugInfo) return;
         if (mc.gameSettings.hideGUI && mc.currentScreen == null) return;
 
         Collection<PotionEffect> active = mc.thePlayer.getActivePotionEffects();
@@ -80,91 +88,105 @@ public final class PotionHudModule extends Module implements HudBounds {
         List<PotionEffect> sorted = new ArrayList<PotionEffect>(active);
         Collections.sort(sorted, ID_ORDER);
 
-        FontRenderer fr = mc.fontRendererObj;
-        List<String> names = new ArrayList<String>(sorted.size());
-        List<String> times = new ArrayList<String>(sorted.size());
-        int nameW = 0;
-        int timeW = 0;
-
+        // Filter to effects that have a drawable status icon (and a known Potion).
+        List<PotionEffect> drawable = new ArrayList<PotionEffect>(sorted.size());
         for (int i = 0; i < sorted.size(); i++) {
-            PotionEffect effect = sorted.get(i);
-            int id = effect.getPotionID();
+            PotionEffect eff = sorted.get(i);
+            int id = eff.getPotionID();
             if (id < 0 || id >= Potion.potionTypes.length) continue;
             Potion potion = Potion.potionTypes[id];
-            if (potion == null) continue;
-
-            String name = I18n.format(potion.getName(), new Object[0]);
-            int amplifier = effect.getAmplifier();
-            // Vanilla shows no numeral for amplifier 0 ("Speed", not "Speed I").
-            if (amplifier > 0) {
-                name = name + " " + roman(amplifier + 1);
-            }
-            // Beacon / creative effects run at Integer.MAX_VALUE ticks; the flag
-            // is how vanilla detects them instead of formatting a nonsense time.
-            String time = effect.getIsPotionDurationMax() ? "**:**" : mmss(effect.getDuration());
-
-            names.add(name);
-            times.add(time);
-            int w = Math.round(dev.s1mp1e.client.gui.GlassFont.width(name));
-            if (w > nameW) nameW = w;
-            w = Math.round(dev.s1mp1e.client.gui.GlassFont.width(time));
-            if (w > timeW) timeW = w;
+            if (potion == null || !potion.hasStatusIcon()) continue;
+            drawable.add(eff);
         }
-
-        int n = names.size();
+        int n = drawable.size();
         if (n == 0) return;
 
-        int lineH = Math.round(dev.s1mp1e.client.gui.GlassFont.height()) + 2;
-        int boxW = PAD * 2 + nameW + 6 + timeW;
-        int boxH = PAD * 2 + n * lineH;
-
         float s = (float) scale.doubleValue;
-        lastW = Math.round(boxW * s);
-        lastH = Math.round(boxH * s);
+        lastW = Math.round(CELL * s);
+        lastH = Math.round(n * CELL * s);
+        float time = (System.nanoTime() % 3_000_000_000L) / 3.0e9f;
+
         GlStateManager.pushMatrix();
-        GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
-        GlStateManager.scale(s, s, 1f);
+        try {
+            GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
+            GlStateManager.scale(s, s, 1f);
 
-        if (bg.boolValue) {
-            Gui.drawRect(0, 0, boxW, boxH, 0x60000000);
+            // Outlines first (immediate-mode fills), icons on top. The outline sits 1px OUTSIDE the
+            // shape, so the icon never covers it.
+            for (int i = 0; i < n; i++) {
+                Potion potion = Potion.potionTypes[drawable.get(i).getPotionID()];
+                int idx = potion.getStatusIconIndex();
+                int ix = CELL / 2 - 8, iy = i * CELL + CELL / 2 - 8;
+                Silhouette.draw(contour(idx), ix, iy, 1f, color(potion), time);
+            }
+            // Reset the colour cache (see GlassRenderer.endBatch) before the textured icon pass.
+            GlStateManager.color(0f, 0f, 0f, 0f);
+            GlStateManager.color(1f, 1f, 1f, 1f);
+
+            // Icons from the inventory sheet: 18x18 tile scaled to 16x16.
+            GlStateManager.enableBlend();
+            GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+            mc.getTextureManager().bindTexture(INVENTORY_TEX);
+            for (int i = 0; i < n; i++) {
+                Potion potion = Potion.potionTypes[drawable.get(i).getPotionID()];
+                int idx = potion.getStatusIconIndex();
+                int u = idx % 8 * 18, v = 198 + idx / 8 * 18;
+                int ix = CELL / 2 - 8, iy = i * CELL + CELL / 2 - 8;
+                Gui.drawScaledCustomSizeModalRect(ix, iy, u, v, 18, 18, 16, 16, 256f, 256f);
+            }
+
+            // Restore for later draws (glass pipeline). Force the colour cache; leave blend enabled.
+            GlStateManager.color(0f, 0f, 0f, 0f);
+            GlStateManager.color(1f, 1f, 1f, 1f);
+            GlStateManager.enableAlpha();
+            GlStateManager.enableBlend();
+        } finally {
+            GlStateManager.popMatrix();
         }
-        // drawRect leaves the texture unit off-then-on but clears the colour, so
-        // restore white before the font renderer multiplies against it.
-        // Defeat GlStateManager's colour cache (see GlassRenderer.endBatch):
-        // a bare color(1,1,1,1) no-ops when the cache already reads white
-        // while the real GL colour is not, which leaks a tint onto the
-        // glass pipeline that draws after us.
-        GlStateManager.color(0f, 0f, 0f, 0f);
-        GlStateManager.color(1f, 1f, 1f, 1f);
-
-        for (int i = 0; i < n; i++) {
-            int y = PAD + i * lineH;
-            dev.s1mp1e.client.gui.GlassFont.drawARGB(names.get(i), (float) PAD, (float) y, color.colorValue, true);
-            String time = times.get(i);
-            // right-aligned so the timers form a column no matter the name length
-            dev.s1mp1e.client.gui.GlassFont.drawARGB(time,
-                    (float) (boxW - PAD - Math.round(dev.s1mp1e.client.gui.GlassFont.width(time))),
-                    (float) y, TIME_COLOR, true);
-        }
-
-        // FontRenderer leaves its last colour on the register; anything drawn afterwards
-        // with a POSITION_TEX format multiplies against it and comes out tinted.
-        // Defeat GlStateManager's colour cache (see GlassRenderer.endBatch):
-        // a bare color(1,1,1,1) no-ops when the cache already reads white
-        // while the real GL colour is not, which leaks a tint onto the
-        // glass pipeline that draws after us.
-        GlStateManager.color(0f, 0f, 0f, 0f);
-        GlStateManager.color(1f, 1f, 1f, 1f);
-
-        GlStateManager.popMatrix();
     }
 
-    // ---- HudBounds (for the HUD editor) ----
+    /** Cached-per-icon-index 1px-outside contour, traced from the inventory-sheet ARGB tile. */
+    private static int[] contour(int idx) {
+        Integer key = Integer.valueOf(idx);
+        int[] cached = CACHE.get(key);
+        if (cached != null) return cached;
+        int[] argb = sheet();
+        if (argb == null) return new int[0];
+        int u = idx % 8 * 18, v = 198 + idx / 8 * 18;
+        int[] out = Silhouette.traceTile(argb, sheetW, u, v, 18, 18);
+        if (out.length > 0) CACHE.put(key, out);
+        return out;
+    }
+
+    /** The effect's own liquid colour (falls back to a soft grey if it reports 0). */
+    private static int color(Potion potion) {
+        int rgb = potion.getLiquidColor() & 0xFFFFFF;
+        return rgb == 0 ? 0xC0C0C8 : rgb;
+    }
+
+    /** Load the inventory sheet's ARGB pixels once (for the silhouette alpha mask); null on failure. */
+    private static int[] sheet() {
+        if (sheetTried) return sheetArgb;
+        sheetTried = true;
+        try {
+            Minecraft mc = Minecraft.getMinecraft();
+            BufferedImage img = ImageIO.read(mc.getResourceManager().getResource(INVENTORY_TEX).getInputStream());
+            if (img == null) return null;
+            sheetW = img.getWidth();
+            int h = img.getHeight();
+            sheetArgb = img.getRGB(0, 0, sheetW, h, null, 0, sheetW);   // ARGB, alpha in high byte
+        } catch (Throwable t) {
+            sheetArgb = null;
+        }
+        return sheetArgb;
+    }
+
+    // ---- HudBounds ----
     public int hudX() { return posX.intValue; }
     public int hudY() { return posY.intValue; }
     public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
-    public int hudW() { return lastW > 0 ? lastW : 80; }
-    public int hudH() { return lastH > 0 ? lastH : 22; }
+    public int hudW() { return lastW > 0 ? lastW : CELL; }
+    public int hudH() { return lastH > 0 ? lastH : CELL; }
     public void hudResetPos() { posX.reset(); posY.reset(); }
     public String hudLabel() { return name; }
 
@@ -174,17 +196,4 @@ public final class PotionHudModule extends Module implements HudBounds {
             return a.getPotionID() - b.getPotionID();
         }
     };
-
-    private static String roman(int level) {
-        return (level >= 1 && level <= ROMAN.length) ? ROMAN[level - 1] : String.valueOf(level);
-    }
-
-    /** Ticks -> m:ss. Minutes are not clamped: brewed effects can exceed 99. */
-    private static String mmss(int ticks) {
-        int seconds = ticks / 20;
-        if (seconds < 0) seconds = 0;
-        int m = seconds / 60;
-        int sec = seconds % 60;
-        return m + ":" + (sec < 10 ? "0" : "") + sec;
-    }
 }

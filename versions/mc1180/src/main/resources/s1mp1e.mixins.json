@@ -3,13 +3,28 @@
   "package": "dev.s1mp1e.glass.mixin",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "InGameHudMixin", "ButtonGlassMixin",
+    "InGameHudMixin", "ButtonGlassMixin", "SliderGlassMixin",
     "MinecraftClientFadeMixin", "ScreenFadeMixin", "InGameHudFadeMixin",
     "ScreenTooltipMixin", "InGameHudTooltipGhostMixin", "InGameHudItemNameMixin",
     "HandledScreenGlassMixin", "MinecraftClientContainerGhostMixin", "InGameHudPanelGhostMixin",
     "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin",
     "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin",
-    "RecipeToggleGlassMixin", "CreativeGlassMixin"
+    "RecipeToggleGlassMixin", "CreativeGlassMixin",
+    "ContainerGlideGlassMixin", "StonecutterScrollGlassMixin",
+    "LoomScrollGlassMixin", "MerchantScrollGlassMixin",
+    "HandledScreenAccessor", "EffectsInInventoryGlassMixin",
+    "StatsScreenGlassMixin", "BookGlassMixin", "BookEditGlassMixin",
+    "AdvancementsGlassMixin", "SocialGlassMixin",
+    "SpriteContentsAccessor", "MinecraftClientFpsAccessor",
+    "InGameHudEffectMixin", "MouseClickMixin", "CrosshairMixin",
+    "LowFireMixin", "AttackIndicatorHideMixin", "HitMarkerAttackMixin", "HitMarkerCritPacketMixin", "HitMarkerDamageMixin",
+    "ChatGlassMixin", "ChatInputGlassMixin", "TabListGlassMixin", "BossBarGlassMixin",
+    "ToastGlassMixin", "SystemToastGlassMixin", "ActionBarGlassMixin", "NameTagGlassMixin",
+    "BlockOutlineMixin", "RenderPhaseLineWidthMixin",
+    "FovMultiplierMixin", "LightmapGammaMixin",
+    "ZoomFovMixin", "MouseZoomSensitivityMixin", "ForeignZoomKeyBlockMixin", "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin", "HandPositionMixin", "HeldItemSwingMixin",
+    "FontSmoothMixin", "FontSmoothFilterMixin",
+    "DevShotMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

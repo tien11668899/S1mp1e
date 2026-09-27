@@ -143,16 +143,18 @@ public final class CombatHooks {
     }
 
     /**
-     * The player's current swing position, 0..1. Uses a partial tick of 1.0 rather
-     * than fishing the private {@code Minecraft.timer} out by reflection: at 1.0,
-     * {@code getSwingProgress} returns the latest ticked {@code swingProgress}
-     * value, which is smooth enough for the draw and needs no fragile field access.
+     * The player's current swing position, 0..1. Uses the partial-tick value that
+     * {@code ItemRenderer.renderItemInFirstPerson} was actually called with — captured
+     * by {@link CameraHooks#beginFirstPerson(float)} at the method head — so the swing
+     * is interpolated per frame (frame-smooth) rather than stepping at the tick rate a
+     * fixed 1.0 would give. Falls back to the field's 1.0 default if the head splice
+     * never ran, which is still the previous behaviour, not a crash.
      */
     private static float liveSwing() {
         try {
             Minecraft mc = Minecraft.getMinecraft();
             if (mc == null || mc.thePlayer == null) return 0.0F;
-            return mc.thePlayer.getSwingProgress(1.0F);
+            return mc.thePlayer.getSwingProgress(CameraHooks.firstPersonPartialTicks);
         } catch (Throwable t) {
             return 0.0F;
         }

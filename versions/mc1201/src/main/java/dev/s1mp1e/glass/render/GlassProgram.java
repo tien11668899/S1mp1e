@@ -47,8 +47,13 @@ public final class GlassProgram {
     /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
     public static final int LENS  = 6;
 
-    private static final int COUNT = 7;
-    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens" };
+    /** Liquid-glass RING (glass_ring.fsh): the glass material on an annulus - the attack-cooldown track. */
+    public static final int RING  = 7;
+    /** Flat anti-aliased round-capped ARC (ring_arc.fsh, no backdrop) - the attack-cooldown progress. */
+    public static final int ARC   = 8;
+
+    private static final int COUNT = 9;
+    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens", "glass_ring", "ring_arc" };
 
     private static final int[] program    = new int[COUNT];
     private static final int[] uProj       = new int[COUNT];
@@ -60,6 +65,11 @@ public final class GlassProgram {
     private static final int[] uDim        = new int[COUNT];
     private static final int[] uCorner     = new int[COUNT];
     private static final int[] uShadow     = new int[COUNT];
+    private static final int[] uArcP     = new int[COUNT];
+    private static final int[] uArcT     = new int[COUNT];
+    private static final int[] uArcS     = new int[COUNT];
+    private static final int[] uArcR     = new int[COUNT];
+    private static final int[] uArcG     = new int[COUNT];
 
     /** Drop-shadow multiplier for the GLASS program (1 = normal, 0 = suppressed).
      *  Persistent: applied on every GLASS bind; the hotbar drops it to 0 while a
@@ -76,6 +86,8 @@ public final class GlassProgram {
     private GlassProgram() {}
 
     public static boolean usable()     { return state == 1 && program[GLASS] != 0; }
+    public static boolean ringUsable() { return state == 1 && program[RING] != 0; }
+    public static boolean arcUsable()  { return state == 1 && program[ARC]  != 0; }
     public static boolean lineUsable() { return state == 1 && program[LINE]  != 0; }
     public static boolean btnUsable()  { return state == 1 && program[BTN]   != 0; }
     public static boolean blurUsable() { return state == 1 && program[BLUR]  != 0; }
@@ -146,6 +158,11 @@ public final class GlassProgram {
             uDim[kind]       = GL20.glGetUniformLocation(p, "Dim");
             uCorner[kind]    = GL20.glGetUniformLocation(p, "Corner");
             uShadow[kind]    = GL20.glGetUniformLocation(p, "ShadowScale");
+            uArcP[kind]      = GL20.glGetUniformLocation(p, "ArcProgress");
+            uArcT[kind]      = GL20.glGetUniformLocation(p, "ArcThick");
+            uArcS[kind]      = GL20.glGetUniformLocation(p, "ArcShape");
+            uArcR[kind]      = GL20.glGetUniformLocation(p, "ArcRatio");
+            uArcG[kind]      = GL20.glGetUniformLocation(p, "ArcGap");
             return p;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] " + fshName + " unavailable: " + t);
@@ -174,13 +191,13 @@ public final class GlassProgram {
         if (uModulate[kind] >= 0) GL20.glUniform4f(uModulate[kind], 1f, 1f, 1f, 1f);
         // GLASS drop-shadow multiplier — persistent, set every bind so a value the
         // hotbar leaves at 0 can never leak into the panel or inventory glass.
-        if (kind == GLASS && uShadow[GLASS] >= 0) GL20.glUniform1f(uShadow[GLASS], shadowScale);
+        if ((kind == GLASS || kind == RING) && uShadow[kind] >= 0) GL20.glUniform1f(uShadow[kind], shadowScale);
     }
 
     public static void unbind() { GL20.glUseProgram(prevProg); }
 
     /** True when this program samples the captured backdrop. */
-    public static boolean needsBackdrop(int kind) { return kind == GLASS || kind == EDGE || kind == LENS; }
+    public static boolean needsBackdrop(int kind) { return kind == RING || kind == GLASS || kind == EDGE || kind == LENS; }
 
     /** Blur-specific uniforms; call right after {@link #bind}. */
     public static void setBlur(float radiusPx, float dim) {
@@ -198,6 +215,20 @@ public final class GlassProgram {
     public static void setEdge(float radiusPx, float dim) {
         if (uRadius[EDGE] >= 0) GL20.glUniform1f(uRadius[EDGE], radiusPx);
         if (uDim[EDGE]    >= 0) GL20.glUniform1f(uDim[EDGE],    dim);
+    }
+
+    /** ARC uniforms: progress 0..1 (12 o'clock clockwise) and stroke width / outer radius; call right after
+     *  {@link #bind}(ARC). */
+    public static void setArc(float progress, float thickFrac, int shape, float ratio) {
+        setArc(progress, thickFrac, shape, ratio, 0f);
+    }
+
+    public static void setArc(float progress, float thickFrac, int shape, float ratio, float gap) {
+        if (uArcP[ARC] >= 0) GL20.glUniform1f(uArcP[ARC], progress);
+        if (uArcT[ARC] >= 0) GL20.glUniform1f(uArcT[ARC], thickFrac);
+        if (uArcS[ARC] >= 0) GL20.glUniform1f(uArcS[ARC], shape);
+        if (uArcR[ARC] >= 0) GL20.glUniform1f(uArcR[ARC], ratio);
+        if (uArcG[ARC] >= 0) GL20.glUniform1f(uArcG[ARC], gap);
     }
 
     /** GLASS drop-shadow multiplier. Persists until changed; the hotbar sets 0

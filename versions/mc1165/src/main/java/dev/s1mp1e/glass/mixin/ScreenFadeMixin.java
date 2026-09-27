@@ -1,11 +1,9 @@
 package dev.s1mp1e.glass.mixin;
 
 import dev.s1mp1e.glass.render.ScreenFade;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.util.math.MatrixStack;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -33,7 +31,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * the injector on the target that lacks the method). They are grouped in this one
  * file as separate single-target mixin classes:
  * <ul>
- *   <li>{@code onGuiOpen} (STARTER) &rarr; {@link ScreenFadeOpenMixin} on
+ *   <li>{@code onGuiOpen} (STARTER) &rarr; {@link MinecraftClientFadeMixin} on
  *       {@code MinecraftClient.openScreen};</li>
  *   <li>{@code onScreenPost} (DRAW, screen branch) &rarr; this class on
  *       {@code Screen.render};</li>
@@ -63,33 +61,5 @@ public abstract class ScreenFadeMixin {
                                        float delta, CallbackInfo ci) {
         ScreenFade.draw();
         ScreenFade.captureFrame();
-    }
-}
-
-/**
- * System 1 — STARTER half. Forge counterpart
- * {@code GlassScreenFadeHandler#onGuiOpen(GuiOpenEvent, priority = LOWEST)}: it
- * compared {@code mc.currentScreen} (outgoing) against {@code e.getGui()}
- * (incoming) and only fired {@link ScreenFade#trigger()} on a REAL change — MC
- * re-sets the SAME screen instance on a window resize and that must not flash.
- *
- * <p>Fabric target {@code MinecraftClient.openScreen(Screen)} — the yarn-1.16.5
- * name of what later mappings call {@code setScreen}; intermediary
- * {@code method_1507}, descriptor
- * {@code (Lnet/minecraft/client/gui/screen/Screen;)V}. At {@code @At("HEAD")} the
- * {@code currentScreen} field ({@code field_1755}) still holds the OUTGOING
- * screen, so the byte-for-byte equivalent of the Forge guard is
- * {@code this.currentScreen == screen}. No capture happens here on purpose.
- */
-@Mixin(MinecraftClient.class)
-abstract class ScreenFadeOpenMixin {
-
-    @Shadow public Screen currentScreen;
-
-    @Inject(method = "openScreen", at = @At("HEAD"))
-    private void s1mp1e$fadeOnScreenChange(Screen screen, CallbackInfo ci) {
-        // resize re-sets the identical instance -> no dissolve (matches Forge)
-        if (this.currentScreen == screen) return;
-        ScreenFade.trigger();
     }
 }

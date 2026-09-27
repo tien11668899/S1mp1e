@@ -76,7 +76,7 @@ public final class ToggleWidget extends Widget {
     }
 
     /** Knob half-sizes and centre travel for the current bounds (the geometry draw() uses). */
-    private float knobHalfH() { return 0.85f * (y1 - y0) / 2f; }   // rest knob 0.85× the track height (measured)
+    private float knobHalfH() { return 0.85f * (y1 - y0) / 2f; }   // rest knob 0.85x the track height (measured)
     private float knobHalfW() { return knobHalfH() * REST_RATIO; }
     private float travelX0() { return x0 + 2f + knobHalfW(); }
     private float travelX1() { return x1 - 2f - knobHalfW(); }

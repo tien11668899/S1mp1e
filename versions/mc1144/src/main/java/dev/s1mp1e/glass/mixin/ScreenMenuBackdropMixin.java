@@ -1,8 +1,11 @@
 package dev.s1mp1e.glass.mixin;
 
 import dev.s1mp1e.glass.render.MenuBackdrop;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.ingame.ContainerScreen;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -29,10 +32,38 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(Screen.class)
 public abstract class ScreenMenuBackdropMixin {
 
+    @Shadow protected MinecraftClient minecraft;
+
     @Inject(method = "renderDirtBackground", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$menuBackdrop(int vOffset, CallbackInfo ci) {
         if (MenuBackdrop.draw()) {
             ci.cancel();
+        }
+    }
+
+    /**
+     * In-world screens (pause menu, options opened from it, advancements…): blur the world behind
+     * the panel instead of leaving it merely dimmed — the 1.14.4 counterpart of 1.21's vanilla menu
+     * blur and of the 1.8.9 checklist's V-4 {@code drawLive} half.
+     *
+     * <p>{@code renderBackground(int)} is {@code world != null ? fillGradient(…) :
+     * renderDirtBackground(vOffset)}. At {@code RETURN} the gradient has already darkened the frame,
+     * so {@link MenuBackdrop#drawLive} grabs that composite and re-blits it blurred with
+     * {@code dim = 0} — dimming again would double-darken. The world-less path is untouched: it
+     * already went through the {@code renderDirtBackground} hook above.
+     *
+     * <p>Container screens are skipped: their own glass panel grabs and refracts the scene itself,
+     * and blurring underneath it would both double up and fight the panel's backdrop grab.
+     */
+    @Inject(method = "renderBackground(I)V", at = @At("RETURN"))
+    private void s1mp1e$inWorldBlur(int vOffset, CallbackInfo ci) {
+        try {
+            MinecraftClient mc = this.minecraft != null ? this.minecraft : MinecraftClient.getInstance();
+            if (mc == null || mc.world == null) return;
+            if ((Object) this instanceof ContainerScreen) return;
+            MenuBackdrop.drawLive(MenuBackdrop.RADIUS, 0f);
+        } catch (Throwable ignored) {
+            // a failed blur leaves vanilla's gradient exactly as it was
         }
     }
 }

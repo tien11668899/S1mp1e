@@ -1,6 +1,7 @@
 package dev.s1mp1e.client.gui;
 
 import dev.s1mp1e.client.HudBounds;
+import dev.s1mp1e.client.HudBoundsProvider;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.ModuleManager;
 import dev.s1mp1e.client.S1mp1eConfig;
@@ -20,14 +21,28 @@ public final class S1mp1eHudEditScreen extends GuiScreen {
     private int grabX, grabY;
     private boolean grid;
     private final float[] gridRect = new float[4], resetRect = new float[4];
+    /** When non-null, edit ONLY these elements (e.g. one module's per-key boxes); else all HUD modules. */
+    private final List<HudBounds> only;
+
+    public S1mp1eHudEditScreen() { this(null); }
+    public S1mp1eHudEditScreen(List<HudBounds> only) { this.only = only; }
 
     @Override public boolean doesGuiPauseGame() { return false; }
 
     @Override
     public void initGui() {
         elements.clear();
-        for (Module m : ModuleManager.all()) {
-            if (m.enabled && m instanceof HudBounds) elements.add(new HudElement((HudBounds) m));
+        if (only != null) {                                       // scoped: one module's own sub-elements
+            for (HudBounds b : only) elements.add(new HudElement(b));
+        } else {
+            for (Module m : ModuleManager.all()) {
+                if (!m.enabled) continue;
+                if (m instanceof HudBoundsProvider) {             // a provider → one box per sub-element
+                    for (HudBounds b : ((HudBoundsProvider) m).hudBoundsElements()) elements.add(new HudElement(b));
+                } else if (m instanceof HudBounds) {
+                    elements.add(new HudElement((HudBounds) m));
+                }
+            }
         }
         if (mc.thePlayer == null) mc.displayGuiScreen(null);
     }

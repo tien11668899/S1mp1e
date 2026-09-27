@@ -29,7 +29,8 @@ public final class S1mp1eLoadingPlugin implements IFMLLoadingPlugin {
     public String[] getASMTransformerClass() {
         return new String[] {
             "dev.s1mp1e.glass.asm.S1mp1eTransformer",
-            "dev.s1mp1e.client.asm.CombatTransformer"
+            "dev.s1mp1e.client.asm.CombatTransformer",
+            "dev.s1mp1e.client.asm.CameraTransformer"
         };
     }
 

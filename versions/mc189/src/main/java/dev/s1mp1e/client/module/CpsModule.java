@@ -5,10 +5,10 @@ import java.util.ArrayDeque;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.HudBounds;
+import dev.s1mp1e.client.HudRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.client.event.MouseEvent;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
@@ -38,9 +38,9 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * also runs at HIGHEST priority so it still observes a press that some other
  * mod later cancels.
  */
-public final class CpsModule extends Module implements HudBounds {
+public final class CpsModule extends Module implements HudBounds, HudRenderer {
 
-    private int lastW = 40, lastH = 9;   // last rendered footprint, for the HUD editor
+    private int lastW = 40, lastH = 10;   // last rendered footprint, for the HUD editor
 
     /** Width of the rolling window, in milliseconds. */
     private static final long WINDOW_MS = 1000L;
@@ -55,7 +55,7 @@ public final class CpsModule extends Module implements HudBounds {
     private final ArrayDeque<Long> rightClicks = new ArrayDeque<Long>();
 
     public CpsModule() {
-        super("CPS", "HUD");
+        super("CPS", "Combat");
         // Purely additive readout of your own data -- on by default so a fresh
         // install shows something without hand-editing config. The behaviour-
         // changing modules (crosshair replacement, old animations, no-hurt-cam)
@@ -106,16 +106,18 @@ public final class CpsModule extends Module implements HudBounds {
 
     // ---- drawing ----------------------------------------------------------
 
-    @SubscribeEvent
-    public void onRenderOverlay(RenderGameOverlayEvent.Post e) {
+    /**
+     * Called once per frame by {@code HudRenderDispatcher} (which gates player/world/hideGUI).
+     * The render half no longer self-subscribes to {@code Post(TEXT)}; only the click-capture
+     * {@code MouseEvent} handler stays on the bus (registered in {@link #onEnable()}). Matching
+     * mc1211, the debug overlay (F3) does NOT hide this readout.
+     */
+    @Override
+    public void renderHud() {
         if (!enabled) return;
-        // TEXT is the one element GuiIngameForge always posts once per frame
-        // (renderHUDText is called unconditionally), so it is a stable anchor.
-        if (e.type != RenderGameOverlayEvent.ElementType.TEXT) return;
 
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null) return;
-        if (mc.gameSettings.showDebugInfo) return;        // F3 owns the top-left corner
 
         long now = System.currentTimeMillis();
         int left  = prune(leftClicks, now);
@@ -138,7 +140,7 @@ public final class CpsModule extends Module implements HudBounds {
         GlStateManager.color(1f, 1f, 1f, 1f);
         // FontRenderer promotes an all-zero alpha to opaque, so a packed ARGB
         // value from the colour setting can be handed over as-is.
-        dev.s1mp1e.client.gui.GlassFont.drawARGB(text, (float) posX.intValue, (float) posY.intValue,
+        dev.s1mp1e.client.hud.HudText.draw(text, (float) posX.intValue, (float) posY.intValue,
                                       color.colorValue, shadow.boolValue);
     }
 
@@ -147,7 +149,7 @@ public final class CpsModule extends Module implements HudBounds {
     public int hudY() { return posY.intValue; }
     public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
     public int hudW() { return lastW > 0 ? lastW : 40; }
-    public int hudH() { return lastH > 0 ? lastH : 9; }
+    public int hudH() { return lastH > 0 ? lastH : 10; }
     public void hudResetPos() { posX.reset(); posY.reset(); }
     public String hudLabel() { return name; }
 

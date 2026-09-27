@@ -5,6 +5,11 @@ import java.util.Collections;
 import java.util.List;
 
 import dev.s1mp1e.client.module.ArmorHudModule;
+import dev.s1mp1e.client.module.BlockOutlineModule;
+import dev.s1mp1e.client.module.ChromaHudModule;
+import dev.s1mp1e.client.module.HitMarkerModule;
+import dev.s1mp1e.client.module.AttackRingModule;
+import dev.s1mp1e.client.module.LowFireModule;
 import dev.s1mp1e.client.module.CoordinatesHudModule;
 import dev.s1mp1e.client.module.CpsModule;
 import dev.s1mp1e.client.module.CrosshairModule;
@@ -99,6 +104,13 @@ public final class ModuleManager {
         add("ZoomModule",          safeZoom());
         add("FullbrightModule",    safeFullbright());
         add("XpFlowModule",        safeXpFlow());
+        // 26.2-first additions (appended so the mc1211 order above is unchanged on every version)
+        add("BlockOutlineModule",  safeBlockOutline());
+        add("ChromaHudModule",     safeChromaHud());
+        // combat visuals (26.2 first): fire overlay, attack-cooldown glass ring, hit marker
+        add("LowFireModule",       safeLowFire());
+        add("AttackRingModule",    safeAttackRing());
+        add("HitMarkerModule",     safeHitMarker());
 
         S1mp1eConfig.load();
 
@@ -190,6 +202,26 @@ public final class ModuleManager {
 
     private static Module safeXpFlow() {
         try { return new XpFlowHudModule(); } catch (Throwable t) { return fail("XpFlowModule", t); }
+    }
+
+    private static Module safeBlockOutline() {
+        try { return new BlockOutlineModule(); } catch (Throwable t) { return fail("BlockOutlineModule", t); }
+    }
+
+    private static Module safeChromaHud() {
+        try { return new ChromaHudModule(); } catch (Throwable t) { return fail("ChromaHudModule", t); }
+    }
+
+    private static Module safeLowFire() {
+        try { return new LowFireModule(); } catch (Throwable t) { return fail("LowFireModule", t); }
+    }
+
+    private static Module safeAttackRing() {
+        try { return new AttackRingModule(); } catch (Throwable t) { return fail("AttackRingModule", t); }
+    }
+
+    private static Module safeHitMarker() {
+        try { return new HitMarkerModule(); } catch (Throwable t) { return fail("HitMarkerModule", t); }
     }
 
     private static Module fail(String label, Throwable t) {

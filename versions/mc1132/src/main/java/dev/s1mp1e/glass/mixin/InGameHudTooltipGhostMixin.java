@@ -28,6 +28,10 @@ public abstract class InGameHudTooltipGhostMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void s1mp1e$tooltipGhost(float tickDelta, CallbackInfo ci) {
-        GlassTooltip.ghostPass();
+        try {
+            GlassTooltip.ghostPass();
+        } catch (Throwable ignored) {
+            // a failed ghost pass must never take the HUD down with it
+        }
     }
 }

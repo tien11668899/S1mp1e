@@ -3,12 +3,23 @@
   "package": "dev.s1mp1e.glass.mixin",
   "compatibilityLevel": "JAVA_8",
   "client": [
-    "InGameHudMixin", "ButtonGlassMixin",
+    "InGameHudMixin", "ButtonGlassMixin", "SliderGlassMixin",
     "MinecraftClientFadeMixin", "ScreenFadeMixin", "InGameHudFadeMixin",
     "InGameHudItemNameMixin",
     "HandledScreenGlassMixin", "CreativeGlassMixin", "InventoryGlassMixin", "MinecraftClientContainerGhostMixin", "InGameHudPanelGhostMixin",
     "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin", "RecipeToggleGlassMixin",
-    "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin"
+    "EffectsInInventoryGlassMixin", "ContainerScreenTopAccessor",
+    "AdvancementsScreenGlassMixin", "StatsListGlassMixin", "BookScreenGlassMixin", "BookEditScreenGlassMixin",
+    "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin", "EntryListWidgetBackdropMixin",
+    "ScreenTooltipMixin", "InGameHudTooltipGhostMixin",
+    "GlyphAtlasSmoothMixin",
+    "SpriteAccessor", "MouseClickMixin", "InGameHudEffectMixin",
+    "CrosshairMixin",
+    "LowFireMixin", "AttackIndicatorHideMixin", "HitMarkerAttackMixin", "HitMarkerCritPacketMixin", "HitMarkerDamageMixin", "LightmapGammaMixin", "FovMultiplierMixin",
+    "ZoomFovMixin", "MouseZoomSensitivityMixin", "ForeignZoomKeyBlockMixin",
+    "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin",
+    "HandPositionMixin", "HeldItemSwingMixin",
+    "DevShotMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

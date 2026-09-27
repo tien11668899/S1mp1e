@@ -159,11 +159,15 @@ public abstract class ScreenTooltipMixin {
         // Backdrop = the GUI drawn so far (slots, items, dimmer). Deduped grab() to stay
         // pixel-identical to GlassTooltip's text-tooltip path; the tooltip itself is not
         // yet in the framebuffer here (background draws first), so no self-ghosting.
-        SceneCapture.grab();
+        // grabNow (R4): the enclosing context.draw(Runnable) has just flushed the slots/items, so a FORCED grab
+        // captures the GUI below this card; a deduped grab() would fold onto the panel's pre-item backdrop taken
+        // this same frame and the card would refract the world instead of the items it overlaps (R1).
+        SceneCapture.grabNow();
         RenderSystem.disableDepthTest();
-        // Same pose as GlassTooltip.drawPanel: pad 8, corner 0.92, no lift, frosted panel.
-        GlassRenderer.glass(x - 3, y - 3, x + width + 3, y + height + 3,
-                            8f, 0.92f, 0f, 1f, GlassRenderer.FROST_PANEL);
+        // Same pose as GlassTooltip.drawPanel: pad 8, corner 0.92, no lift, frosted panel, + grey scrim (feature E).
+        int gx = x - 3, gy = y - 3, gw = width + 6, gh = height + 6;
+        GlassRenderer.glass(gx, gy, gx + gw, gy + gh, 8f, 0.92f, 0f, 1f, GlassRenderer.FROST_PANEL);
+        dev.s1mp1e.glass.ui.GlassTooltip.greyScrim(gx, gy, gw, gh, 1f);
         RenderSystem.enableDepthTest();
     }
 }

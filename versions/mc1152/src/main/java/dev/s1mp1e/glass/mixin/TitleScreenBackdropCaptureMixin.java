@@ -39,6 +39,9 @@ public abstract class TitleScreenBackdropCaptureMixin {
                      shift = At.Shift.AFTER))
     private void s1mp1e$capturePanorama(int mouseX, int mouseY,
                                         float delta, CallbackInfo ci) {
+        // V-5: remember the live title screen so its panorama can be stepped and re-rendered
+        // behind the world-less screens layered on top of it (Options, Multiplayer, …).
+        MenuBackdrop.rememberTitle((TitleScreen) (Object) this);
         MenuBackdrop.capture();
     }
 }

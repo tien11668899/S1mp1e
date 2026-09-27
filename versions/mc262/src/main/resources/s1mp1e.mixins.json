@@ -3,6 +3,12 @@
   "package": "dev.s1mp1e.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "DevShotMixin",
+    "LowFireMixin",
+    "AttackIndicatorHideMixin",
+    "HitMarkerAttackMixin",
+    "HitMarkerDamageMixin",
+    "HitMarkerCritPacketMixin",
     "HudDriverMixin",
     "MenuKeyMixin",
     "MouseClickMixin",
@@ -20,7 +26,8 @@
     "MouseZoomSensitivityMixin",
     "FontSmoothMixin",
     "FontTextureSmoothMixin",
-    "ForeignZoomKeyBlockMixin"
+    "ForeignZoomKeyBlockMixin",
+    "BlockOutlineMixin"
   ],
   "injectors": {
     "defaultRequire": 1

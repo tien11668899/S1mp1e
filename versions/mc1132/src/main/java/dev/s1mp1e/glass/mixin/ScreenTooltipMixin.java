@@ -29,7 +29,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@code (Late;II)} ItemStack, {@code (Ljava/lang/String;II)}, and this one). At
  * {@code @At("HEAD")}, {@code cancellable = true}. {@code x/y} are the cursor coords
  * vanilla passes in. If the pipeline is down {@link GlassTooltip#draw} returns
- * {@code false} and we do NOT cancel, so the vanilla flat tooltip still shows.
+ * {@code false} and we do NOT cancel, so the vanilla flat tooltip still shows. The whole
+ * call is wrapped in {@code try/catch} so a failure falls back to vanilla instead of
+ * blanking the tooltip. All three 1.13.2 tooltip entry points funnel here
+ * (javap-verified): {@code renderTooltip(ItemStack,II)}, {@code renderTooltip(String,II)}
+ * and {@code renderTextHoverEffect} all call {@code renderTooltip(List,II)}.
  *
  * <p>{@code width}/{@code height} are {@code field_1230}/{@code field_1231} (both
  * still named), {@code textRenderer} is reached via {@code MinecraftClient} as in
@@ -43,10 +47,15 @@ public abstract class ScreenTooltipMixin {
 
     @Inject(method = "renderTooltip(Ljava/util/List;II)V", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$glassTooltip(List<String> lines, int x, int y, CallbackInfo ci) {
-        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (GlassTooltip.draw(lines, x, y, this.width, this.height, mc.textRenderer)) {
-            ci.cancel();
+        try {
+            if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return;
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (mc == null) return;
+            if (GlassTooltip.draw(lines, x, y, this.width, this.height, mc.textRenderer)) {
+                ci.cancel();
+            }
+        } catch (Throwable ignored) {
+            // never cancel on failure: vanilla draws its own flat tooltip
         }
     }
 }

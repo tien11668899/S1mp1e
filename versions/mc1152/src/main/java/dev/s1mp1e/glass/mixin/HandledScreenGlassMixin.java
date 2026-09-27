@@ -1,5 +1,6 @@
 package dev.s1mp1e.glass.mixin;
 
+import dev.s1mp1e.client.gui.GlassGlideHost;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.anim.Spring;
 import dev.s1mp1e.glass.render.GlassProgram;
@@ -12,7 +13,9 @@ import net.minecraft.container.Slot;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -95,8 +98,11 @@ public abstract class HandledScreenGlassMixin {
     @Shadow protected Set<Slot> cursorDragSlots;
     @Shadow protected boolean isCursorDragging;
     // Own abstract method of ContainerScreen (declared here, not inherited) -> @Shadow
-    // resolves. Used for the no-glass fallback and the creative delegation.
+    // resolves. Used for the no-glass fallback and the creative/recipe delegation.
     @Shadow protected abstract void drawBackground(float delta, int mouseX, int mouseY);
+    // Private members of ContainerScreen used by the (D) creative-grid glide redirects (declared on ContainerScreen).
+    @Shadow private void drawSlot(Slot slot) { throw new AssertionError(); }
+    @Shadow private boolean isPointOverSlot(Slot slot, double pointX, double pointY) { throw new AssertionError(); }
 
     // ---- per-screen-instance state (fresh with each opened container) ------
     private Fade s1mp1e$openFade;
@@ -118,9 +124,12 @@ public abstract class HandledScreenGlassMixin {
         // @Inject shift=BEFORE drew glass then let the PNG paint over it -> the panel
         // was invisible while open; this @Redirect fixes that.)
 
-        // Creative: run its OWN drawBackground so CreativeGlassMixin can @Redirect the
-        // ordinal-0 item-panel blit inside it (tabs/search/scrollbar draw normally).
-        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen) {
+        // Creative / stonecutter / loom: run their OWN drawBackground so their dedicated mixin can @Redirect only the
+        // body-PNG blit to glass (the tabs/search/scrollbar and the recipe/pattern LIST stay drawn — swallowing the
+        // whole drawBackground would erase those lists). Their body redirect draws the glass panel over the vanilla dim.
+        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen
+                || (Object) this instanceof net.minecraft.client.gui.screen.ingame.StonecutterScreen
+                || (Object) this instanceof net.minecraft.client.gui.screen.ingame.LoomScreen) {
             this.drawBackground(delta, mouseX, mouseY);
             return;
         }
@@ -138,9 +147,18 @@ public abstract class HandledScreenGlassMixin {
 
         int gl = this.x, gt = this.y, xs = this.containerWidth, ys = this.containerHeight;
 
-        // Backdrop = world + dim (renderBackground already ran this frame), grabbed
-        // the instant before any glass draws.
-        SceneCapture.grab();
+        // Backdrop, grabbed the instant before any glass draws.
+        // Survival inventory: fold (deduped grab) onto InventoryGlassMixin's render-HEAD grabNow — the pre-dim BRIGHT
+        // world it captured, so the panel reads bright frosted glass (see InventoryGlassMixin). Every OTHER container
+        // (chest/furnace/merchant/...) has NO pre-dim grabNow, so it must FORCE a fresh copy every frame (R4): a deduped
+        // grab() could, at >333 fps, fold onto the previous frame's tooltip forceGrab (full GUI incl. glass) and the
+        // panel would refract itself -> flicker (1.16.5 root cause; mc1165 grabNow parity). The forced copy here is the
+        // already-dimmed world (renderBackground ran this frame), matching the current chest look, just flicker-safe.
+        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.InventoryScreen) {
+            SceneCapture.grab();
+        } else {
+            SceneCapture.grabNow();
+        }
 
         long now = System.nanoTime();
         if (!s1mp1e$opened) {
@@ -185,6 +203,48 @@ public abstract class HandledScreenGlassMixin {
     private void s1mp1e$suppressSlotHighlight(ContainerScreen self,
                                               int x1, int y1, int x2, int y2, int c1, int c2) {
         // no-op: the glass hover pill is the highlight now.
+    }
+
+    // ---- (D) sub-pixel grid glide, shared for any GlassGlideHost (only the creative screen; no-op otherwise) --------
+    // In 1.15.2 the slot loop, hover test and label draw are inlined in ContainerScreen.render, so the glide is driven
+    // from here (the FF-Fabric sibling of 1.20.1's ContainerGlideGlassMixin). Everything runs inside render's
+    // translate(x,y) pose. self == this (the invokes were on `this`); we call the shadow for the vanilla path.
+
+    /** Skip vanilla's own drawing of a scrolling grid slot while the host draws that content itself (glide overlay). */
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/ingame/ContainerScreen;"
+                            + "drawSlot(Lnet/minecraft/container/Slot;)V"))
+    private void s1mp1e$glideSlot(ContainerScreen self, Slot slot) {
+        if ((Object) this instanceof GlassGlideHost) {
+            GlassGlideHost host = (GlassGlideHost) (Object) this;
+            if (host.s1mp1e$gliding() && host.s1mp1e$isGlideSlot(slot)) return;   // suppressed: the eased overlay draws it
+        }
+        this.drawSlot(slot);
+    }
+
+    /** Null the hovered grid slot during a glide so no mismatched highlight / tooltip is drawn (render-only). */
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/ingame/ContainerScreen;"
+                            + "isPointOverSlot(Lnet/minecraft/container/Slot;DD)Z"))
+    private boolean s1mp1e$glideHover(ContainerScreen self, Slot slot, double px, double py) {
+        if ((Object) this instanceof GlassGlideHost) {
+            GlassGlideHost host = (GlassGlideHost) (Object) this;
+            if (host.s1mp1e$gliding() && host.s1mp1e$isGlideSlot(slot)) return false;
+        }
+        return this.isPointOverSlot(slot, px, py);
+    }
+
+    /** Draw the host's eased grid overlay inside the same translate(x,y) pose vanilla drew the slots in. */
+    @Inject(method = "render",
+            at = @At(value = "INVOKE", shift = At.Shift.BEFORE,
+                     target = "Lnet/minecraft/client/gui/screen/ingame/ContainerScreen;drawForeground(II)V"))
+    private void s1mp1e$glideOverlay(int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        if ((Object) this instanceof GlassGlideHost) {
+            GlassGlideHost host = (GlassGlideHost) (Object) this;
+            if (host.s1mp1e$gliding()) host.s1mp1e$drawGlideOverlay();
+        }
     }
 
     /** Slot-separator lattice: one cell per slot with a 4-bit neighbour mask. */

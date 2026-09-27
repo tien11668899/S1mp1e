@@ -5,11 +5,25 @@ import java.util.Collections;
 import java.util.List;
 
 import dev.s1mp1e.client.module.ArmorHudModule;
+import dev.s1mp1e.client.module.BlockOutlineModule;
+import dev.s1mp1e.client.module.ChromaHudModule;
+import dev.s1mp1e.client.module.CoordinatesHudModule;
 import dev.s1mp1e.client.module.CpsModule;
 import dev.s1mp1e.client.module.CrosshairModule;
+import dev.s1mp1e.client.module.LowFireModule;
+import dev.s1mp1e.client.module.HitMarkerModule;
+import dev.s1mp1e.client.module.FpsHudModule;
+import dev.s1mp1e.client.module.FullbrightModule;
+import dev.s1mp1e.client.module.HandPositionModule;
+import dev.s1mp1e.client.module.HungerSaturationHudModule;
+import dev.s1mp1e.client.module.InventoryHudModule;
+import dev.s1mp1e.client.module.KeystrokesHudModule;
 import dev.s1mp1e.client.module.NoHurtCamModule;
 import dev.s1mp1e.client.module.OldAnimationsModule;
 import dev.s1mp1e.client.module.PotionHudModule;
+import dev.s1mp1e.client.module.SteadyFovModule;
+import dev.s1mp1e.client.module.XpFlowHudModule;
+import dev.s1mp1e.client.module.ZoomModule;
 
 /**
  * The single registry every other subsystem reads from — ClickGUI, keybinds,
@@ -79,6 +93,21 @@ public final class ModuleManager {
         add("PotionHudModule",     safePotionHud());
         add("OldAnimationsModule", safeOldAnimations());
         add("NoHurtCamModule",     safeNoHurtCam());
+        add("FpsHudModule",        safeFpsHud());
+        add("CoordsHudModule",     safeCoordsHud());
+        add("InventoryHudModule",  safeInventoryHud());
+        add("HungerHudModule",     safeHungerHud());
+        add("KeystrokesModule",    safeKeystrokes());
+        add("HandPositionModule",  safeHandPosition());
+        add("SteadyFovModule",     safeSteadyFov());
+        add("ZoomModule",          safeZoom());
+        add("FullbrightModule",    safeFullbright());
+        add("XpFlowModule",        safeXpFlow());
+        // Batch B (H) — the two new modules, registered after the existing order (both OFF by default).
+        add("BlockOutlineModule",  safeBlockOutline());
+        add("ChromaHudModule",     safeChromaHud());
+        add("HitMarkerModule",     safeHitMarker());   // 1.8.9 combat (no cooldown -> no AttackRing)
+        add("LowFireModule",       safeLowFire());
 
         S1mp1eConfig.load();
 
@@ -113,6 +142,14 @@ public final class ModuleManager {
         try { return new CpsModule(); } catch (Throwable t) { return fail("CpsModule", t); }
     }
 
+    private static Module safeHitMarker() {
+        try { return new HitMarkerModule(); } catch (Throwable t) { return fail("HitMarkerModule", t); }
+    }
+
+    private static Module safeLowFire() {
+        try { return new LowFireModule(); } catch (Throwable t) { return fail("LowFireModule", t); }
+    }
+
     private static Module safeCrosshair() {
         try { return new CrosshairModule(); } catch (Throwable t) { return fail("CrosshairModule", t); }
     }
@@ -125,12 +162,60 @@ public final class ModuleManager {
         try { return new PotionHudModule(); } catch (Throwable t) { return fail("PotionHudModule", t); }
     }
 
+    private static Module safeFpsHud() {
+        try { return new FpsHudModule(); } catch (Throwable t) { return fail("FpsHudModule", t); }
+    }
+
+    private static Module safeCoordsHud() {
+        try { return new CoordinatesHudModule(); } catch (Throwable t) { return fail("CoordinatesHudModule", t); }
+    }
+
+    private static Module safeInventoryHud() {
+        try { return new InventoryHudModule(); } catch (Throwable t) { return fail("InventoryHudModule", t); }
+    }
+
+    private static Module safeHungerHud() {
+        try { return new HungerSaturationHudModule(); } catch (Throwable t) { return fail("HungerHudModule", t); }
+    }
+
+    private static Module safeKeystrokes() {
+        try { return new KeystrokesHudModule(); } catch (Throwable t) { return fail("KeystrokesModule", t); }
+    }
+
+    private static Module safeXpFlow() {
+        try { return new XpFlowHudModule(); } catch (Throwable t) { return fail("XpFlowModule", t); }
+    }
+
+    private static Module safeHandPosition() {
+        try { return new HandPositionModule(); } catch (Throwable t) { return fail("HandPositionModule", t); }
+    }
+
+    private static Module safeSteadyFov() {
+        try { return new SteadyFovModule(); } catch (Throwable t) { return fail("SteadyFovModule", t); }
+    }
+
+    private static Module safeZoom() {
+        try { return new ZoomModule(); } catch (Throwable t) { return fail("ZoomModule", t); }
+    }
+
+    private static Module safeFullbright() {
+        try { return new FullbrightModule(); } catch (Throwable t) { return fail("FullbrightModule", t); }
+    }
+
     private static Module safeOldAnimations() {
         try { return new OldAnimationsModule(); } catch (Throwable t) { return fail("OldAnimationsModule", t); }
     }
 
     private static Module safeNoHurtCam() {
         try { return new NoHurtCamModule(); } catch (Throwable t) { return fail("NoHurtCamModule", t); }
+    }
+
+    private static Module safeBlockOutline() {
+        try { return new BlockOutlineModule(); } catch (Throwable t) { return fail("BlockOutlineModule", t); }
+    }
+
+    private static Module safeChromaHud() {
+        try { return new ChromaHudModule(); } catch (Throwable t) { return fail("ChromaHudModule", t); }
     }
 
     private static Module fail(String label, Throwable t) {

@@ -1,0 +1,44 @@
+package dev.s1mp1e.glass.mixin;
+
+import dev.s1mp1e.client.ModuleManager;
+import dev.s1mp1e.client.module.CrosshairModule;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.hud.InGameHud;
+import net.minecraft.client.util.math.MatrixStack;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * Replaces the vanilla crosshair with {@link CrosshairModule}'s custom shape. Cancels
+ * {@code InGameHud.renderCrosshair} at HEAD (method_1736) and delegates — inheriting vanilla's
+ * screen-open / F1 hiding for free (renderCrosshair isn't reached then), only re-adding the
+ * first-person gate that the HEAD-cancel skips. On 1.18.2 the method is {@code renderCrosshair(MatrixStack)}.
+ * The body is wrapped in try/catch (rule 6): a failure disables the custom crosshair for the frame
+ * instead of crashing the HUD render.
+ */
+@Mixin(InGameHud.class)
+public class CrosshairMixin {
+    @Inject(method = "renderCrosshair", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$crosshair(MatrixStack matrices, CallbackInfo ci) {
+        try {
+            // Combat ring / hit marker go in BEFORE the crosshair (vanilla sprite or the custom shape below), so the
+            // crosshair always stays on top of them.
+            try {
+                dev.s1mp1e.client.module.AttackRingModule.drawUnderCrosshair(matrices);
+                dev.s1mp1e.client.module.HitMarkerModule.drawUnderCrosshair(matrices);
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e] combat under-crosshair draw failed: " + t);
+            }
+            if (!(ModuleManager.byName("Crosshair") instanceof CrosshairModule ch) || !ch.enabled) return; // vanilla draws
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (mc.player == null) return;
+            if (!mc.options.getPerspective().isFirstPerson()) return; // F5: vanilla shows none -> no-op
+            ci.cancel();
+            int cx = mc.getWindow().getScaledWidth() / 2;
+            int cy = mc.getWindow().getScaledHeight() / 2;
+            ch.draw(matrices, cx, cy);
+        } catch (Throwable ignored) { }
+    }
+}

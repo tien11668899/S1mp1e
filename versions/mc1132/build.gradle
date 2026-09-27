@@ -32,7 +32,19 @@ processResources {
     filesMatching("fabric.mod.json") { expand "version": project.version }
 }
 
-// 1.16.5 runs on Java 8; emit Java-8 bytecode.
+// DEV ONLY: make the lazily-loaded GUI/input/font mixin targets load at client start (S1mp1eClient
+// reads this flag), so a broken injection surfaces at launch instead of the first time a slider,
+// keybind or glyph page is touched. It must be a vmArg on the FORKED game JVM — a -D on the gradlew
+// command line only reaches the Gradle daemon. runClient-only; never set in the shipped jar.
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+        }
+    }
+}
+
+// 1.13.2 runs on Java 8; emit Java-8 bytecode.
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 8
     it.options.encoding = 'UTF-8'

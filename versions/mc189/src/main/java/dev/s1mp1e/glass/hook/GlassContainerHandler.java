@@ -74,6 +74,9 @@ public final class GlassContainerHandler {
     // ---- quick-craft drag highlight: alpha per absolute slot cell ---------
     private final HashMap<Long, Fade> dragAlpha = new HashMap<Long, Fade>();
 
+    // ---- creative fused tabs + glass scrollbar (B/C) ----------------------
+    private final GlassCreative creative = new GlassCreative();
+
     // -----------------------------------------------------------------------
     // Panel + lattice + drag + hover, all before the vanilla GUI texture.
     // -----------------------------------------------------------------------
@@ -114,15 +117,36 @@ public final class GlassContainerHandler {
         float fade = openFade.value();
 
         // Frosted panel (pad 12, corner 0.19, frost 0.5) + close-ghost bookkeeping.
+        // Creative uses a fused sheet extended above/below for the two tab rows (B).
+        boolean isCreative = screen instanceof net.minecraft.client.gui.inventory.GuiContainerCreative;
         PanelGhost.beginFrame();
         PanelGhost.remember(gl, gt, xs, ys);
-        GlassRenderer.panel(gl, gt, gl + xs, gt + ys, fade);
+        if (isCreative) {
+            creative.drawSheet(gl, gt, xs, ys, fade);
+        } else {
+            GlassRenderer.panel(gl, gt, gl + xs, gt + ys, fade);
+        }
 
         List<Slot> slots = screen.inventorySlots.inventorySlots;
 
         drawLattice(slots, gl, gt, fade);
         drawDrag(screen, gl, gt);
         drawHover(slots, gl, gt, e.getMouseX(), e.getMouseY(), now);
+
+        // Creative tab pills + glass scrollbar (B/C), before the tab icons.
+        if (isCreative) {
+            creative.drawTabsAndScrollbar((net.minecraft.client.gui.inventory.GuiContainerCreative) screen,
+                    gl, gt, xs, ys, e.getMouseX(), e.getMouseY(), fade);
+        }
+
+        // Status-effect strip (F): one continuous glass strip to the LEFT of the
+        // panel, drawn here (before items + tooltip) so the tooltip stays on top
+        // (R1). Vanilla's own drawActivePotionEffects is suppressed by the coremod
+        // once GlassEffects has armed the latch.
+        if (screen instanceof net.minecraft.client.renderer.InventoryEffectRenderer
+                && dev.s1mp1e.glass.render.GlassEffects.hasVisibleEffects(Minecraft.getMinecraft())) {
+            dev.s1mp1e.glass.render.GlassEffects.draw(Minecraft.getMinecraft(), gl, gt, fade);
+        }
     }
 
     /** Slot-separator lattice: one cell per slot with a 4-bit neighbour mask. */
@@ -239,6 +263,13 @@ public final class GlassContainerHandler {
                 hov = s;
             }
         }
+        // While the creative grid is mid-glide the drawn item under the cursor is the
+        // eased (not-yet-settled) item, so vanilla's hovered grid slot is a mismatch:
+        // drop the hover pill for it (26.2 nulls the hovered grid slot). The pill
+        // returns the instant the glide settles.
+        if (hov != null && GlassCreativeGlide.cursorOverGridWhileSliding(mouseX, mouseY)) {
+            hov = null;
+        }
         boolean hovering = hov != null;
 
         float dt = (hoverNanos == 0L) ? (1f / 60f)
@@ -306,6 +337,7 @@ public final class GlassContainerHandler {
         hoverFade.snap(0f);
         hx1 = hx2 = hy1 = hy2 = null;
         dragAlpha.clear();
+        creative.reset();
     }
 
     // -----------------------------------------------------------------------
@@ -326,7 +358,10 @@ public final class GlassContainerHandler {
     // -----------------------------------------------------------------------
     @SubscribeEvent
     public void onDrawScreenPost(GuiScreenEvent.DrawScreenEvent.Post e) {
-        // intentionally empty
+        // Safety net: if the vanilla background layer threw before ContainerHook
+        // could disarm, clear the suppressor so the next screen's blits aren't
+        // eaten.
+        dev.s1mp1e.glass.asm.BlitSuppressor.disarm();
     }
 
     // ---- helpers ----------------------------------------------------------
@@ -396,5 +431,28 @@ public final class GlassContainerHandler {
      */
     public static boolean hasPanelFor(Object screen) {
         return curScreen == screen;
+    }
+
+    /**
+     * The panel rectangle {@code {guiLeft, guiTop, xSize, ySize}} for a container
+     * screen, read through the same cached reflected geometry fields the panel
+     * itself uses. Returns {@code null} when the screen is not a
+     * {@code GuiContainer} or the geometry can't be read — the ASM
+     * {@link dev.s1mp1e.glass.asm.ContainerHook} then leaves the vanilla texture
+     * alone rather than blanking the screen.
+     */
+    public static int[] panelRect(Object screen) {
+        if (!(screen instanceof GuiContainer)) return null;
+        ensureReflect();
+        if (fGuiLeft == null || fGuiTop == null || fXSize == null || fYSize == null) return null;
+        try {
+            int gl = fGuiLeft.getInt(screen);
+            int gt = fGuiTop.getInt(screen);
+            int xs = fXSize.getInt(screen);
+            int ys = fYSize.getInt(screen);
+            return new int[] { gl, gt, xs, ys };
+        } catch (Throwable t) {
+            return null;
+        }
     }
 }

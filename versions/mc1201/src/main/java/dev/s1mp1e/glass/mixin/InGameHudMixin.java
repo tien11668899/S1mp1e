@@ -12,8 +12,11 @@ import net.minecraft.client.gui.hud.InGameHud;
 import net.minecraft.client.render.DiffuseLighting;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.option.AttackIndicator;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.Arm;
+import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -147,6 +150,22 @@ public abstract class InGameHudMixin {
         int stripX0 = center - 91, stripY0 = bottom - 22;
         int stripX1 = center + 91, stripY1 = bottom;
 
+        // Off-hand slot + attack-cooldown indicator. Vanilla InGameHud.renderHotbar draws BOTH of
+        // these; because we cancel renderHotbar wholesale (to place items inside the scaled glass
+        // bar) they were being dropped. Restored here, positioned/scaled to the glass bar so they
+        // travel with it, and gated exactly as vanilla: the box+item only when the off hand holds
+        // something, the indicator only in "Above hotbar" mode while a swing is on cooldown.
+        // The indicator reads only the player's OWN attack cooldown (getAttackCooldownProgress) —
+        // the same own-state read vanilla makes for its own HUD, never any target/hit information.
+        PlayerEntity player = mc.player;
+        ItemStack offhand = player.getOffHandStack();
+        boolean hasOff = !offhand.isEmpty();
+        Arm offArm = player.getMainArm().getOpposite();   // off hand sits opposite the main arm
+        boolean offLeft = offArm == Arm.LEFT;
+        int offBoxX0, offBoxX1;
+        if (offLeft) { offBoxX1 = stripX0 - 4; offBoxX0 = offBoxX1 - 22; }
+        else         { offBoxX0 = stripX1 + 4; offBoxX1 = offBoxX0 + 22; }
+
         // TWO passes, SEQUENCED (never overlapping) — the fix for items rendering BIGGER than the bar.
         // 1.20.1's DrawContext.drawItem composes BOTH the ctx matrix AND the RenderSystem model-view, so
         // scaling BOTH at once (the old code) rendered items at SCALE² ≈ 1.32× while the glass frame (drawn
@@ -168,6 +187,13 @@ public abstract class InGameHudMixin {
             context.draw();   // flush pending HUD draws before the raw-GL glass
             GlassRenderer.glass(stripX0, stripY0, stripX1, stripY1,
                                 GlassRenderer.PAD_PILL, 1.0f, 0f, 1.0f, GlassRenderer.FROST_PANEL);
+
+            // Off-hand slot: a single frosted glass square beside the bar (rounded-square corner,
+            // not a full pill), matching the strip's height so it reads as one extra slot.
+            if (hasOff) {
+                GlassRenderer.glass(offBoxX0, stripY0, offBoxX1, stripY1,
+                                    GlassRenderer.PAD_PILL, 0.4f, 0f, 1.0f, GlassRenderer.FROST_PANEL);
+            }
 
             int   slot        = mc.player.getInventory().selectedSlot;
             float slotCenterX = center - 80f + slot * 20f;
@@ -210,7 +236,6 @@ public abstract class InGameHudMixin {
             DiffuseLighting.enableGuiDepthLighting();
             RenderSystem.setShaderColor(0f, 0f, 0f, 0f);   // cache-defeat -> force white so no item tints black
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
-            PlayerEntity player = mc.player;
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = player.getInventory().main.get(i);
                 if (stack.isEmpty()) continue;
@@ -218,8 +243,31 @@ public abstract class InGameHudMixin {
                 context.drawItem(player, stack, ix, iy, 0);
                 context.drawItemInSlot(mc.textRenderer, stack, ix, iy);
             }
+            // Off-hand item, centred in its glass box (3px inset, same as the main slots).
+            if (hasOff) {
+                int oix = offBoxX0 + 3, oiy = stripY0 + 3;
+                context.drawItem(player, offhand, oix, oiy, 0);
+                context.drawItemInSlot(mc.textRenderer, offhand, oix, oiy);
+            }
             context.draw();
             DiffuseLighting.disableGuiDepthLighting();
+
+            // Attack-cooldown indicator ("Above hotbar" mode only), drawn from the vanilla
+            // icons atlas exactly as InGameHud.renderHotbar does, on the side opposite the off
+            // hand and mid-cooldown only (f < 1). Not shown with the default "crosshair" setting.
+            if (mc.options.getAttackIndicator().getValue() == AttackIndicator.HOTBAR) {
+                float cd = mc.player.getAttackCooldownProgress(0f);
+                if (cd < 1.0f) {
+                    Identifier icons = new Identifier("textures/gui/icons.png");
+                    int ay = bottom - 20;
+                    int ax = offLeft ? (stripX1 + 6) : (stripX0 - 22);
+                    int p  = (int) (cd * 19.0f);
+                    RenderSystem.enableBlend();
+                    context.drawTexture(icons, ax, ay, 0, 94, 18, 18);
+                    context.drawTexture(icons, ax, ay + 18 - p, 18, 112 - p, 18, p);
+                    context.draw();
+                }
+            }
         } finally {
             matrices.pop();
         }

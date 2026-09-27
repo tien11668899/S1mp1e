@@ -3,6 +3,7 @@ package dev.s1mp1e.glass.render;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 
 /**
  * Owns the backdrop texture the glass shader samples.
@@ -29,11 +30,20 @@ public final class SceneCapture {
 
     public static int texture() { return texture; }
 
+    /** Bumped on every real copy — lets a surface that re-lays itself later in the frame (the Statistics header /
+     *  footer bands) verify the backdrop texture still holds the snapshot it was first drawn from. */
+    private static int generation = 0;
+    public static int generation() { return generation; }
+
     /** True once a backdrop has been captured this frame. */
     public static boolean hasBackdrop() { return texture != 0; }
 
     /** Base grab: capture the current framebuffer, time-deduplicated. */
     public static void grab() { grab(false); }
+
+    /** Forced grab (bypasses the 3 ms dedup) — the name the ported client layer calls
+     *  when a top-layer glass surface must snapshot the GUI already drawn beneath it. */
+    public static void grabNow() { grab(true); }
 
     /**
      * Copy the current framebuffer into the backdrop texture. Cheap enough to
@@ -73,9 +83,10 @@ public final class SceneCapture {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-            // CLAMP_TO_EDGE: refraction near the frame border must not wrap
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+            // CLAMP_TO_EDGE: refraction near the frame border must not wrap, and
+            // GL_CLAMP with LINEAR would bleed the border colour into the edge.
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
             GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB, w, h, 0,
                               GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, (java.nio.ByteBuffer) null);
             texW = w; texH = h;
@@ -84,6 +95,7 @@ public final class SceneCapture {
         }
 
         GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+        generation++;
         // 1.16.5: the raw binds above bypass RenderSystem's texture-unit cache.
         // Restore through RenderSystem so its cache matches actual GL again —
         // bind 0 first to defeat its no-op-on-equal-cache short circuit, else

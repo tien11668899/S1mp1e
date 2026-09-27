@@ -9,7 +9,24 @@
     "HandledScreenGlassMixin", "MinecraftClientContainerGhostMixin", "InGameHudPanelGhostMixin",
     "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin",
     "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin",
-    "RecipeToggleGlassMixin", "CreativeGlassMixin", "InventoryGlassMixin"
+    "RecipeToggleGlassMixin", "CreativeGlassMixin", "InventoryGlassMixin",
+    "FontSmoothMixin", "GlyphAtlasAccessor",
+    "SpriteImagesAccessor", "MinecraftClientFpsAccessor",
+    "MouseClickMixin", "InGameHudEffectMixin",
+    "CrosshairMixin",
+    "LowFireMixin", "AttackIndicatorHideMixin", "HitMarkerAttackMixin", "HitMarkerCritPacketMixin", "HitMarkerDamageMixin", "LightmapGammaMixin", "FovMultiplierMixin",
+    "ZoomFovMixin", "MouseZoomSensitivityMixin", "ForeignZoomKeyBlockMixin",
+    "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin",
+    "HandPositionMixin", "HeldItemSwingMixin",
+    "SliderGlassMixin", "ScreenTooltipMixin", "InGameHudTooltipGhostMixin",
+    "EntryListWidgetBackdropMixin", "TitleScreenPanoramaAccessor",
+    "AdvancementsGlassMixin", "EffectsInInventoryGlassMixin", "ContainerScreenTopAccessor",
+    "StatsListGlassMixin", "BookScreenGlassMixin", "BookEditScreenGlassMixin",
+    "StonecutterScrollGlassMixin", "LoomScrollGlassMixin", "MerchantScrollGlassMixin",
+    "ChatGlassMixin", "ChatInputGlassMixin", "TabListGlassMixin", "BossBarGlassMixin",
+    "ToastGlassMixin", "ActionBarGlassMixin", "NameTagGlassMixin",
+    "BlockOutlineMixin", "RenderPhaseLineWidthMixin",
+    "DevShotMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

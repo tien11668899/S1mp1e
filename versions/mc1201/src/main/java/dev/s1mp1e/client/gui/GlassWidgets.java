@@ -162,6 +162,12 @@ public final class GlassWidgets {
         if (whiteA > 0.004f) fillRound(ctx, lx0, ly0, lx1, ly1, (clampByte(whiteA) << 24) | 0xFFFFFF, r);
     }
 
+    /** Frame-rate-independent approach of {@code current} toward {@code target} with time constant {@code tauMs}
+     *  (the config-menu {@code easeScroll} feel, τ = 90 ms; feature D / the glass scrollbar's wheel glide). */
+    public static float approach(float current, float target, float dtMs, float tauMs) {
+        return current + (target - current) * (1f - (float) Math.exp(-dtMs / Math.max(1f, tauMs)));
+    }
+
     /** {@code argb} with its alpha byte multiplied by {@code k} (0..1). */
     public static int scaleAlpha(int argb, float k) {
         int a = Math.round(((argb >>> 24) & 0xFF) * clamp01(k));

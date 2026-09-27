@@ -4,32 +4,28 @@ import dev.s1mp1e.glass.hook.GlassContainerHandler;
 import dev.s1mp1e.glass.render.GlassProgram;
 import net.minecraft.client.gui.inventory.GuiContainer;
 
-import java.lang.reflect.Method;
-
 /**
- * Replaces the {@code drawGuiContainerBackgroundLayer} call inside
- * {@code GuiContainer.drawScreen}.
+ * Arms {@link BlitSuppressor} around {@code GuiContainer.drawScreen}'s call to
+ * {@code drawGuiContainerBackgroundLayer}.
  *
- * <p>When the glass path is live we still call through, but with
- * {@link BlitSuppressor} armed so the FIRST {@code drawTexturedModalRect} — the
- * panel texture — is skipped. Everything else the background layer draws
- * survives: {@code GuiInventory}'s player model, the furnace's fire and arrow,
- * empty-slot icons. {@link GlassContainerHandler}'s panel + lattice were
- * already drawn during BackgroundDrawnEvent earlier in the same frame, so the
- * glass is what shows where the texture used to be.
+ * <p>The transformer no longer <em>replaces</em> that virtual call — it leaves
+ * vanilla's own virtual dispatch intact (so every subclass renders exactly what
+ * it always did) and merely brackets it with {@link #arm} / {@link #disarm}.
+ * While armed, {@link BlitSuppressor} drops just the opaque panel strips, so the
+ * frosted glass drawn earlier in the frame shows through while the furnace fire,
+ * the player model, slot icons and every other overlay survive.
  *
- * <p>When glass is unavailable we invoke the original protected method
- * reflectively, which restores exactly the vanilla behaviour the transformer
- * displaced.
+ * <p>No reflection: the old cached-Method approach broke the moment a second
+ * container class was opened (the Method resolved on the first class threw
+ * {@code IllegalArgumentException} on any other), which silently blanked those
+ * screens' whole background layer.
  */
 public final class ContainerHook {
 
     private ContainerHook() {}
 
-    private static Method original;
-    private static boolean resolved;
-
-    public static void background(GuiContainer screen, float partialTicks, int mouseX, int mouseY) {
+    /** Arm the panel-strip suppressor for this screen, if the glass is live. */
+    public static void arm(GuiContainer screen) {
         boolean glass;
         try {
             glass = GlassProgram.ensureReady() && GlassProgram.usable()
@@ -37,44 +33,30 @@ public final class ContainerHook {
         } catch (Throwable t) {
             glass = false;
         }
-        // Arm the one-shot latch so ONLY the panel blit is skipped, then let the
-        // vanilla layer run — that is what keeps GuiInventory's player model,
-        // the furnace fire, slot icons and friends alive.
-        if (glass) BlitSuppressor.arm();
+        if (!glass) return;
+
+        int[] rect;
         try {
-            callVanilla(screen, partialTicks, mouseX, mouseY);
-        } finally {
-            BlitSuppressor.disarm();
+            rect = GlassContainerHandler.panelRect(screen);
+        } catch (Throwable t) {
+            rect = null;
+        }
+        if (rect == null) return;
+
+        BlitSuppressor.arm(rect[0], rect[1], rect[2], rect[3]);
+
+        // Creative also draws tab background sprites and a scrollbar thumb over the
+        // panel band; the glass fused sheet + pills + glass scrollbar replace them,
+        // so drop those chrome blits too (tab ICONS survive — they go through
+        // itemRender, not drawTexturedModalRect).
+        if (screen instanceof net.minecraft.client.gui.inventory.GuiContainerCreative) {
+            BlitSuppressor.armCreative();
         }
     }
 
-    /** Re-enter the screen's own (protected, abstract-in-base) background layer. */
-    private static void callVanilla(GuiContainer screen, float pt, int mx, int my) {
-        if (!resolved) {
-            resolved = true;
-            String[] names = { "drawGuiContainerBackgroundLayer", "func_146976_a" };
-            for (int i = 0; i < names.length && original == null; i++) {
-                original = findMethod(screen.getClass(), names[i]);
-            }
-            if (original != null) original.setAccessible(true);
-        }
-        if (original == null) return;
-        try {
-            original.invoke(screen, Float.valueOf(pt), Integer.valueOf(mx), Integer.valueOf(my));
-        } catch (Throwable ignored) {
-            // A screen we can't call back into just renders without its texture.
-        }
-    }
-
-    private static Method findMethod(Class<?> cls, String name) {
-        Class<?> c = cls;
-        while (c != null && c != Object.class) {
-            try {
-                return c.getDeclaredMethod(name, float.class, int.class, int.class);
-            } catch (NoSuchMethodException ignored) {
-                c = c.getSuperclass();
-            }
-        }
-        return null;
+    /** Disarm the suppressor once the vanilla layer returns. */
+    public static void disarm() {
+        BlitSuppressor.disarm();
+        BlitSuppressor.disarmCreative();
     }
 }

@@ -84,12 +84,16 @@ public abstract class RecipeBookGlassMixin {
             return;
         }
 
-        // Backdrop for the refraction. grab() folds duplicates within 3 ms, so if
-        // the container panel already grabbed this frame this is a no-op and reuses
-        // that texture. If no backdrop is available (0-size window etc.) the glass
-        // would draw nothing and we'd have swallowed the vanilla blit -> keep the
-        // PNG in that case so the book never vanishes.
-        SceneCapture.grab();
+        // Backdrop for the refraction. FRAME-PRIMARY: InventoryScreen/CraftingScreen/
+        // furnace screens call recipeBook.render() BEFORE super.render() (where the
+        // container panel grabs), so the book is the FIRST glass of the frame. The
+        // deduped grab() used to fold onto the PREVIOUS frame's late grab (panel /
+        // tooltip, which already contains the book's own glass) whenever frames were
+        // < 3 ms apart -> stale self-ghosted backdrop, alternating frame to frame
+        // (flicker at high fps / Sodium). grabNow() re-copies every frame, the same
+        // rule 1.17.1 applies to frame-primary panels. If no backdrop is available
+        // (0-size window etc.) keep the vanilla PNG so the book never vanishes.
+        SceneCapture.grabNow();
         if (!SceneCapture.hasBackdrop()) {
             self.drawTexture(matrices, x, y, u, v, width, height);
             return;

@@ -1,5 +1,6 @@
 package dev.s1mp1e.glass.mixin;
 
+import dev.s1mp1e.client.gui.GlassGlideHost;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.anim.Spring;
 import dev.s1mp1e.glass.render.GlassProgram;
@@ -13,7 +14,9 @@ import net.minecraft.screen.slot.Slot;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -96,6 +99,10 @@ public abstract class HandledScreenGlassMixin {
     // Own abstract method of HandledScreen (declared here, not inherited) -> @Shadow
     // resolves. Used for the no-glass fallback and the creative delegation.
     @Shadow protected abstract void drawBackground(DrawContext context, float delta, int mouseX, int mouseY);
+    // Slot draw + hover test of HandledScreen.render, shadowed for the (D) glide redirects' pass-through calls.
+    // 1.21.1: drawSlot is protected (virtual), isPointOverSlot private.
+    @Shadow protected abstract void drawSlot(DrawContext context, Slot slot);
+    @Shadow private boolean isPointOverSlot(Slot slot, double pointX, double pointY) { throw new AssertionError(); }
 
     // ---- per-screen-instance state (fresh with each opened container) ------
     private Fade s1mp1e$openFade;
@@ -118,15 +125,27 @@ public abstract class HandledScreenGlassMixin {
                             + "drawBackground(Lnet/minecraft/client/gui/DrawContext;FII)V"))
     private void s1mp1e$glassPanel(HandledScreen self, DrawContext context,
                                    float delta, int mouseX, int mouseY) {
-        // SWALLOW the vanilla container PNG (26.2 design). render() already ran
-        // renderBackground() (the dim) before this drawBackground call, so the dim
-        // survives; only the opaque GUI texture is replaced by glass. (An earlier
-        // @Inject shift=BEFORE drew glass then let the PNG paint over it -> the panel
-        // was invisible while open; this @Redirect fixes that, matching 1.16.5.)
+        // Replace the vanilla container PNG with glass (26.2 design): draw the glass panel
+        // (+ lattice / drag / hover) here, then run the screen's own drawBackground with ONLY
+        // its body-texture blit dropped (see the end of this method), so everything else it
+        // draws — progress arrows, flames, error icons, slot art, entity previews — stays
+        // vanilla on top of the glass, like 26.2's ContainerScreensGlassMixin. The dim was
+        // already drawn by renderInGameBackground just before this call.
 
         // Creative: run its OWN drawBackground so CreativeGlassMixin can @Redirect the
         // ordinal-0 item-panel blit inside it (tabs/search/scrollbar draw normally).
         if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen) {
+            this.drawBackground(context, delta, mouseX, mouseY);
+            return;
+        }
+        // List screens (stonecutter / loom / merchant): run their OWN drawBackground so the recipe / trade list,
+        // buttons and scroller draw. Their dedicated mixins ({Stonecutter,Loom,Merchant}GlassMixin) @Redirect the
+        // panel-texture blit INSIDE that drawBackground to draw the same container glass (via ContainerGlass), and the
+        // scroller sprite to the glass scrollbar. Swallowing the whole drawBackground here (the generic path) would
+        // erase their lists (the 1.19.2 / 1.21.1 blocker) — so route them out of the swallow.
+        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.StonecutterScreen
+                || (Object) this instanceof net.minecraft.client.gui.screen.ingame.LoomScreen
+                || (Object) this instanceof net.minecraft.client.gui.screen.ingame.MerchantScreen) {
             this.drawBackground(context, delta, mouseX, mouseY);
             return;
         }
@@ -179,20 +198,17 @@ public abstract class HandledScreenGlassMixin {
         s1mp1e$drawDrag(gl, gt);
         s1mp1e$drawHover(slots, gl, gt, mouseX, mouseY, now);
 
-        // The swallowed vanilla drawBackground also drew the player model in the
-        // survival inventory -> redraw it on top of the glass so it survives.
-        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.InventoryScreen) {
-            // 1.21: InventoryScreen.drawEntity (method_2486) is now the box form
-            //   drawEntity(DrawContext, int x1, int y1, int x2, int y2, int size,
-            //              float f, float mouseX, float mouseY, LivingEntity)
-            // taking the two corners of the render box + RAW mouse floats (the look
-            // direction is computed internally from the box centre). Replicate
-            // vanilla's own survival-player draw exactly: box (x+26,y+8)-(x+75,y+78),
-            // size 30, f 0.0625 — so the player shows over the glass identically.
-            net.minecraft.client.gui.screen.ingame.InventoryScreen.drawEntity(
-                    context, gl + 26, gt + 8, gl + 75, gt + 78, 30, 0.0625f,
-                    (float) mouseX, (float) mouseY,
-                    net.minecraft.client.MinecraftClient.getInstance().player);
+        // Now run the screen's OWN drawBackground on top of the glass with ONLY its body-texture blit(s) dropped
+        // (DrawContextBodyBlitMixin, full-width strips of this panel) — 26.2's ContainerScreensGlassMixin keeps
+        // everything else vanilla: furnace flame + progress arrow, brewing bubbles/progress, the enchanting book +
+        // options, anvil / grindstone error X, smithing ghost icons + armor stand, crafter disabled-slot overlays and
+        // powered indicator, mount saddle/armor slot art + preview, and the survival player model (which the older
+        // swallow-everything path had to redraw by hand and the others simply lost).
+        dev.s1mp1e.glass.render.ContainerGlass.beginBodySuppress(gl, gt, xs, ys);
+        try {
+            this.drawBackground(context, delta, mouseX, mouseY);
+        } finally {
+            dev.s1mp1e.glass.render.ContainerGlass.endBodySuppress();
         }
     }
 
@@ -207,6 +223,53 @@ public abstract class HandledScreenGlassMixin {
                             + "drawSlotHighlight(Lnet/minecraft/client/gui/DrawContext;III)V"))
     private void s1mp1e$suppressSlotHighlight(DrawContext context, int x, int y, int z) {
         // no-op: the glass hover pill is the highlight now.
+    }
+
+    // ---- (D) sub-pixel grid glide, shared for any GlassGlideHost (only the creative screen; no-op otherwise) --------
+    // The slot loop is inlined in HandledScreen.render (1.21.1, verified in the decompiled render), so the glide is
+    // driven from here rather than from a separate AbstractContainerScreen mixin as in 26.2. Every hook below is a
+    // strict pass-through unless the screen is a GlassGlideHost that reports a glide THIS frame.
+
+    /** Skip vanilla's own drawing of a scrolling grid slot while the host draws that content itself (glide overlay). */
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/ingame/HandledScreen;"
+                            + "drawSlot(Lnet/minecraft/client/gui/DrawContext;Lnet/minecraft/screen/slot/Slot;)V"))
+    private void s1mp1e$glideSlot(HandledScreen<?> self, DrawContext context, Slot slot) {
+        if (self instanceof GlassGlideHost host && host.s1mp1e$gliding() && host.s1mp1e$isGlideSlot(slot)) {
+            return;   // suppressed: the host's eased overlay draws this content
+        }
+        this.drawSlot(context, slot);   // self == this (the invoke was this.drawSlot)
+    }
+
+    /** Null the hovered grid slot during a glide so no mismatched highlight / tooltip is drawn (render-only). */
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/ingame/HandledScreen;"
+                            + "isPointOverSlot(Lnet/minecraft/screen/slot/Slot;DD)Z"))
+    private boolean s1mp1e$glideHover(HandledScreen<?> self, Slot slot, double px, double py) {
+        if (self instanceof GlassGlideHost host && host.s1mp1e$gliding() && host.s1mp1e$isGlideSlot(slot)) {
+            return false;
+        }
+        return this.isPointOverSlot(slot, px, py);
+    }
+
+    /** Draw the host's eased grid overlay inside the same (x,y,0)-translated matrix vanilla drew the slots in. */
+    @Inject(method = "render",
+            at = @At(value = "INVOKE", shift = At.Shift.BEFORE,
+                     target = "Lnet/minecraft/client/gui/screen/ingame/HandledScreen;"
+                            + "drawForeground(Lnet/minecraft/client/gui/DrawContext;II)V"))
+    private void s1mp1e$glideOverlay(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        if ((Object) this instanceof GlassGlideHost host && host.s1mp1e$gliding()) {
+            host.s1mp1e$drawGlideOverlay(context);
+        }
+    }
+
+    /** (C) End a list screen's scrollbar drag on release (the glass thumb would otherwise stay "held"). */
+    @Inject(method = "mouseReleased", at = @At("HEAD"))
+    private void s1mp1e$endListDrag(double mouseX, double mouseY, int button,
+                                    org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<Boolean> cir) {
+        if ((Object) this instanceof dev.s1mp1e.client.gui.ScrollDragOwner o) o.s1mp1e$endScrollDrag();
     }
 
     /** Slot-separator lattice: one cell per slot with a 4-bit neighbour mask. */

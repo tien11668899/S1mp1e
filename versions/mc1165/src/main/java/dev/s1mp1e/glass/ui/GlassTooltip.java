@@ -120,12 +120,19 @@ public final class GlassTooltip {
         int a = textAlphaByte();
         if (a >= 8) {
             int col = (a >= 252) ? 0xFFFFFFFF : ((a << 24) | 0xFFFFFF);
+            // Lift the text onto the tooltip Z-layer (vanilla uses +400) so it sorts ABOVE the item
+            // models (Z~150) drawn under it. The 1.16.5 TEXT RenderLayer re-enables LEQUAL depth on
+            // every draw, so the disableDepthTest above does NOT protect the letters from the item
+            // icons — without this the icons depth-test over the text (mc1201 fix).
+            matrices.push();
+            matrices.translate(0f, 0f, 400f);
             int ty = tooltipY;
             for (int i = 0; i < lines.size(); i++) {
                 font.drawWithShadow(matrices, lines.get(i), (float) tooltipX, (float) ty, col);
                 if (i == 0) ty += 2; // vanilla's title gap
                 ty += 10;
             }
+            matrices.pop();
         }
         RenderSystem.enableDepthTest();
         return true;
@@ -161,6 +168,10 @@ public final class GlassTooltip {
         return Math.round(Math.min(panelFade.value(), textFade.value()) * 255f) & 0xFF;
     }
 
+    /** Grey readability scrim RGB (26.2 TooltipGlass: {@code 0x16161A}), peak alpha {@code 0x48} (~28%). */
+    private static final int SCRIM_RGB = 0x16161A;
+    private static final int SCRIM_PEAK_A = 0x48;
+
     private static void drawPanel(float a) {
         int x = Math.round(sx.value());
         int y = Math.round(sy.value());
@@ -168,5 +179,17 @@ public final class GlassTooltip {
         int h = Math.round(sh.value());
         // pad 8, corner 0.92, no lift, frosted panel
         GlassRenderer.glass(x, y, x + w, y + h, 8f, 0.92f, 0f, a, GlassRenderer.FROST_PANEL);
+
+        // Grey readability scrim (R1 / §2E): a flat AA rounded rect drawn AFTER the glass card and
+        // BEFORE the text, so it stacks above the refracting glass but below the letters — the blurred
+        // items refracting through the card can't wash out the text. RGB 0x16161A, peak alpha 0x48,
+        // inset 1 px, radius = the card's own radius minus 1. The card corner knob 0.92 gives absolute
+        // radius min(w,h)*0.5*0.92 = min(w,h)*0.23 (the 26.2 card corner), so this matches 26.2 exactly.
+        // Alpha scales with the panel fade so the scrim fades in/out with the card (and its 150 ms ghost).
+        int sa = Math.round(SCRIM_PEAK_A * a) & 0xFF;
+        if (sa > 0 && GlassProgram.roundUsable()) {
+            float sr = Math.max(0f, Math.min(w, h) * 0.23f - 1f);
+            GlassRenderer.roundRect(x + 1, y + 1, x + w - 1, y + h - 1, sr, (sa << 24) | SCRIM_RGB);
+        }
     }
 }

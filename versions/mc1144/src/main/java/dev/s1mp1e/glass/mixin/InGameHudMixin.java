@@ -1,15 +1,24 @@
 package dev.s1mp1e.glass.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.platform.GlStateManager;
 import dev.s1mp1e.glass.anim.Spring;
+import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
 import dev.s1mp1e.glass.render.ScreenFade;
+import dev.s1mp1e.glass.ui.OffHandFade;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.gui.hud.InGameHud;
+import net.minecraft.client.options.AttackIndicator;
+import net.minecraft.client.render.DiffuseLighting;
 import net.minecraft.client.render.item.ItemRenderer;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.Arm;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -39,11 +48,16 @@ public abstract class InGameHudMixin {
     private Spring s1mp1e$lead, s1mp1e$trail;
     private int    s1mp1e$lastSlot = -1;
     private long   s1mp1e$lastNanos;
+    /** Off-hand slot show/hide + item-swap animation (see {@link OffHandFade}). */
+    private final OffHandFade s1mp1e$off = new OffHandFade();
 
-    // Backdrop: earliest point in the HUD pass.
+    // Backdrop: earliest point in the HUD pass. grabNow (NOT the time-deduped grab) so the HUD glass owns a
+    // fresh WORLD backdrop every frame — at a high in-world frame rate the 3ms dedup would skip the grab and
+    // leave the glass sampling a stale/post-dim backdrop from a later stage, which flickers (matches the
+    // 1.17.1/1.20.1 references).
     @Inject(method = "render", at = @At("HEAD"))
     private void s1mp1e$grab(float tickDelta, CallbackInfo ci) {
-        SceneCapture.grab();
+        SceneCapture.grabNow();
     }
 
     /**
@@ -65,38 +79,59 @@ public abstract class InGameHudMixin {
      */
     @Inject(method = "render", at = @At("TAIL"))
     private void s1mp1e$fadeDrawHud(float tickDelta, CallbackInfo ci) {
+        // HUD modules first: Fabric's own 1.20.1 HudRenderCallback fires at render TAIL, and 1.14.4 has no
+        // fabric-rendering-v1, so our HUD dispatch runs here. BEFORE the currentScreen early-return, so HUD
+        // modules draw under the ScreenFade dissolve and also while a screen is open (as in the reference).
+        dev.s1mp1e.client.HudDispatch.renderAll();
         if (MinecraftClient.getInstance().currentScreen != null) return;
         ScreenFade.draw();
         ScreenFade.captureFrame();
     }
 
-    // Replace the vanilla hotbar with the glass bar.
-    // Lift the status bars (health/armor/food/air) + XP bar by DECO_LIFT so the whole
-    // bottom HUD cluster rises with the hotbar and keeps its spacing. 1.14.4: no
-    // MatrixStack on these methods; state goes through GlStateManager (no RenderSystem).
-    @Inject(method = "renderStatusBars", at = @At("HEAD"))
-    private void s1mp1e$liftStatusHead(CallbackInfo ci) {
+    // Lift the status bars (health/armor/food/air) + XP bar by DECO_LIFT so the whole bottom HUD cluster
+    // rises with the hotbar and keeps its spacing. Done via @WrapOperation around the SINGLE INVOKE sites in
+    // render(F): the GL push/translate/pop wraps the whole call in try/finally, so the matrix stack stays
+    // BALANCED even if another mod cancels renderStatusBars / renderExperienceBar (hard rule 5). 1.14.4 has
+    // no MatrixStack on these methods; state goes through the fixed-function GlStateManager model-view.
+    @WrapOperation(method = "render",
+                   at = @At(value = "INVOKE",
+                            target = "Lnet/minecraft/client/gui/hud/InGameHud;renderStatusBars()V"))
+    private void s1mp1e$liftStatus(InGameHud self, Operation<Void> original) {
         GlStateManager.pushMatrix();
         GlStateManager.translatef(0f, -DECO_LIFT, 0f);
+        try { original.call(self); } finally { GlStateManager.popMatrix(); }
     }
-    @Inject(method = "renderStatusBars", at = @At("RETURN"))
-    private void s1mp1e$liftStatusTail(CallbackInfo ci) {
-        GlStateManager.popMatrix();
-    }
-    @Inject(method = "renderExperienceBar", at = @At("HEAD"))
-    private void s1mp1e$liftXpHead(int x, CallbackInfo ci) {
+    @WrapOperation(method = "render",
+                   at = @At(value = "INVOKE",
+                            target = "Lnet/minecraft/client/gui/hud/InGameHud;renderExperienceBar(I)V"))
+    private void s1mp1e$liftXp(InGameHud self, int x, Operation<Void> original) {
         GlStateManager.pushMatrix();
         GlStateManager.translatef(0f, -DECO_LIFT, 0f);
-    }
-    @Inject(method = "renderExperienceBar", at = @At("RETURN"))
-    private void s1mp1e$liftXpTail(int x, CallbackInfo ci) {
-        GlStateManager.popMatrix();
+        try { original.call(self, x); } finally { GlStateManager.popMatrix(); }
     }
 
+    // Move the XP LEVEL number up onto the status row. renderExperienceBar's only TextRenderer.draw calls
+    // ARE the level (its 4-way outline + green centre), so wrapping them retargets exactly those five. y-4
+    // turns vanilla's sh-35 into sh-39 within the lifted frame (= mc1211's sh-39-DECO_LIFT), and the ±1
+    // outline survives. This MOVES the level; XpFlow never hides it.
+    @WrapOperation(method = "renderExperienceBar",
+                   at = @At(value = "INVOKE",
+                            target = "Lnet/minecraft/client/font/TextRenderer;draw(Ljava/lang/String;FFI)I"))
+    private int s1mp1e$xpLevelToStatusRow(TextRenderer font, String text, float x, float y, int color,
+                                          Operation<Integer> original) {
+        return original.call(font, text, x, y - 4f, color);
+    }
+
+    // Replace the vanilla hotbar with the glass bar.
     @Inject(method = "renderHotbar", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$glassHotbar(float tickDelta, CallbackInfo ci) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || !SceneCapture.hasBackdrop()) return;
+        if (mc.player == null) return;
+        // First frame / pipeline race: try to grab a backdrop right here. GlassRenderer silently skips its
+        // draw if the backdrop still isn't ready (beginState guards hasBackdrop) and the items are still
+        // redrawn below — better late than never (matches the references).
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
+        boolean screenOpen = mc.currentScreen != null;   // suppress the shadow ring while a screen dims the bg
 
         int center = mc.window.getScaledWidth() / 2;
         int bottom = mc.window.getScaledHeight() - LIFT;
@@ -105,6 +140,7 @@ public abstract class InGameHudMixin {
         GlStateManager.translatef(center, bottom, 0f);
         GlStateManager.scalef(SCALE, SCALE, 1f);
         GlStateManager.translatef(-center, -bottom, 0f);
+        if (screenOpen) GlassProgram.setShadowScale(0f);
         try {
             int stripX0 = center - 91, stripY0 = bottom - 22;
             int stripX1 = center + 91, stripY1 = bottom;
@@ -112,6 +148,28 @@ public abstract class InGameHudMixin {
             GlassRenderer.glass(stripX0, stripY0, stripX1, stripY1,
                                 GlassRenderer.PAD_PILL, 1.0f, 0f, 1.0f,
                                 GlassRenderer.FROST_PANEL);
+
+            // Off-hand slot. Vanilla InGameHud.renderHotbar draws the off-hand slot (box + item);
+            // because we cancel renderHotbar wholesale (to place items inside the scaled glass bar)
+            // it was being dropped. Restored here as one extra glass slot beside the bar, positioned
+            // on the side opposite the main arm exactly as vanilla does. Per the off-hand spec the
+            // slot uses the SAME material / shape / rounding as the hotbar strip (FROST_PANEL,
+            // PAD_PILL, corner 1.0) — NOT a square box — and it fades with the off hand:
+            //   * empty <-> filled : the whole slot (glass + item) fades in / out (~150 ms);
+            //   * both hands full, off-hand item swapped : the slot stays and only the icons cross.
+            // OffHandFade owns that state; here we just draw the glass at its animated opacity.
+            ItemStack offhand = mc.player.getOffHandStack();
+            Arm       offArm  = mc.player.getMainArm().getOpposite();   // off hand opposite the main arm
+            boolean   offLeft = offArm == Arm.LEFT;
+            int offBoxX0, offBoxX1;
+            if (offLeft) { offBoxX1 = stripX0 - 4; offBoxX0 = offBoxX1 - 22; }
+            else         { offBoxX0 = stripX1 + 4; offBoxX1 = offBoxX0 + 22; }
+            s1mp1e$off.frame(offhand);
+            if (s1mp1e$off.slotVisible()) {
+                GlassRenderer.glass(offBoxX0, stripY0, offBoxX1, stripY1,
+                                    GlassRenderer.PAD_PILL, 1.0f, 0f, s1mp1e$off.slotAlpha(),
+                                    GlassRenderer.FROST_PANEL);
+            }
 
             int   slot        = mc.player.inventory.selectedSlot;
             float slotCenterX = center - 80f + slot * 20f;
@@ -138,23 +196,87 @@ public abstract class InGameHudMixin {
             GlassRenderer.glass(pillX0, pillY0, pillX1, pillY1,
                                 6f, 1.0f, 0.12f, 1.0f, GlassRenderer.FROST_NONE);
 
-            s1mp1e$renderItems(mc, stripX0, stripY0);
+            s1mp1e$renderItems(mc, stripX0, stripY0, offBoxX0);
+
+            // Attack-cooldown indicator ("Above hotbar" mode only). Vanilla InGameHud.renderHotbar
+            // draws it beside the bar; cancelling renderHotbar dropped it, so it is restored here on
+            // the side OPPOSITE the off hand, mid-cooldown only. Not shown with the default
+            // "crosshair" setting. Reads only the player's OWN attack cooldown, never target info.
+            // Drawn after the item pass, when DiffuseLighting/GL_LIGHTING is off (2D blit).
+            if (mc.options.attackIndicator == AttackIndicator.HOTBAR) {
+                float cd = mc.player.getAttackCooldownProgress(0f);
+                if (cd < 1.0f) {
+                    int ay = bottom - 20;
+                    int ax = offLeft ? (stripX1 + 6) : (stripX0 - 22);
+                    int p  = (int) (cd * 19.0f);
+                    GlStateManager.color4f(1f, 1f, 1f, 1f);
+                    GlStateManager.enableBlend();
+                    mc.getTextureManager().bindTexture(DrawableHelper.GUI_ICONS_LOCATION);
+                    // InGameHud extends DrawableHelper; blit(...) is public there. Cast instead of
+                    // @Shadow so the annotation processor need not resolve an inherited target.
+                    DrawableHelper self = (DrawableHelper) (Object) this;
+                    self.blit(ax, ay, 0, 94, 18, 18);
+                    self.blit(ax, ay + 18 - p, 18, 112 - p, 18, p);
+                }
+            }
         } finally {
+            if (screenOpen) GlassProgram.setShadowScale(1f);
             GlStateManager.popMatrix();
         }
         ci.cancel();
     }
 
-    /** Redraw the hotbar item stacks the cancelled vanilla pass owned. */
-    private static void s1mp1e$renderItems(MinecraftClient mc, int x0, int y0) {
+    /** Redraw the hotbar item stacks the cancelled vanilla pass owned (main slots + off hand). */
+    private void s1mp1e$renderItems(MinecraftClient mc, int x0, int y0, int offBoxX0) {
         PlayerEntity player = mc.player;
         ItemRenderer ir = mc.getItemRenderer();
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = player.inventory.main.get(i);
-            if (stack.isEmpty()) continue;
-            int ix = x0 + 3 + i * 20, iy = y0 + 3;
+        // Vanilla renderHotbar wraps its item loop in DiffuseLighting.enableForItems()/disable(); on
+        // 1.14.4 the GUI item model relies on that GUI light rig being live (renderGuiItemModel only
+        // toggles GL_LIGHTING for depth models — it does NOT set the light directions). We cancel
+        // renderHotbar, so WE must set it up, otherwise 3D block items render dark. (1.15.2's item
+        // renderer configures the lighting itself, which is why mc1152 needs no such call.)
+        GlStateManager.enableRescaleNormal();
+        DiffuseLighting.enableForItems();
+        try {
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = player.inventory.main.get(i);
+                if (stack.isEmpty()) continue;
+                int ix = x0 + 3 + i * 20, iy = y0 + 3;
+                ir.renderGuiItem(stack, ix, iy);
+                ir.renderGuiItemOverlay(mc.textRenderer, stack, ix, iy);
+            }
+            // Off-hand item(s), centred in the glass slot (3px inset, same as the main slots). The
+            // OffHandFade plan gives up to two stacks with 0..1 centre-anchored scales: one for a
+            // plain fade in/out, two while a both-hands-full swap cross-transitions the icons.
+            int oix = offBoxX0 + 3, oiy = y0 + 3;
+            s1mp1e$drawOffItem(ir, mc, s1mp1e$off.primaryStack(),   oix, oiy, s1mp1e$off.primaryScale());
+            if (s1mp1e$off.crossing()) {
+                s1mp1e$drawOffItem(ir, mc, s1mp1e$off.secondaryStack(), oix, oiy, s1mp1e$off.secondaryScale());
+            }
+        } finally {
+            DiffuseLighting.disable();
+            GlStateManager.disableRescaleNormal();
+        }
+    }
+
+    /** Draw one off-hand item at {@code scale} about the 16px cell centre (the fixed-function
+     *  scale/opacity stand-in for a fade). The count/durability overlay is drawn only when the
+     *  item is settled at full size and not mid-swap, so it never scales or double-draws. */
+    private void s1mp1e$drawOffItem(ItemRenderer ir, MinecraftClient mc,
+                                    ItemStack stack, int ix, int iy, float scale) {
+        if (stack == null || stack.isEmpty() || scale <= 0.02f) return;
+        float cx = ix + 8f, cy = iy + 8f;
+        GlStateManager.pushMatrix();
+        GlStateManager.translatef(cx, cy, 0f);
+        GlStateManager.scalef(scale, scale, 1f);
+        GlStateManager.translatef(-cx, -cy, 0f);
+        try {
             ir.renderGuiItem(stack, ix, iy);
-            ir.renderGuiItemOverlay(mc.textRenderer, stack, ix, iy);
+            if (scale >= 0.999f && !s1mp1e$off.crossing()) {
+                ir.renderGuiItemOverlay(mc.textRenderer, stack, ix, iy);
+            }
+        } finally {
+            GlStateManager.popMatrix();
         }
     }
 }

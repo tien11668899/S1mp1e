@@ -9,6 +9,7 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.RenderPipeline.Snippet;
 import com.mojang.blaze3d.shaders.ShaderSource;
 import com.mojang.blaze3d.shaders.ShaderType;
+import com.mojang.blaze3d.systems.DeviceInfo;
 import com.mojang.blaze3d.systems.GpuDevice;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.AddressMode;
@@ -20,6 +21,7 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.seagull.liquidglass.client.LiquidGlassClient;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.OptionalDouble;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BindGroupLayouts;
@@ -27,6 +29,17 @@ import net.minecraft.resources.Identifier;
 
 public final class GlassPipeline {
    private static RenderPipeline glass;
+   /** Refracting glass for the creative TAB row, top / bottom variants: identical to {@link #glass} but each reflects the
+    *  backdrop sample across the panel-side edge (glass_tab_top/bot.fsh) so a tab fused to the panel refracts the SAME
+    *  terrain the panel does, even where it protrudes past the panel — see {@link com.seagull.liquidglass.client.render.GlassTabs}. */
+   private static RenderPipeline tabTop;
+   private static RenderPipeline tabBot;
+   /** Refracting glass with TRUE capsule ends (glass_capsule.fsh: glass.fsh with CORNER_FRAC 1.0) - e.g. the boss bar. */
+   private static RenderPipeline capsule;
+   /** Refracting glass RING (glass_ring.fsh: annulus SDF) - the attack-cooldown ring track. */
+   private static RenderPipeline ringGlass;
+   /** Flat AA ARC with round caps (ring_arc.fsh) - the attack-cooldown progress. */
+   private static RenderPipeline ringArc;
    /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
    private static RenderPipeline lens;
    private static RenderPipeline line;
@@ -44,12 +57,58 @@ public final class GlassPipeline {
    private static GpuSampler sampler;
    private static int gw;
    private static int gh;
+   /** "GUI drawn so far" backdrop for the TOP-layer glass (hover tooltip card): filled mid-GUI-draw by {@link #grabOverlay()}
+    *  right before the tooltip stratum is drawn, so the card refracts the inventory / items actually beneath it (the
+    *  {@link #backdropView()} grab is taken before ANY GUI is drawn, i.e. world only). See {@link TooltipLayer}. */
+   private static GpuTexture overlayTex;
+   private static GpuTextureView overlayView;
+   private static int ow;
+   private static int oh;
+   private static boolean overlayFailed;
 
    private GlassPipeline() {
    }
 
    public static RenderPipeline glass() {
       return glass;
+   }
+
+   public static RenderPipeline tabTop() {
+      return tabTop;
+   }
+
+   public static RenderPipeline tabBot() {
+      return tabBot;
+   }
+
+   public static RenderPipeline capsule() {
+      return capsule;
+   }
+
+   public static RenderPipeline ringGlass() {
+      return ringGlass;
+   }
+
+   public static boolean ringGlassUsable() {
+      return state == 1 && ringGlass != null && grabView != null && sampler != null;
+   }
+
+   public static RenderPipeline ringArc() {
+      return ringArc;
+   }
+
+   public static boolean ringArcUsable() {
+      return state == 1 && ringArc != null;
+   }
+
+   /** The capsule program refracts the backdrop, so gate exactly like {@link #usable()}. */
+   public static boolean capsuleUsable() {
+      return state == 1 && capsule != null && grabView != null && sampler != null;
+   }
+
+   /** The creative-tab pipelines refract the backdrop (need SAMPLER0 + a live grab), so gate exactly like {@link #usable()}. */
+   public static boolean tabUsable() {
+      return state == 1 && tabTop != null && tabBot != null && grabView != null && sampler != null;
    }
 
    public static RenderPipeline lens() {
@@ -109,11 +168,59 @@ public final class GlassPipeline {
       }
    }
 
+   /**
+    * Build + precompile a backdrop-sampling program (same bind groups / vertex format / blend as {@link #glass}, its own
+    * fragment shader). Returns the pipeline only if it compiled valid, else {@code null} (the caller keeps the plain glass
+    * fallback). Used for the creative-tab variants so their one-line sampling difference does not duplicate the builder.
+    */
+   private static RenderPipeline buildBackdropProgram(GpuDevice dev, ShaderSource src, String fsh) {
+      RenderPipeline p = RenderPipeline.builder(new Snippet[0])
+         .withLocation(Identifier.fromNamespaceAndPath("liquidglass", "pipeline/" + fsh))
+         .withBindGroupLayout(BindGroupLayouts.GLOBALS)
+         .withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+         .withBindGroupLayout(BindGroupLayouts.SAMPLER0)
+         .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+         .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+         .withPrimitiveTopology(PrimitiveTopology.QUADS)
+         .withVertexShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass"))
+         .withFragmentShader(Identifier.fromNamespaceAndPath("liquidglass", "core/" + fsh))
+         .build();
+      CompiledRenderPipeline c = dev.precompilePipeline(p, src);
+      return c != null && c.isValid() ? p : null;
+   }
+
    public static boolean ensureReady() {
       if (state != 0) {
          return state == 1;
       } else {
          try {
+            GpuDevice dev = RenderSystem.getDevice();
+            // 26.2 replaced the fixed OpenGL renderer with a GpuBackend abstraction and shipped an
+            // experimental, user-selectable Vulkan backend. Our backdrop-sampling shaders
+            // (glass / glass_lens / glass_fade) read Sampler0 at gl_FragCoord.xy / ScreenSize
+            // assuming OpenGL's BOTTOM-left framebuffer origin (see the rationale in glass.fsh:88-92).
+            // On Vulkan the fragment origin is TOP-left, so the refraction would sample the scene
+            // vertically MIRRORED, and the custom GLSL->SPIR-V path is untested on this build. Until the
+            // shaders are validated on Vulkan, drop to the coordinate-agnostic primitive painter on any
+            // non-OpenGL backend. OpenGL (the default) is unaffected: it keeps full shader refraction.
+            //
+            // backendName() is the ONLY reliable discriminator here: 26.2's OpenGL backend reports a
+            // unified [0,1] clip-Z (isZZeroToOne()==true) exactly like Vulkan, so isZZeroToOne is NOT a
+            // backend signal (verified at runtime: backend='OpenGL' yet zZeroToOne=true, and the
+            // bottom-left gl_FragCoord assumption still renders correctly there). A null/unknown name is
+            // treated as OpenGL so we never disable the tested-good path on a naming quirk; a genuine
+            // shader-compile failure on an odd backend still trips the existing try/catch fallback below.
+            DeviceInfo gpu = dev.getDeviceInfo();
+            String backend = gpu.backendName();
+            LiquidGlassClient.LOG.info("[LiquidGlass] GPU backend='{}' vendor='{}' zZeroToOne={}",
+               backend, gpu.vendorName(), gpu.isZZeroToOne());
+            boolean openGl = backend == null
+               || backend.toLowerCase(Locale.ROOT).contains("opengl");
+            if (!openGl) {
+               state = -1;
+               LiquidGlassClient.LOG.warn("[LiquidGlass] non-OpenGL graphics backend ('{}') -> using primitive glass fallback (shader refraction assumes an OpenGL framebuffer origin; set Options > Graphics API to OpenGL for full liquid glass)", backend);
+               return false;
+            }
             glass = RenderPipeline.builder(new Snippet[0])
                .withLocation(Identifier.fromNamespaceAndPath("liquidglass", "pipeline/glass"))
                .withBindGroupLayout(BindGroupLayouts.GLOBALS)
@@ -125,7 +232,6 @@ public final class GlassPipeline {
                .withVertexShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass"))
                .withFragmentShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass"))
                .build();
-            GpuDevice dev = RenderSystem.getDevice();
             ShaderSource src = (id, type) -> {
                if ("liquidglass".equals(id.getNamespace())) {
                   String ext = type == ShaderType.VERTEX ? ".vsh" : ".fsh";
@@ -137,6 +243,25 @@ public final class GlassPipeline {
             CompiledRenderPipeline compiled = dev.precompilePipeline(glass, src);
             if (compiled == null || !compiled.isValid()) {
                throw new IllegalStateException("glass pipeline did not compile (invalid)");
+            }
+
+            try {
+               tabTop = buildBackdropProgram(dev, src, "glass_tab_top");
+               tabBot = buildBackdropProgram(dev, src, "glass_tab_bot");
+               try {
+                  capsule = buildBackdropProgram(dev, src, "glass_capsule");
+                  ringGlass = buildBackdropProgram(dev, src, "glass_ring");
+               } catch (Throwable varCap) {
+                  capsule = null;
+                  LiquidGlassClient.LOG.warn("[LiquidGlass] capsule pipeline unavailable: {}", varCap.toString());
+               }
+               if (tabTop != null && tabBot != null) {
+                  LiquidGlassClient.LOG.info("[LiquidGlass] creative-tab pipelines compiled (edge-reflected refraction)");
+               } else {
+                  LiquidGlassClient.LOG.warn("[LiquidGlass] creative-tab pipelines invalid, tabs fall back to the plain glass strip");
+               }
+            } catch (Throwable varTab) {
+               LiquidGlassClient.LOG.warn("[LiquidGlass] creative-tab pipelines unavailable: {}", varTab.toString());
             }
 
             try {
@@ -201,6 +326,28 @@ public final class GlassPipeline {
                }
             } catch (Throwable var9) {
                LiquidGlassClient.LOG.warn("[LiquidGlass] round pipeline unavailable: {}", var9.toString());
+            }
+
+            try {
+               RenderPipeline ap = RenderPipeline.builder(new Snippet[0])
+                  .withLocation(Identifier.fromNamespaceAndPath("liquidglass", "pipeline/ring_arc"))
+                  .withBindGroupLayout(BindGroupLayouts.GLOBALS)
+                  .withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+                  .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+                  .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+                  .withPrimitiveTopology(PrimitiveTopology.QUADS)
+                  .withVertexShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass"))
+                  .withFragmentShader(Identifier.fromNamespaceAndPath("liquidglass", "core/ring_arc"))
+                  .build();
+               CompiledRenderPipeline ac = dev.precompilePipeline(ap, src);
+               if (ac != null && ac.isValid()) {
+                  ringArc = ap;
+                  LiquidGlassClient.LOG.info("[LiquidGlass] ring pipelines: arc={} glassRing={}", true, ringGlass != null);
+               } else {
+                  LiquidGlassClient.LOG.warn("[LiquidGlass] ring arc pipeline invalid");
+               }
+            } catch (Throwable varArc) {
+               LiquidGlassClient.LOG.warn("[LiquidGlass] ring arc pipeline unavailable: {}", varArc.toString());
             }
 
             try {
@@ -328,6 +475,70 @@ public final class GlassPipeline {
          } catch (Throwable var4) {
             LiquidGlassClient.LOG.warn("[LiquidGlass] snapshot failed: {}", var4.toString());
          }
+      }
+   }
+
+   /**
+    * The top-layer backdrop view, (re)created at the main target's size. Called at EXTRACTION time (the card's
+    * {@code TextureSetup} needs the view object); its CONTENT is copied later, mid-draw, by {@link #grabOverlay()}.
+    * Returns null when unavailable, so callers fall back to the world-only {@link #backdropView()}.
+    */
+   public static GpuTextureView overlayView() {
+      if (state != 1 || overlayFailed) {
+         return null;
+      }
+      try {
+         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+         int w = main.width;
+         int h = main.height;
+         if (w <= 0 || h <= 0) {
+            return null;
+         }
+         if (overlayTex == null || ow != w || oh != h) {
+            if (overlayView != null) {
+               overlayView.close();
+               overlayView = null;
+            }
+            if (overlayTex != null) {
+               overlayTex.close();
+               overlayTex = null;
+            }
+            GpuDevice dev = RenderSystem.getDevice();
+            overlayTex = dev.createTexture("liquidglass_overlay_backdrop", 5, main.getColorTexture().getFormat(), w, h, 1, 1);
+            overlayView = dev.createTextureView(overlayTex);
+            ow = w;
+            oh = h;
+         }
+         return overlayView;
+      } catch (Throwable t) {
+         overlayFailed = true;
+         LiquidGlassClient.LOG.warn("[LiquidGlass] top-layer backdrop unavailable, tooltip glass refracts the world backdrop: {}", t.toString());
+         return null;
+      }
+   }
+
+   /** The existing top-layer backdrop view without (re)creating it (dev probe). */
+   public static GpuTextureView currentOverlayView() {
+      return overlayView;
+   }
+
+   /** Copy the main target (everything the GUI has drawn so far this frame) into the top-layer backdrop. Called between
+    *  two GUI render passes, never inside one. Returns true when the copy was issued. */
+   public static boolean grabOverlay() {
+      if (state != 1 || overlayTex == null) {
+         return false;
+      }
+      try {
+         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+         if (main.width != ow || main.height != oh) {
+            return false;   // resized between extraction and draw: keep last frame's copy for this one frame
+         }
+         RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(main.getColorTexture(), overlayTex, 0, 0, 0, 0, 0, ow, oh);
+         return true;
+      } catch (Throwable t) {
+         overlayFailed = true;
+         LiquidGlassClient.LOG.warn("[LiquidGlass] top-layer backdrop grab failed, tooltip glass refracts the world backdrop: {}", t.toString());
+         return false;
       }
    }
 

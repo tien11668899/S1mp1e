@@ -20,8 +20,8 @@ import java.lang.reflect.Modifier;
  * apply. This was reproduced in the 26.2 dev client with a preLaunch entrypoint that adds a stand-in ZoomHandler jar
  * the same way.
  *
- * <p>Names are javap-verified in Essential 1.4.1.1 (fabric_26.2), 1.4.0.3 (fabric_1.21.1) and 1.3.10.9 (forge_1.8.9):
- * {@code public static ZoomHandler getInstance()}, {@code public boolean isZoomActive},
+ * <p>Names are javap-verified in Essential 1.5.0.1 (fabric_1.21.1), 1.4.1.1 (fabric_26.2), 1.4.0.3 (fabric_1.21.1)
+ * and 1.3.10.9 (forge_1.8.9): {@code public static ZoomHandler getInstance()}, {@code public boolean isZoomActive},
  * {@code private boolean isZoomToggled}, {@code private boolean isZoomBeingHeld}. There are no Minecraft types here,
  * so this one file is shared by 26.2, 1.21.1 and 1.20.1. If Essential is absent or renames any of these, this layer
  * turns itself off (one log line) and layer 1 keeps blocking.

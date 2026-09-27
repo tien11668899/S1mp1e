@@ -25,7 +25,7 @@ public final class NoHurtCamModule extends Module {
     private final Setting flash = add(Setting.bool("Red flash", true));
 
     public NoHurtCamModule() {
-        super("NoHurtCam", "Visual");
+        super("NoHurtCam", "Combat");
         // Bind on construction: ModuleManager.init() builds every module before any
         // frame renders, so the hooks always have their reference by the time the
         // patched render methods first run.

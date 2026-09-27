@@ -15,6 +15,7 @@ import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
 import dev.s1mp1e.client.gui.S1mp1eHudEditScreen;
 import dev.s1mp1e.client.hud.HudGlass;
+import dev.s1mp1e.client.hud.HudText;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -111,7 +112,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
                     // stepped roundFill it replaces came out as a 4-3-2-1px chamfer on a 16px key — cut corners,
                     // not a curve.
                     HudGlass.roundRect(g, x, y, x + w, y + h, Math.min(w, h) * 0.42f,
-                                       (ga << 24) | (glow.colorValue & 0xFFFFFF));
+                                       (ga << 24) | (ChromaHudModule.accent(glow.colorValue, x + w / 2f, y + h / 2f) & 0xFFFFFF));
                 }
             }
         }
@@ -128,7 +129,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
             int tc = HudGlass.lerpArgb(TX_REST, TX_DOWN, fade[i]);
             float tw = GlassFont.width(LABEL[i]);
             float ty = y + (h - GlassFont.height()) / 2f;   // centred (no +1 nudge)
-            GlassFont.drawARGB(g, LABEL[i], x + (w - tw) / 2f, ty, tc, false);
+            HudText.draw(g, LABEL[i], x + (w - tw) / 2f, ty, tc, false);
         }
     }
 

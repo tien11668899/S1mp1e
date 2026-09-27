@@ -57,27 +57,134 @@ public final class GlassWidgets {
         }
     }
 
+    /**
+     * iOS-26 scroll-edge effect for a scroll list: a progressive blur + dark fade at
+     * the top and bottom, each fading IN with how far that end can still scroll
+     * ({@code topK}/{@code botK} in 0..1). Call AFTER the list content is flushed into
+     * the framebuffer and a fresh composite backdrop has been grabbed
+     * ({@code SceneCapture.forceGrab()}). Uses the dedicated EDGE program (rounded outer
+     * corners); falls back to the shipped {@link #edgeFade} (menu_blur EdgeMode=1) when
+     * the EDGE program is unavailable.
+     */
+    public static void scrollEdges(float x0, float yTop, float x1, float yBot,
+                                   float ext, float topK, float botK, float alpha) {
+        // Apple iOS-26 scroll edge = a VARIABLE BLUR + a soft gradient: the content stays
+        // visible but progressively blurs toward the edge, with only a whisper of dimming
+        // (NOT a dark band, NOT a fade-to-black). So blur dominates and DIM is tiny.
+        final float RADIUS = 18f, DIM = 0.04f;
+        if (GlassProgram.edgeUsable() && SceneCapture.hasBackdrop()) {
+            if (topK > 0.001f)
+                GlassRenderer.edgeBand(x0, yTop, x1, yTop + ext, true,  RADIUS, DIM, alpha * clamp01(topK));
+            if (botK > 0.001f)
+                GlassRenderer.edgeBand(x0, yBot - ext, x1, yBot, false, RADIUS, DIM, alpha * clamp01(botK));
+            return;
+        }
+        // Fallback: the menu_blur EdgeMode=1 path — same [1 6 15 20 15 6 1]/64 kernel,
+        // feathered corners via smoothstep instead of the SDF; no-op without a backdrop.
+        if (topK > 0.001f) edgeFade(x0, yTop, x1, yTop + ext, true,  RADIUS, DIM, alpha * clamp01(topK));
+        if (botK > 0.001f) edgeFade(x0, yBot - ext, x1, yBot, false, RADIUS, DIM, alpha * clamp01(botK));
+    }
+
+    /**
+     * The iOS-26 Liquid Glass KNOB (switch knob / slider thumb): a solid white pill at rest
+     * that, as {@code morph} goes 0 → 1, grows into a clear refracting lens and back — the same
+     * composition as the 26.2 client, drawn immediately in call order, back to front. Port of
+     * mc1211's {@code GlassWidgets.knobLens} to 1.8.9 immediate mode (no DrawContext).
+     */
+    public static void knobLens(float cx, float cy, float hw, float hh, float morph, float lensScale,
+                                float trackX0, float trackX1, float trackHalfH, float splitX,
+                                int colLeft, int colRight, float alpha) {
+        knobLens(cx, cy, hw, hh, morph, lensScale, lensScale, 1f, trackX0, trackX1, trackHalfH, splitX, colLeft, colRight, alpha);
+    }
+
+    /**
+     * {@link #knobLens} with separate width / height multipliers and a corner radius at full
+     * morph (the slider lens is a wide rounded rectangle that stretches with drag speed,
+     * see {@code Motion.lensShape}).
+     *
+     * @param cornerFrac lens corner radius at full morph as a fraction of its half-height
+     *                   (1 = capsule); the rest knob is always a capsule
+     */
+    public static void knobLens(float cx, float cy, float hw, float hh, float morph,
+                                float scaleW, float scaleH, float cornerFrac,
+                                float trackX0, float trackX1, float trackHalfH, float splitX,
+                                int colLeft, int colRight, float alpha) {
+        float m = clamp01(morph);
+        float lw = hw * (1f + (scaleW - 1f) * m), lh = hh * (1f + (scaleH - 1f) * m);
+        float lx0 = cx - lw, lx1 = cx + lw, ly0 = cy - lh, ly1 = cy + lh;
+        float r = lh * (1f + (cornerFrac - 1f) * m);                   // capsule at rest → rounded rect when lifted
+        float cornerKnob = clamp01(r / Math.max(0.001f, Math.min(lw, lh)));   // BTN: radius = min(half) × corner
+
+        float glassA = alpha * m;
+        if (glassA > 0.004f) {
+            // REAL refracting lens: the world behind bent through the pill (LENS program — clear, not dark). It
+            // has a full-capsule corner (unlike glass()), lift 0 so the Fresnel rim stays subtle, frost 0.65 for a
+            // whisper of softening. Backdrop is grabbed before the GUI, so it refracts the world; the track is then
+            // painted on top (below) as the magnified band.
+            boolean drewLens = false;
+            if (GlassProgram.lensUsable() && SceneCapture.hasBackdrop()) {
+                GlassRenderer.lens(lx0, ly0, lx1, ly1, cornerKnob, 0f, glassA, 0.65f);
+                drewLens = true;
+            } else {
+                // no glass program / no backdrop: a faint frosted-white body, NEVER dark
+                fillRound(lx0, ly0, lx1, ly1, (clampByte(glassA * 0.34f) << 24) | 0xF2F3F5, r);
+            }
+            // the band runs edge to edge so only the top and bottom show refraction bands; a capsule band of
+            // half-height bandH < lh spanning [lx0, lx1] always lies inside the lens capsule
+            float bandH = Math.min(trackHalfH * 0.95f, lh * 0.76f);   // clip to the track: overhang shows glass, not track colour
+            float bx0 = Math.max(trackX0, lx0), bx1 = Math.min(trackX1, lx1);
+            if (bx1 - bx0 > 0.5f) {
+                fillRound(bx0, cy - bandH, bx1, cy + bandH, scaleAlpha(colRight, glassA), bandH);
+                if (!Float.isNaN(splitX) && splitX > bx0) {
+                    float fx1 = Math.min(bx1, Math.max(bx0 + 2f * bandH, splitX));
+                    fillRound(bx0, cy - bandH, fx1, cy + bandH, scaleAlpha(colLeft, glassA), bandH);
+                }
+            }
+            // outline: the lens shader already carries a faint Fresnel rim + soft shadow, so with a real lens we add
+            // NOTHING extra. Only the fallback draws a light rim so the frosted-white body still has an edge.
+            if (!drewLens) capsule(lx0, ly0, lx1, ly1, cornerKnob, 0.10f, glassA * 0.40f, true);
+        }
+
+        float whiteA = alpha * (1f - m);
+        if (whiteA > 0.004f) fillRound(lx0, ly0, lx1, ly1, (clampByte(whiteA) << 24) | 0xFFFFFF, r);
+    }
+
+    /** {@code argb} with its alpha byte multiplied by {@code k} (0..1). */
+    public static int scaleAlpha(int argb, float k) {
+        int a = Math.round(((argb >>> 24) & 0xFF) * clamp01(k));
+        return (a << 24) | (argb & 0xFFFFFF);
+    }
+
+    /** Linear-interpolate two ARGB colours ({@code t} in [0,1]); interpolates alpha too. */
+    public static int lerpArgb(int c0, int c1, float t) {
+        if (t <= 0f) return c0;
+        if (t >= 1f) return c1;
+        int a = lerpB((c0 >>> 24) & 255, (c1 >>> 24) & 255, t);
+        int r = lerpB((c0 >> 16) & 255, (c1 >> 16) & 255, t);
+        int g = lerpB((c0 >> 8) & 255, (c1 >> 8) & 255, t);
+        int b = lerpB(c0 & 255, c1 & 255, t);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private static int lerpB(int a, int b, float t) { return a + Math.round((b - a) * t); }
+
+    private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
+
     // ---- primitive rects ----
 
     public static void drawRect(float x0, float y0, float x1, float y1, int argb) {
         Gui.drawRect(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), argb);
     }
 
-    /** Cheap rounded-corner fill (stadium): a full-height centre band plus vertically
-     *  inset left/right bands, so corners read as rounded without the glass shader.
-     *  Colours (accent fills, toggle tracks, swatches) can't use the white-only glass. */
+    /** Coloured rounded fill with true AA corners. Prefers the ROUND SDF program (matches
+     *  mc1211/mc262); falls back to the smooth triangle-fan fill when the shader is
+     *  unavailable (GL2.0-less GPU or a failed link). Colours can't use the white-only glass. */
     public static void fillRound(float x0, float y0, float x1, float y1, int argb, float r) {
-        float rr = Math.min(r, Math.min((x1 - x0) / 2f, (y1 - y0) / 2f));
-        drawRect(x0 + rr, y0, x1 - rr, y1, argb);
-        drawRect(x0, y0 + rr, x0 + rr, y1 - rr, argb);
-        drawRect(x1 - rr, y0 + rr, x1, y1 - rr, argb);
-        // one bevel step on each corner for a softer edge
-        float h = rr * 0.5f;
-        drawRect(x0 + h, y0 + h, x0 + rr, y0 + rr, argb);
-        drawRect(x1 - rr, y0 + h, x1 - h, y0 + rr, argb);
-        drawRect(x0 + h, y1 - rr, x0 + rr, y1 - h, argb);
-        drawRect(x1 - rr, y1 - rr, x1 - h, y1 - h, argb);
-        resetColorCache();
+        if (GlassProgram.roundUsable()) {
+            GlassRenderer.roundRect(x0, y0, x1, y1, r, argb);
+            return;
+        }
+        fillRoundSmooth(x0, y0, x1, y1, argb, r);
     }
 
     /** Smooth (non-jagged) rounded-rect fill via a triangle fan with real corner arcs.

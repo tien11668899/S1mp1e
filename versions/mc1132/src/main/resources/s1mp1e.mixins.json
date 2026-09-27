@@ -10,7 +10,19 @@
     "HandledScreenGlassMixin", "InventoryGlassMixin", "MinecraftClientContainerGhostMixin",
     "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin",
     "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin",
-    "RecipeToggleGlassMixin", "CreativeGlassMixin"
+    "RecipeToggleGlassMixin", "CreativeGlassMixin",
+    "ModResourcePackMixin", "GlyphAtlasSmoothMixin",
+    "MenuKeyMixin",
+    "SpriteAccessor", "MouseClickMixin", "InGameHudEffectMixin",
+    "CrosshairMixin",
+    "LowFireMixin", "AttackIndicatorHideMixin", "HitMarkerAttackMixin", "HitMarkerCritPacketMixin", "HitMarkerDamageMixin", "LightmapGammaMixin", "FovMultiplierMixin",
+    "ZoomFovMixin", "MouseZoomSensitivityMixin", "ForeignZoomKeyBlockMixin",
+    "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin",
+    "HandPositionMixin", "HeldItemSwingMixin",
+    "OptionSliderGlassMixin", "SoundSliderGlassMixin",
+    "InGameHudItemNameMixin", "InGameHudPanelGhostMixin",
+    "ListWidgetBackdropMixin",
+    "DevShotMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

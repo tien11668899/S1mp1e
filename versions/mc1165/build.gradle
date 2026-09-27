@@ -42,6 +42,18 @@ java {
     targetCompatibility = JavaVersion.VERSION_1_8
 }
 
+// Dev-only: make `runClient` preload the classes our mixins target, so a broken
+// injection fails at the title screen instead of the first time that screen renders.
+// Never set for the produced jar - production reads the flag as false.
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+        }
+    }
+}
+
+
 // MC 1.16.5 renders a white screen on JDK16+ — Loom pulls LWJGL 3.3.2, which
 // logs "Unsupported JNI version detected" on modern JVMs and the GL path breaks.
 // Gradle 8/Loom need JDK21 to RUN, but the GAME must run on Java 8 (its native

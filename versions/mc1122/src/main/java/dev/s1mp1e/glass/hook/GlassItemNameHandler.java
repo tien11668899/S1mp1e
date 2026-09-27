@@ -19,13 +19,13 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.ReflectionHelper;
 
 /**
- * Held-item name popup — the 1.8.9 counterpart of LiquidGlass26's
+ * Held-item name popup — the 1.12.2 counterpart of LiquidGlass26's
  * {@code HudHotbarMixin#lg$glassItemName}. Replaces vanilla's flat "item name
  * over the hotbar" text with a frosted glass capsule whose width follows a
  * liquid spring, plus an old-name/new-name crossfade on a switch.
  *
- * <p>26.2 could simply cancel {@code extractSelectedItemName}. 1.8.9 draws the
- * name inside {@code GuiIngame.renderSelectedItem}, guarded by the private
+ * <p>26.2 could simply cancel {@code extractSelectedItemName}. 1.12.2 draws the
+ * name inside {@code GuiIngameForge.renderToolHighlight}, guarded by the protected
  * {@code remainingHighlightTicks}/{@code highlightingItemStack} fields, with no
  * dedicated {@code ElementType} to cancel. So we use the suppression trick:
  *
@@ -110,8 +110,9 @@ public final class GlassItemNameHandler {
         }
 
         // The name is a HUD element; GlassHudHandler grabs the scene backdrop at
-        // Pre(ALL) HIGHEST. Grab defensively if nothing has grabbed yet.
-        if (!SceneCapture.hasBackdrop()) SceneCapture.grab();
+        // Pre(ALL) HIGHEST. grabOnce() is a no-op if that already captured this
+        // frame, and captures defensively if nothing has yet.
+        SceneCapture.grabOnce();
     }
 
     // ---- Post(ALL): restore the timer, draw our capsule -------------------
@@ -135,7 +136,8 @@ public final class GlassItemNameHandler {
     }
 
     private void drawName(Minecraft mc, ScaledResolution res, int ticks, ItemStack stack) {
-        if (ticks <= 0 || stack == null) {
+        // 1.12.2: an empty highlight is ItemStack.EMPTY rather than null.
+        if (ticks <= 0 || stack == null || stack.isEmpty()) {
             // nothing highlighted -> reset so the next appear fades in fresh
             nameIn = 0f;
             inFade.snap(0f);
@@ -144,13 +146,32 @@ public final class GlassItemNameHandler {
             return;
         }
 
-        // Vanilla's exact display string: rarity-coloured name, italic prefix for
-        // custom-named stacks.
-        String s = stack.getDisplayName();
-        if (stack.hasDisplayName()) {
-            s = TextFormatting.ITALIC + s;
+        // mc1211's display string: rarity-COLOURED name (colour code FIRST so it doesn't
+        // reset the italic that follows), italic for custom-named stacks, then the Forge
+        // Item.getHighlightTip pass that GuiIngameForge.renderToolHighlight also applies.
+        String rarity;
+        try {
+            rarity = String.valueOf(stack.getRarity().color);
+        } catch (Throwable t) {
+            rarity = "";   // a mod's getRarity threw -> plain (white) name
         }
+        String s = rarity
+                 + (stack.hasDisplayName() ? TextFormatting.ITALIC.toString() : "")
+                 + stack.getDisplayName();
+        try {
+            s = stack.getItem().getHighlightTip(stack, s);
+        } catch (Throwable t) {
+            // a mod's getHighlightTip threw -> keep the plain rarity-coloured name
+        }
+        // Prefer the item's own FontRenderer (a few items override it), like vanilla does.
         FontRenderer font = mc.fontRenderer;
+        try {
+            FontRenderer itemFont = stack.getItem().getFontRenderer(stack);
+            if (itemFont != null) font = itemFont;
+        } catch (Throwable t) {
+            // keep the default font renderer
+        }
+        if (s == null) s = "";
         int strWidth = font.getStringWidth(s);
 
         // name switch -> crossfade the OLD name out, spring the width to the new
@@ -175,7 +196,7 @@ public final class GlassItemNameHandler {
         prevFade.to(0f);
         namePrevA = prevFade.value(); // old name eases out
 
-        float vanillaFade = Math.min(1f, ticks / 10f); // 1.8.9 timer supplies fade-out
+        float vanillaFade = Math.min(1f, ticks / 10f); // the vanilla timer supplies fade-out
         float a = nameIn * vanillaFade;
         if (a <= 0.01f) return;
 
@@ -209,6 +230,10 @@ public final class GlassItemNameHandler {
         if (na > 4) {
             font.drawStringWithShadow(s, cx - strWidth / 2f, (float) y, (na << 24) | 0xFFFFFF);
         }
-        GlStateManager.disableBlend();
+        // Leave blend ON on exit (project GL rule: a GUI draw path never tears
+        // blend down). The font renderer left the real GL colour tinted while
+        // GlStateManager's cache still reads white, so force the cache to reset.
+        GlStateManager.color(0f, 0f, 0f, 0f);
+        GlStateManager.color(1f, 1f, 1f, 1f);
     }
 }

@@ -1,0 +1,37 @@
+package dev.s1mp1e.glass.mixin;
+
+import dev.s1mp1e.client.module.ZoomModule;
+import net.minecraft.client.Mouse;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * Zoom look-scaling (the Zoomify "silky while zoomed" half): scale this frame's raw mouse movement by
+ * the current zoom factor so the on-screen look speed stays constant as the FOV narrows. Applied at the
+ * HEAD of {@code Mouse.updateMouse()V} (public, no args on 1.15.2 — javap-verified, yarn
+ * 1.15.2+build.17) by multiplying the accumulated {@code cursorDeltaX/Y} (private doubles) — purely a
+ * proportional scale of the player's OWN mouse input, active only while the zoom is engaged; it reads
+ * no target and adds no movement of its own.
+ */
+@Mixin(Mouse.class)
+public class MouseZoomSensitivityMixin {
+
+    @Shadow private double cursorDeltaX;
+    @Shadow private double cursorDeltaY;
+
+    @Inject(method = "updateMouse()V", at = @At("HEAD"))
+    private void s1mp1e$zoomLookScale(CallbackInfo ci) {
+        try {
+            double f = ZoomModule.lookScale();
+            if (f < 0.999) {
+                cursorDeltaX *= f;
+                cursorDeltaY *= f;
+            }
+        } catch (Throwable ignored) {
+            // leave the player's mouse input untouched on any failure
+        }
+    }
+}

@@ -1,15 +1,18 @@
 package dev.s1mp1e.glass.hook;
 
 import dev.s1mp1e.glass.anim.Spring;
+import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.PanelGhost;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
@@ -37,8 +40,21 @@ public final class GlassHudHandler {
 
     /** Proportional upscale of the whole hotbar, anchored bottom-centre. */
     private static final float SCALE     = 1.15f;
-    /** How far the health/armour/XP row lifts to clear the enlarged bar. */
-    private static final int   DECO_LIFT = 7;
+    /** Lift the whole hotbar off the bottom screen edge (26.2's {@code guiHeight-4}). */
+    public static final int   LIFT      = 4;
+    /** How far the health/armour/XP row lifts to clear the enlarged bar.
+     *  Kept at 26.2's measured 7 (the glass source of truth — the user fixed this
+     *  value; mc1211 diverged to LIFT+4=8 but 26.2 wins here); public so other
+     *  HUD packages can read it. */
+    public static final int   DECO_LIFT = 7;
+
+    /** Bare {@link Gui} subclass just to reach {@code drawTexturedModalRect} for the
+     *  XP bar sprites (the method is protected on Gui). */
+    private static final class Blit extends Gui {
+        void rect(int x, int y, int u, int v, int w, int h) { drawTexturedModalRect(x, y, u, v, w, h); }
+    }
+    private static final Blit           XP_BLIT = new Blit();
+    private static final ResourceLocation ICONS = new ResourceLocation("textures/gui/icons.png");
 
     private Spring  lead, trail;
     private int     lastSlot = -1;
@@ -50,6 +66,15 @@ public final class GlassHudHandler {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onOverlayPre(RenderGameOverlayEvent.Pre e) {
         if (e.type != RenderGameOverlayEvent.ElementType.ALL) return;
+        // Safety drain: onDecoPre pushes at HIGHEST, before any other mod can cancel
+        // Pre(HEALTH/ARMOR/FOOD/AIR). A cancel means GuiIngameForge never fires the
+        // matching Post, so our push would be stranded and the GL matrix stack would
+        // grow one level per frame until GL_STACK_OVERFLOW. Pop any leftover here, at
+        // the head of the next overlay pass (the GL stack survives between frames).
+        if (decoPushed) {
+            GlStateManager.popMatrix();
+            decoPushed = false;
+        }
         // Earliest point in the overlay pass: open the frame BEFORE anything can
         // grab, so per-frame freshness checks mean what they say.
         SceneCapture.newFrame();
@@ -60,6 +85,13 @@ public final class GlassHudHandler {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onDecoPre(RenderGameOverlayEvent.Pre e) {
+        // EXPERIENCE is fully owned here (the number is moved to the health/food row, so
+        // vanilla's bar+number pair is cancelled and redrawn) — cancelling Pre also means
+        // GuiIngameForge never fires Post(EXPERIENCE), so we must push AND pop in this call.
+        if (e.type == RenderGameOverlayEvent.ElementType.EXPERIENCE) {
+            renderExperience(e);
+            return;
+        }
         if (!isDecoration(e.type)) return;
         GlStateManager.pushMatrix();
         GlStateManager.translate(0f, -DECO_LIFT, 0f);
@@ -77,8 +109,61 @@ public final class GlassHudHandler {
         return t == RenderGameOverlayEvent.ElementType.HEALTH
             || t == RenderGameOverlayEvent.ElementType.ARMOR
             || t == RenderGameOverlayEvent.ElementType.FOOD
-            || t == RenderGameOverlayEvent.ElementType.AIR
-            || t == RenderGameOverlayEvent.ElementType.EXPERIENCE;
+            || t == RenderGameOverlayEvent.ElementType.AIR;
+    }
+
+    /**
+     * Own the XP element: lift it by {@link #DECO_LIFT} with the rest of the cluster, draw
+     * the vanilla XP bar at its normal spot, but move the LEVEL number up onto the
+     * health/food row (screen-centred, so it sits in the gap between the health bar on the
+     * left and the food bar on the right). Same look as vanilla — black 4-way outline +
+     * green {@code 0x80FF20} centre, no shadow. Then cancel vanilla's own EXPERIENCE draw.
+     */
+    private void renderExperience(RenderGameOverlayEvent.Pre e) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null || mc.playerController == null) return;  // let vanilla handle it
+
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(0f, -DECO_LIFT, 0f);
+            ScaledResolution sr = new ScaledResolution(mc);
+            int width  = sr.getScaledWidth();
+            int height = sr.getScaledHeight();
+
+            GlStateManager.color(1f, 1f, 1f, 1f);
+            GlStateManager.disableBlend();   // the icons sheet strip is opaque, like vanilla
+
+            if (mc.playerController.gameIsSurvivalOrAdventure()) {
+                mc.getTextureManager().bindTexture(ICONS);
+                int cap = mc.thePlayer.xpBarCap();
+                int left = width / 2 - 91;
+                if (cap > 0) {
+                    int filled = (int) (mc.thePlayer.experience * 183f);
+                    int top = height - 32 + 3;                       // vanilla XP bar top = h-29
+                    XP_BLIT.rect(left, top, 0, 64, 182, 5);
+                    if (filled > 0) XP_BLIT.rect(left, top, 0, 69, filled, 5);
+                }
+                if (mc.thePlayer.experienceLevel > 0) {
+                    String s = "" + mc.thePlayer.experienceLevel;
+                    int tx = (width - mc.fontRendererObj.getStringWidth(s)) / 2;
+                    int ty = height - 39;                            // health/food row (lifted by the push)
+                    mc.fontRendererObj.drawString(s, tx + 1, ty, 0);
+                    mc.fontRendererObj.drawString(s, tx - 1, ty, 0);
+                    mc.fontRendererObj.drawString(s, tx, ty + 1, 0);
+                    mc.fontRendererObj.drawString(s, tx, ty - 1, 0);
+                    mc.fontRendererObj.drawString(s, tx, ty, 0x80FF20);
+                }
+            }
+
+            // Leave GL the way MC expects for the elements after us: blend on, colour cache
+            // white (the font renderer left the real colour tinted). NEVER disableBlend on exit.
+            GlStateManager.enableBlend();
+            GlStateManager.color(0f, 0f, 0f, 0f);
+            GlStateManager.color(1f, 1f, 1f, 1f);
+        } finally {
+            GlStateManager.popMatrix();
+        }
+        e.setCanceled(true);
     }
 
     // ---- replace the vanilla hotbar --------------------------------------
@@ -88,11 +173,20 @@ public final class GlassHudHandler {
         if (e.type != RenderGameOverlayEvent.ElementType.HOTBAR) return;
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null) return;
+        // Spectators get vanilla's spectator menu, not the glass hotbar; and a
+        // non-player render view (camera entity, third-party mob) has no hotbar.
+        // GuiIngameForge fires Pre(HOTBAR) BEFORE its own isSpectator branch, so
+        // without this the glass bar + player items would replace the spectator
+        // menu. Leave the event uncancelled so vanilla draws its own GUI.
+        if (mc.playerController != null && mc.playerController.isSpectator()) return;
+        if (!(mc.getRenderViewEntity() instanceof net.minecraft.entity.player.EntityPlayer)) return;
         if (!SceneCapture.hasBackdrop()) return;
 
         ScaledResolution sr = new ScaledResolution(mc);
         int center = sr.getScaledWidth() / 2;
-        int bottom = sr.getScaledHeight();
+        // Lift the whole bar off the bottom edge (26.2 pose: guiHeight - LIFT). Strip,
+        // selector and items all derive from `bottom`, so they move together.
+        int bottom = sr.getScaledHeight() - LIFT;
 
         // NOTE: the close-fade ghost is drawn ONCE per frame, from
         // GlassContainerHandler's Post(ALL). Drawing it here as well composited it
@@ -102,10 +196,15 @@ public final class GlassHudHandler {
 
         // Proportional upscale of the whole bar (glass AND items follow the
         // matrix), anchored at the bar's bottom-centre — same as 26.2's pose.
+        // Suppress the glass drop-shadow ring while a screen dims the background (pause
+        // menu, inventory, chat), so the hotbar leaves no black halo. Restored in finally.
+        boolean screenOpen = mc.currentScreen != null;
+
         GlStateManager.pushMatrix();
         GlStateManager.translate(center, bottom, 0f);
         GlStateManager.scale(SCALE, SCALE, 1f);
         GlStateManager.translate(-center, -bottom, 0f);
+        if (screenOpen) GlassProgram.setShadowScale(0f);
         try {
             int stripX0 = center - 91;
             int stripY0 = bottom - 22;
@@ -150,6 +249,7 @@ public final class GlassHudHandler {
             // one call, so cancelling it takes the items with it — draw them back.
             renderItems(mc, stripX0, stripY0, e.partialTicks);
         } finally {
+            if (screenOpen) GlassProgram.setShadowScale(1f);
             GlStateManager.popMatrix();
         }
         e.setCanceled(true);

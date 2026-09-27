@@ -17,7 +17,6 @@ import java.awt.font.GlyphVector;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -46,7 +45,26 @@ public final class GlassFont {
     private static Font derived, derivedFb;
     private static FontMetrics fm, fmFb;
     private static int ascentP, lineP;
-    private static final Map<Character, Glyph> cache = new HashMap<Character, Glyph>();
+    /** Cap on cached glyph textures. Because this FontRenderer is installed globally,
+     *  a CJK-heavy server would otherwise let {@code cache} grow without bound and leak
+     *  one small GL texture per never-before-seen character forever. An access-ordered
+     *  LRU with a generous cap keeps the working set (well under this on any real screen)
+     *  while freeing the GL texture of the least-recently-used glyph on overflow. All
+     *  access is on the render thread, and the evicted glyph is never one from the string
+     *  currently being measured/drawn (that glyph is the most-recently-used), so a live
+     *  texture is never deleted mid-draw. */
+    private static final int MAX_GLYPHS = 4096;
+    private static final Map<Character, Glyph> cache =
+            new java.util.LinkedHashMap<Character, Glyph>(512, 0.75f, true) {
+                @Override protected boolean removeEldestEntry(Map.Entry<Character, Glyph> eldest) {
+                    if (size() <= MAX_GLYPHS) return false;
+                    Glyph g = eldest.getValue();
+                    if (g != null && g.tex != 0) {
+                        try { GlStateManager.deleteTexture(g.tex); } catch (Throwable ignored) {}
+                    }
+                    return true;
+                }
+            };
     /** AA + fractional-metrics context, used to size each glyph to its real ink bounds. */
     private static final FontRenderContext FRC = new FontRenderContext(null, true, true);
 

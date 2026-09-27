@@ -27,9 +27,15 @@ public final class GlassProgram {
     public static final int BTN   = 2;
     /** Full-screen gaussian for the menu backdrop. */
     public static final int BLUR  = 3;
+    /** Solid coloured rounded rect (AA SDF, no backdrop) — the config-GUI fill primitive. */
+    public static final int ROUND = 4;
+    /** iOS-26 scroll-edge: progressive backdrop blur + dark fade, ramped by vLocal.y. */
+    public static final int EDGE  = 5;
+    /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
+    public static final int LENS  = 6;
 
-    private static final int COUNT = 4;
-    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur" };
+    private static final int COUNT = 7;
+    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens" };
 
     private static final int[] program   = new int[COUNT];
     private static final int[] uSampler0 = new int[COUNT];
@@ -38,6 +44,14 @@ public final class GlassProgram {
     private static final int[] uRadius   = new int[COUNT];
     private static final int[] uDim      = new int[COUNT];
     private static final int[] uEdgeMode = new int[COUNT];
+    private static final int[] uCorner   = new int[COUNT];
+    private static final int[] uShadow   = new int[COUNT];
+
+    /** Drop-shadow multiplier for the GLASS program (1 = normal, 0 = suppressed).
+     *  Persistent: applied on every GLASS bind; the hotbar drops it to 0 while a
+     *  screen darkens the background, then restores it, so no other surface is
+     *  affected. */
+    private static float shadowScale = 1f;
 
     /** 0 = untried, 1 = ready, -1 = failed (never retry) */
     private static int state = 0;
@@ -48,6 +62,9 @@ public final class GlassProgram {
     public static boolean lineUsable() { return state == 1 && program[LINE]  != 0; }
     public static boolean btnUsable()  { return state == 1 && program[BTN]   != 0; }
     public static boolean blurUsable() { return state == 1 && program[BLUR]  != 0; }
+    public static boolean roundUsable(){ return state == 1 && program[ROUND] != 0; }
+    public static boolean edgeUsable() { return state == 1 && program[EDGE]  != 0; }
+    public static boolean lensUsable() { return state == 1 && program[LENS]  != 0; }
 
     /** Build all three once. Returns false if this GPU can't run the glass path. */
     public static boolean ensureReady() {
@@ -73,7 +90,10 @@ public final class GlassProgram {
                 + " (glass=" + (program[GLASS] != 0)
                 + " line="   + (program[LINE]  != 0)
                 + " btn="    + (program[BTN]   != 0)
-                + " blur="   + (program[BLUR]  != 0) + ")");
+                + " blur="   + (program[BLUR]  != 0)
+                + " round="  + (program[ROUND] != 0)
+                + " edge="   + (program[EDGE]  != 0)
+                + " lens="   + (program[LENS]  != 0) + ")");
             return true;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] glass shaders unavailable: " + t);
@@ -103,6 +123,8 @@ public final class GlassProgram {
             uRadius[kind]   = GL20.glGetUniformLocation(p, "Radius");
             uDim[kind]      = GL20.glGetUniformLocation(p, "Dim");
             uEdgeMode[kind] = GL20.glGetUniformLocation(p, "EdgeMode");
+            uCorner[kind]   = GL20.glGetUniformLocation(p, "Corner");
+            uShadow[kind]   = GL20.glGetUniformLocation(p, "ShadowScale");
             return p;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] " + fshName + " unavailable: " + t);
@@ -117,12 +139,15 @@ public final class GlassProgram {
         if (uSampler0[kind] >= 0) GL20.glUniform1i(uSampler0[kind], 0);
         if (uScreen[kind]   >= 0) GL20.glUniform2f(uScreen[kind], mc.displayWidth, mc.displayHeight);
         if (uModulate[kind] >= 0) GL20.glUniform4f(uModulate[kind], 1f, 1f, 1f, 1f);
+        // GLASS drop-shadow multiplier — persistent, set every bind so a value the
+        // hotbar leaves at 0 can never leak into the panel or inventory glass.
+        if (kind == GLASS && uShadow[GLASS] >= 0) GL20.glUniform1f(uShadow[GLASS], shadowScale);
     }
 
     public static void unbind() { GL20.glUseProgram(0); }
 
     /** True when this program samples the captured backdrop. */
-    public static boolean needsBackdrop(int kind) { return kind == GLASS; }
+    public static boolean needsBackdrop(int kind) { return kind == GLASS || kind == EDGE || kind == LENS; }
 
     /** Blur-specific uniforms; call right after {@link #bind}. Opaque full-screen backdrop. */
     public static void setBlur(float radiusPx, float dim) {
@@ -137,6 +162,22 @@ public final class GlassProgram {
         if (uDim[BLUR]      >= 0) GL20.glUniform1f(uDim[BLUR],    dim);
         if (uEdgeMode[BLUR] >= 0) GL20.glUniform1f(uEdgeMode[BLUR], 1f);
     }
+
+    /** Corner scale (0..1 of the half-size) for the ROUND program; call right after {@link #bind}. */
+    public static void setCorner(float corner) {
+        if (uCorner[ROUND] >= 0) GL20.glUniform1f(uCorner[ROUND], corner);
+    }
+
+    /** Scroll-edge uniforms (max blur radius px + max dim) for the dedicated EDGE program
+     *  (edge.fsh); call right after {@link #bind}. */
+    public static void setEdge(float radiusPx, float dim) {
+        if (uRadius[EDGE] >= 0) GL20.glUniform1f(uRadius[EDGE], radiusPx);
+        if (uDim[EDGE]    >= 0) GL20.glUniform1f(uDim[EDGE],    dim);
+    }
+
+    /** GLASS drop-shadow multiplier. Persists until changed; the hotbar sets 0
+     *  while a screen is open and restores 1 immediately after its own draws. */
+    public static void setShadowScale(float s) { shadowScale = s; }
 
     // ---- helpers ----------------------------------------------------------
 

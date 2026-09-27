@@ -5,6 +5,7 @@ import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
+import dev.s1mp1e.client.gui.HudText;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 
@@ -49,7 +50,7 @@ public final class FpsHudModule extends Module implements HudBounds, HudRenderer
         try {
             ctx.getMatrices().translate(x0, y0, 0f);
             ctx.getMatrices().scale(sc, sc, 1f);
-            GlassFont.drawARGB(ctx, s, PAD, PAD, color.colorValue, true);
+            HudText.draw(ctx, s, PAD, PAD, color.colorValue, true);
         } finally {
             ctx.getMatrices().pop();
         }

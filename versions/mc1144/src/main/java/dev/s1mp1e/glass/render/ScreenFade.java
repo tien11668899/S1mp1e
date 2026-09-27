@@ -100,6 +100,12 @@ public final class ScreenFade {
         GL11.glPopAttrib();
         GlStateManager.bindTexture(0);
         GlStateManager.color4f(1f, 1f, 1f, 1f);
+        // ...and INVALIDATE the cache (hard rule 5). The line above can itself be a cached
+        // no-op: glPopAttrib(GL_CURRENT_BIT) has already reverted the REAL colour to whatever
+        // it was at push time, which GlStateManager never saw. If its cache still reads white,
+        // color4f(white) issues nothing and a non-white colour survives to tint every later
+        // draw. clearCurrentColor forces the next colour write through, whoever makes it.
+        GlStateManager.clearCurrentColor();
     }
 
     /**

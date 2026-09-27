@@ -64,7 +64,7 @@ public final class HungerSaturationHudModule extends Module {
         int x0 = Math.round(fx0), y0 = Math.round(fy0), x1 = Math.round(fx1), y1 = Math.round(fy1);
         if (x1 < x0) { int t = x0; x0 = x1; x1 = t; }   // guard a mirrored transform
         if (y1 < y0) { int t = y0; y0 = y1; y1 = t; }
-        int gold = color.colorValue & 0xFFFFFF;
+        int gold = ChromaHudModule.accent(color.colorValue, x0, y0) & 0xFFFFFF;   // chroma accent when enabled
 
         // Captured coords are already screen-space: draw them under an identity pose.
         g.pose().pushMatrix();

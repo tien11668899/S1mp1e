@@ -96,6 +96,13 @@ public final class CrosshairModule extends Module {
     }
 
     private void draw(int cx, int cy) {
+        // The glass HUD pass draws with raw glColor4f, which leaves GlStateManager's
+        // colour cache out of sync with the actual GL colour. Force the cache to a
+        // known state (write, then reset to white) before our own GlStateManager
+        // colour/tint calls, or the first Gui.drawRect can pick up the stale tint.
+        GlStateManager.color(0.0F, 0.0F, 0.0F, 0.0F);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+
         // The one and only source of the crosshair colour. This value must NEVER
         // be derived from world state (targeted entity, hit result, distance) —
         // that would turn the crosshair into a reach/target indicator.
@@ -170,42 +177,50 @@ public final class CrosshairModule extends Module {
         }
     }
 
-    /** T-crosshair: left + right + down arms (the up arm is dropped, opening upward). */
+    // ---- geometry (pure int math, ported from mc1211) ----
+    //
+    // CENTERING. cx,cy are scaledWidth/2, scaledHeight/2 — a pixel BOUNDARY, not a pixel. A 1-px line
+    // cannot straddle it; it commits to one side and is a half-pixel off (the same reason vanilla's own
+    // crosshair sits ~1px off centre). What reads as "centred" is that the four arms are EXACTLY equal in
+    // length and gap. The old mc189 geometry (half = t/2, arms measured from cx) leaned the right/down arms
+    // one pixel long; this version places both bar bands with a single {@code off = (t+1)/2} — biasing the
+    // sub-pixel the SAME way vanilla does (up-left) — and measures each arm symmetrically from the band
+    // edge, so left==right and up==down for every thickness.
+
+    /** Vertical-bar / horizontal-bar offset from the centre boundary. {@code (t+1)/2} puts a 1-px mark on
+     *  the up-left pixel of the boundary — matching vanilla's bias — and keeps an even mark centred. */
+    private static int barOffset(int t) { return (t + 1) / 2; }
+
+    /** T-crosshair: the cross minus its up arm (opening upward). Same symmetric left/right/down arms. */
     private static int[][] tRects(int cx, int cy, int s, int t, int g) {
-        int half = t / 2;
-        int bandY0 = cy - half, bandY1 = bandY0 + t;
-        int bandX0 = cx - half, bandX1 = bandX0 + t;
+        int off = barOffset(t);
+        int bx0 = cx - off, bx1 = bx0 + t;
+        int by0 = cy - off, by1 = by0 + t;
         return new int[][] {
-            { cx - g - s, bandY0, cx - g,     bandY1 },   // left
-            { cx + g,     bandY0, cx + g + s, bandY1 },   // right
-            { bandX0, cy + g,     bandX1, cy + g + s }    // down
+            { bx0 - g - s, by0, bx0 - g,     by1 },   // left
+            { bx1 + g,     by0, bx1 + g + s, by1 },   // right
+            { bx0, by1 + g,     bx1, by1 + g + s }    // down
         };
     }
 
-    /** Filled square of side {@code t}; size and gap have no meaning for a dot. */
-    private static int[][] dotRects(int cx, int cy, int t) {
-        int half = t / 2;
-        int x0 = cx - half;
-        int y0 = cy - half;
-        return new int[][] { { x0, y0, x0 + t, y0 + t } };
+    /** Filled square of side {@code d}, centred on the same boundary bias as the bars. */
+    private static int[][] dotRects(int cx, int cy, int d) {
+        int off = barOffset(d);
+        int x0 = cx - off, y0 = cy - off;
+        return new int[][] { { x0, y0, x0 + d, y0 + d } };
     }
 
-    /**
-     * Four arms of length {@code s}, each starting {@code g} px out from centre.
-     * {@code half = t / 2} keeps an odd thickness centred on the exact centre
-     * pixel instead of straddling it.
-     */
+    /** Cross: four arms of equal length {@code s}, each {@code g} px out from the bar edge, symmetric
+     *  about the bar centre on both axes. */
     private static int[][] crossRects(int cx, int cy, int s, int t, int g) {
-        int half = t / 2;
-        int bandY0 = cy - half;
-        int bandY1 = bandY0 + t;
-        int bandX0 = cx - half;
-        int bandX1 = bandX0 + t;
+        int off = barOffset(t);
+        int bx0 = cx - off, bx1 = bx0 + t;   // vertical bar columns
+        int by0 = cy - off, by1 = by0 + t;   // horizontal bar rows
         return new int[][] {
-            { cx - g - s, bandY0, cx - g,     bandY1 },   // left
-            { cx + g,     bandY0, cx + g + s, bandY1 },   // right
-            { bandX0, cy - g - s, bandX1, cy - g     },   // up
-            { bandX0, cy + g,     bandX1, cy + g + s }    // down
+            { bx0 - g - s, by0, bx0 - g,     by1 },   // left  (horizontal band)
+            { bx1 + g,     by0, bx1 + g + s, by1 },   // right
+            { bx0, by0 - g - s, bx1, by0 - g },       // up    (vertical band)
+            { bx0, by1 + g,     bx1, by1 + g + s }    // down
         };
     }
 

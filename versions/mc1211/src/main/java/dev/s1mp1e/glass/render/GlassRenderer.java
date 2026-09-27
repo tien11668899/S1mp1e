@@ -103,6 +103,8 @@ public final class GlassRenderer {
         if (kind == GlassProgram.ROUND && !GlassProgram.roundUsable()) return false;
         if (kind == GlassProgram.EDGE  && !GlassProgram.edgeUsable()) return false;
         if (kind == GlassProgram.LENS  && !GlassProgram.lensUsable()) return false;
+        if (kind == GlassProgram.RING  && !GlassProgram.ringUsable()) return false;
+        if (kind == GlassProgram.ARC   && !GlassProgram.arcUsable())  return false;
         batchTex = GlassProgram.needsBackdrop(kind);
         if (batchTex && !SceneCapture.hasBackdrop()) return false;
 
@@ -269,6 +271,64 @@ public final class GlassRenderer {
      * never flickers). {@code radiusPx} is the corner radius in GUI px (clamped to the
      * half-size); {@code argb} is the packed fill colour.
      */
+    /**
+     * Liquid-glass RING (glass_ring.fsh): the same glass material on an annulus of outer radius {@code outerR} and band
+     * width {@code thickness} (screen px), centred on ({@code cx},{@code cy}). Frost 0.5 like the panels, no lift.
+     */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity) {
+        ring(cx, cy, outerR, thickness, opacity, 0);
+    }
+
+    /** {@code shape}: 0 circle, 1 rounded square, 2 plus wrapping the crosshair (rides on the green knob). */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape) {
+        ring(cx, cy, outerR, thickness, opacity, shape, 0.45f);
+    }
+
+    /** {@code ratio} = the plus arm's half-width / reach (shape 2); quantised to 16 steps on the green knob. */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape, float ratio) {
+        ring(cx, cy, outerR, thickness, opacity, shape, ratio, 0f);
+    }
+
+    /** {@code gap} = the plus's central-hole half-size / reach; >0 wraps a separated crosshair arm by arm. */
+    private static int gapCode(float gap) { return Math.max(0, Math.min(14, Math.round(gap / 0.92f * 14f))); }
+
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape, float ratio, float gap) {
+        if (outerR <= 0f || opacity <= 0f) return;
+        float t = Math.max(0.02f, Math.min(1f, thickness / outerR));
+        int rc = Math.max(0, Math.min(15, Math.round((ratio - 0.08f) / 0.84f * 15f)));
+        float g = shape == 2 ? (gapCode(gap) * 16 + rc) / 255f : (shape == 1 ? 245 / 255f : 1f);   // glass_ring: 255 circle, 245 square, plus = gap*16+ratio
+        draw(GlassProgram.RING, cx - outerR, cy - outerR, cx + outerR, cy + outerR, 10f, t, g, opacity, FROST_PANEL);
+    }
+
+    /**
+     * Flat anti-aliased ARC with round caps (ring_arc.fsh): from 12 o'clock clockwise over {@code progress} (0..1) of a
+     * circle of outer radius {@code outerR}, stroke {@code thickness} px, colour {@code argb}.
+     */
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb) {
+        arc(cx, cy, outerR, thickness, progress, argb, 0);
+    }
+
+    /** As {@link #arc(float, float, float, float, float, int)} on {@code shape} (see {@link #ring}). */
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape) {
+        arc(cx, cy, outerR, thickness, progress, argb, shape, 0.45f);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape,
+                           float ratio) {
+        arc(cx, cy, outerR, thickness, progress, argb, shape, ratio, 0f);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape,
+                           float ratio, float gap) {
+        if (outerR <= 0f || progress == 0f || (argb >>> 24) == 0) return;   // progress < 0 = counter-clockwise
+        if (!beginBatch(GlassProgram.ARC)) return;
+        GlassProgram.setArc(progress, Math.max(0.02f, Math.min(1f, thickness / outerR)), shape, ratio, gap);
+        float a = ((argb >>> 24) & 255) / 255f, r = ((argb >> 16) & 255) / 255f,
+              g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        batchQuad(cx - outerR, cy - outerR, cx + outerR, cy + outerR, 1f, r, g, b, a);
+        endBatch();
+    }
+
     public static void roundRect(float x0, float y0, float x1, float y1, float radiusPx, int argb) {
         if (!beginBatch(GlassProgram.ROUND)) return;
         float half = Math.min(x1 - x0, y1 - y0) / 2f;

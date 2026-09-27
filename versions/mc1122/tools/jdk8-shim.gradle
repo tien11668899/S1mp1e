@@ -1,0 +1,24 @@
+// Build the 1.12.2 (Gradle 4.10.3 / ForgeGradle 2.3) project without a JDK 8: Gradle runs on the
+// JRE 8, and every JavaCompile forks JDK 21's javac against the Java 8 rt.jar, so the bytecode
+// links to Java 8 API signatures (no ByteBuffer.flip() -> NoSuchMethodError on the game's Java 8).
+//
+// Delta from the mc189 (Gradle 2.14) shim: Gradle 4.10's JavaCompile deprecated the String
+// `options.bootClasspath` in favour of the FileCollection `options.bootstrapClasspath`, so set that.
+//
+// runClient extra: ForgeGradle's :makeStart task compiles the GradleStart bootstrap through Ant's
+// <javac>, which by default needs an IN-PROCESS compiler (com.sun.tools.javac.Main / JSR-199) — and
+// the JRE 8 that Gradle itself runs on has none, so :makeStart dies with "Unable to find a javac
+// compiler". Forcing Ant's "extJavac" adapter makes it FORK an external `javac` instead (found on
+// PATH — put JDK 21's bin on PATH for runClient), with the -source/-target 1.8 the task already
+// passes, so GradleStart still compiles to Java 8 bytecode. This affects only Ant's <javac>; the
+// JavaCompile forks above are untouched, and the built jar never runs :makeStart.
+System.setProperty('build.compiler', 'extJavac')
+
+allprojects {
+    tasks.withType(JavaCompile) {
+        options.fork = true
+        options.forkOptions.executable = 'C:/Program Files/Java/jdk-21.0.11/bin/javac.exe'
+        options.bootstrapClasspath = files('C:/Program Files/Java/jre1.8.0_481/lib/rt.jar')
+        options.compilerArgs += ["-Xlint:-options"]
+    }
+}

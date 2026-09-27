@@ -2,12 +2,16 @@ package dev.s1mp1e.glass.mixin;
 
 import java.util.WeakHashMap;
 
+import dev.s1mp1e.client.gui.ScreenOpenFade;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
+import dev.s1mp1e.glass.ui.SliderGlassHost;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.ingame.ContainerScreen;
 import net.minecraft.client.gui.widget.AbstractButtonWidget;
+import net.minecraft.client.gui.widget.AbstractPressableButtonWidget;
+import net.minecraft.client.gui.widget.SliderWidget;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -32,12 +36,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *   <li><b>Hover lift.</b> A per-widget {@link Fade} eases the lift 0&harr;0.81 over
  *       {@link #HOVER_FADE_MS} (100 ms) so hover-in/out ramps instead of popping.
  *       Keyed per widget in a {@link WeakHashMap} so dead widgets evict themselves.</li>
- *   <li><b>Screen open/close opacity.</b> A single shared {@link Fade} eases the
- *       capsule opacity 0&rarr;1 over {@link #OPEN_FADE_MS} (150 ms), restarting from
- *       0 whenever {@code currentScreen} changes (identity compare, so a resize's
- *       reused instance never restarts it — no flash). Endpoint 1.0, so a settled
+ *   <li><b>Screen open/close opacity.</b> The shared {@link ScreenOpenFade} (a linear
+ *       0&rarr;1 ramp over 150 ms, keyed to the current {@code Screen} instance) eases
+ *       the capsule opacity, so the buttons and the glass option sliders on the same
+ *       screen fade in together — they read the one fade. A resize reuses the same
+ *       instance, so it does not restart (no flash). Endpoint 1.0, so a settled
  *       button's opacity is exactly the widget's alpha.</li>
  * </ul>
+ *
+ * <p><b>Who gets glass.</b> Only {@code AbstractPressableButtonWidget}s (ButtonWidget,
+ * OptionButtonWidget, CheckboxWidget…) become capsules; anything else that overrides
+ * {@code renderButton} with its own look (textured buttons, text fields) keeps it. Widgets
+ * inside a {@code ContainerScreen} stay vanilla, because there the glass panel owns the look.
+ * Vanilla option {@code SliderWidget}s are handed to {@code SliderGlassMixin} through the
+ * {@link SliderGlassHost} duck: 1.14.4's {@code SliderWidget} declares no {@code renderButton}
+ * of its own, so this HEAD cancel used to swallow its {@code renderBg} (the knob) and leave a
+ * knob-less capsule. Now the slider either paints its full glass skin (and we cancel) or draws
+ * completely vanilla.
  *
  * <p><b>Tier notes (1.14.4).</b> No MatrixStack (1.15+): {@code renderButton(int,int,
  * float)} ({@code renderButton(IIF)V}) takes no MatrixStack, so the handler drops it.
@@ -55,17 +70,10 @@ public abstract class ButtonGlassMixin {
     private static final float LIFT_ON = 0.81f;
     /** Hover ease duration — the container hover-pill fade (HOVER_FADE_S 0.10). */
     private static final float HOVER_FADE_MS = 100f;
-    /** Screen open/close opacity ease — the 150 ms ScreenFade cross-dissolve uses. */
-    private static final float OPEN_FADE_MS = 150f;
 
     /** Per-widget hover-lift fade; WeakHashMap auto-evicts discarded widgets. */
     private static final WeakHashMap<AbstractButtonWidget, Fade> s1mp1e$hoverFades =
             new WeakHashMap<AbstractButtonWidget, Fade>();
-
-    /** One shared capsule-opacity fade, restarted whenever the screen changes. */
-    private static final Fade s1mp1e$openFade = new Fade(0f, OPEN_FADE_MS);
-    /** The screen the opacity fade is currently keyed to (identity compare). */
-    private static Screen s1mp1e$lastScreen;
 
     @Shadow protected float alpha;
     @Shadow public boolean active;
@@ -83,6 +91,23 @@ public abstract class ButtonGlassMixin {
         if (!self.visible) return;
 
         MinecraftClient mc = MinecraftClient.getInstance();
+
+        // Inside a container/inventory screen the glass panel owns the look, so every widget there
+        // stays vanilla (mc1201/1.16.5 skip HandledScreen the same way).
+        if (mc.currentScreen instanceof ContainerScreen) return;
+
+        // Vanilla option sliders: 1.14.4's SliderWidget has no renderButton of its own, and this very
+        // HEAD cancel also swallows its renderBg (the knob) — so the slider paints itself through the
+        // SliderGlassHost duck here. Cancel vanilla only when the skin actually drew; otherwise the
+        // full vanilla slider (texture + knob) draws, never a knob-less capsule.
+        if (self instanceof SliderWidget) {
+            if (((SliderGlassHost) self).s1mp1e$paintSkin(mouseX, mouseY)) ci.cancel();
+            return;
+        }
+        // Only pressable widgets get the capsule; textured buttons, checkboxes and text fields
+        // override renderButton with their own look and stay vanilla.
+        if (!(self instanceof AbstractPressableButtonWidget)) return;
+
         int x = self.x, y = self.y, w = this.width, h = this.height;
         boolean over = this.isHovered || this.focused;
 
@@ -95,17 +120,14 @@ public abstract class ButtonGlassMixin {
         fade.to(over ? 1f : 0f);
         float lift = LIFT_ON * fade.value();
 
-        // Screen open/close opacity ramp. Restart the shared fade from 0 on every
-        // screen change (identity compare, so a resize's reused instance never
-        // restarts it), then ease 0->1 over OPEN_FADE_MS. Endpoint 1.0 keeps a
-        // settled button's opacity at the widget's own alpha, exactly the Forge port.
-        Screen screen = mc.currentScreen;
-        if (screen != s1mp1e$lastScreen) {
-            s1mp1e$lastScreen = screen;
-            s1mp1e$openFade.snap(0f);
-            s1mp1e$openFade.to(1f);
-        }
-        float opacity = this.alpha * s1mp1e$openFade.value();
+        // Screen open/close opacity ramp — the SHARED ScreenOpenFade (a linear 0->1 over 150 ms,
+        // keyed to the current screen instance). Sharing it is the point: when buttons kept their
+        // own "last screen", a glass slider that had not been painted on the screen in between did
+        // not notice a return to the same screen (Options -> Controls -> Done) and popped in at full
+        // opacity while the buttons faded. Endpoint 1.0 keeps a settled button's opacity at the
+        // widget's own alpha, exactly the Forge port; a resize reuses the same Screen instance, so
+        // the identity-keyed fade never restarts (no flash).
+        float opacity = this.alpha * ScreenOpenFade.value(mc.currentScreen);
 
         GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
 

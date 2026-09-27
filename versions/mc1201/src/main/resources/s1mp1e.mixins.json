@@ -10,12 +10,21 @@
     "TitleScreenBackdropCaptureMixin", "ScreenMenuBackdropMixin",
     "RecipeBookGlassMixin", "RecipeTabGlassMixin", "RecipeButtonGlassMixin",
     "RecipeToggleGlassMixin", "CreativeGlassMixin",
+    "AdvancementsGlassMixin", "StatsScreenGlassMixin", "EntryListBackgroundGlassMixin",
+    "SocialGlassMixin", "BookGlassMixin", "EffectsInInventoryGlassMixin",
+    "StonecutterScrollGlassMixin", "LoomScrollGlassMixin", "MerchantScrollGlassMixin",
+    "HandledScreenAccessor",
     "MouseClickMixin", "CrosshairMixin",
+    "LowFireMixin", "AttackIndicatorHideMixin", "HitMarkerAttackMixin", "HitMarkerCritPacketMixin", "HitMarkerDamageMixin",
     "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin", "HeldItemSwingMixin",
     "SpriteContentsAccessor",
     "HandPositionMixin", "FovMultiplierMixin", "ZoomFovMixin", "LightmapGammaMixin",
     "InGameHudEffectMixin", "FontSmoothMixin", "MouseZoomSensitivityMixin",
-    "ForeignZoomKeyBlockMixin"
+    "ForeignZoomKeyBlockMixin",
+    "ChatGlassMixin", "ChatInputGlassMixin", "TabListGlassMixin",
+    "BossBarGlassMixin", "ToastGlassMixin", "ActionBarGlassMixin", "NameTagGlassMixin",
+    "BlockOutlineMixin", "RenderPhaseLineWidthMixin",
+    "DevShotMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

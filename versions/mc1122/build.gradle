@@ -35,6 +35,12 @@ minecraft {
     version  = "1.12.2-14.23.5.2847"
     runDir   = "run"
     mappings = "snapshot_20180814"
+
+    // Dev-only: FML ignores the FMLCorePlugin manifest entry of a classes DIRECTORY
+    // (as runClient loads them), so the coremod never runs in dev unless the game JVM
+    // is told about it explicitly. This affects runClient ONLY — the built jar carries
+    // the FMLCorePlugin manifest attribute and is completely unaffected by this line.
+    clientJvmArgs += ['-Dfml.coreMods.load=dev.s1mp1e.glass.asm.S1mp1eLoadingPlugin']
 }
 
 jar {
@@ -55,6 +61,10 @@ jar {
 processResources {
     inputs.property "version",   project.version
     inputs.property "mcversion", project.minecraft.version
+    // mcmod.info is UTF-8 (the description carries an em-dash). Gradle's expand()
+    // otherwise filters it through the platform charset (Windows-1252), which
+    // mangles the multibyte char into mojibake in the shipped mods-list entry.
+    filteringCharset = 'UTF-8'
     from(sourceSets.main.resources.srcDirs) {
         include 'mcmod.info'
         expand 'version': project.version, 'mcversion': project.minecraft.version

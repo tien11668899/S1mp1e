@@ -43,6 +43,35 @@ public final class Fade {
         legStart = System.nanoTime();
     }
 
+    /**
+     * Ramp to {@code t} starting from wherever the value STANDS RIGHT NOW,
+     * instead of from the previous leg's endpoint.
+     *
+     * <p>For a fade that gets interrupted constantly — the slot hover pill, the
+     * quick-craft drag highlight — {@link #to} is wrong: dragging the cursor
+     * across the gap between two slot rows fires {@code to(0)}, and re-entering
+     * a slot ~30 ms later fires {@code to(1)} with {@code from = target = 0},
+     * so the pill snaps from ~0.7 straight down to 0 and climbs again. That
+     * snap is a visible flicker, and where it snaps from varies with frame
+     * timing.
+     *
+     * <p>Keep using {@link #to} for fades that must stay a pure function of the
+     * clock (screen open/close, panel ghost, tooltip); use this one only where
+     * being interruptible is the point.
+     */
+    public void retarget(float t) {
+        retarget(t, durationMs);
+    }
+
+    /** {@link #retarget(float)} over a specific duration. */
+    public void retarget(float t, float ms) {
+        if (t == target) return;
+        from = value();               // live value — continue, don't restart
+        target = t;
+        legMs = ms <= 0f ? 1f : ms;
+        legStart = System.nanoTime();
+    }
+
     /** Jump straight there, cancelling any leg in flight. */
     public void snap(float t) {
         value = t; from = t; target = t; legStart = 0L; legMs = durationMs;

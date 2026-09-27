@@ -18,8 +18,8 @@ import org.lwjgl.opengl.GL12;
 public final class MenuBackdrop {
 
     /** Blur strength in physical px, and how far the result is darkened. */
-    private static final float RADIUS = 14f;
-    private static final float DIM    = 0.35f;
+    public static final float RADIUS = 14f;
+    public static final float DIM    = 0.35f;
 
     private static int texture = 0;
     private static int texW = 0, texH = 0;
@@ -78,13 +78,43 @@ public final class MenuBackdrop {
         hasFrame = true;
     }
 
+    /** The captured panorama texture id (0 if none captured yet). */
+    public static int panoramaTex() { return texture; }
+
     /** Draw the blurred backdrop full-screen. False -> caller draws the dirt. */
     public static boolean draw() {
         if (!ready()) return false;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        drawTexture(texture, RADIUS, DIM, 0f, mc.window.getScaledHeight());
+        return true;
+    }
 
+    /**
+     * Draw the current framebuffer (the world + the screen's darken gradient),
+     * blurred, as the backdrop behind a non-container in-world screen. Grabs a
+     * fresh composite first. False -> caller keeps whatever it drew.
+     */
+    public static boolean drawLive(float radius, float dim) {
+        if (!GlassProgram.ensureReady() || !GlassProgram.blurUsable()) return false;
+        SceneCapture.grabNow();
+        int tex = SceneCapture.texture();
+        if (tex == 0) return false;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        drawTexture(tex, radius, dim, 0f, mc.window.getScaledHeight());
+        return true;
+    }
+
+    /**
+     * Blit {@code tex} through the BLUR program over the full-width band
+     * {@code [y0, y1)} in GUI pixels. The shader derives its UV from
+     * {@code gl_FragCoord}, so a sub-rect quad samples the matching screen region
+     * unchanged — used for the whole screen and for list header/footer strips.
+     * Vertices wound TL->BL->BR->TR (front-facing under the GUI cull).
+     */
+    public static void drawTexture(int tex, float radius, float dim, float y0, float y1) {
+        if (tex == 0) return;
         MinecraftClient mc = MinecraftClient.getInstance();
         float w = mc.window.getScaledWidth();
-        float h = mc.window.getScaledHeight();
 
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
                         | GL11.GL_CURRENT_BIT | GL11.GL_TEXTURE_BIT);
@@ -94,20 +124,20 @@ public final class MenuBackdrop {
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, tex);
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
         GlassProgram.bind(GlassProgram.BLUR);
-        GlassProgram.setBlur(RADIUS, DIM);
+        GlassProgram.setBlur(radius, dim);
 
         // capture is framebuffer space (origin bottom-left); GUI space is
         // top-left, but the shader derives its UV from gl_FragCoord, so the
-        // quad only needs to cover the screen.
+        // texcoords are cosmetic — only the quad's screen extent matters.
         GL11.glBegin(GL11.GL_QUADS);
-        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, 0f);
-        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, h);
-        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(w,  h);
-        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(w,  0f);
+        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, y0);   // TL
+        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, y1);   // BL
+        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(w,  y1);   // BR
+        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(w,  y0);   // TR
         GL11.glEnd();
 
         GlassProgram.unbind();
@@ -116,6 +146,11 @@ public final class MenuBackdrop {
         GL11.glPopAttrib();
         GlStateManager.bindTexture(0);
         GlStateManager.color4f(1f, 1f, 1f, 1f);
-        return true;
+        // ...and INVALIDATE the cache (hard rule 5). The line above can itself be a cached
+        // no-op: glPopAttrib(GL_CURRENT_BIT) has already reverted the REAL colour to whatever
+        // it was at push time, which GlStateManager never saw. If its cache still reads white,
+        // color4f(white) issues nothing and a non-white colour survives to tint every later
+        // draw. clearCurrentColor forces the next colour write through, whoever makes it.
+        GlStateManager.clearCurrentColor();
     }
 }

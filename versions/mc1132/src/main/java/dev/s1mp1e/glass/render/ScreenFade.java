@@ -1,9 +1,8 @@
 package dev.s1mp1e.glass.render;
 
 import dev.s1mp1e.glass.anim.Fade;
-import net.minecraft.client.MinecraftClient;
+import dev.s1mp1e.glass.compat.Mc1132;
 import com.mojang.blaze3d.platform.GlStateManager;
-import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
@@ -25,6 +24,11 @@ import org.lwjgl.opengl.GL12;
  * image, and capturing simply pauses ({@link #holding}) until the dissolve
  * finishes — which also stops the fade from being captured into its own
  * snapshot and smearing.
+ *
+ * <p><b>1.13.2 delta:</b> sizes come from the {@link Mc1132} bridge — the
+ * capture texture is the framebuffer ({@code fbW/fbH}) and the fullscreen quad
+ * is the GUI-scaled size ({@code scaledW/scaledH}) so a framebuffer-sized quad
+ * does not show only a magnified corner under the scaled GUI ortho.
  */
 public final class ScreenFade {
 
@@ -64,12 +68,11 @@ public final class ScreenFade {
             return;
         }
 
-        MinecraftClient mc = MinecraftClient.getInstance();
         // GUI-SCALED quad size (NOT the framebuffer viewport) — the fade quad lives in
         // the scaled GUI ortho, so a viewport-sized quad would show only a magnified
         // top-left corner. The capture texture stays framebuffer-sized; UV 0..1 maps it.
-        float w = s1mp1e$scaledW();
-        float h = s1mp1e$scaledH();
+        float w = Mc1132.scaledW();
+        float h = Mc1132.scaledH();
 
         // Raw GL throughout, then an explicit GlStateManager re-sync: mixing
         // GlStateManager calls with glPushAttrib/glPopAttrib leaves its cache
@@ -103,7 +106,13 @@ public final class ScreenFade {
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glPopAttrib();
         GlStateManager.bindTexture(0);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GlStateManager.color(1f, 1f, 1f, 1f);
+        // ...and INVALIDATE the cache (hard rule 5). The line above can itself be a cached
+        // no-op: glPopAttrib(GL_CURRENT_BIT) has already reverted the REAL colour to whatever
+        // it was at push time, which GlStateManager never saw. If its cache still reads white,
+        // color(white) issues nothing and a non-white colour survives to tint every later
+        // draw. clearColor() forces the next colour write through, whoever makes it.
+        GlStateManager.clearColor();
     }
 
     /**
@@ -127,8 +136,7 @@ public final class ScreenFade {
         if (now - lastCaptureNanos < CAPTURE_INTERVAL_NS) return;
         lastCaptureNanos = now;
 
-        MinecraftClient mc = MinecraftClient.getInstance();
-        int w = s1mp1e$vpW(), h = s1mp1e$vpH();
+        int w = Mc1132.fbW(), h = Mc1132.fbH();
         if (w <= 0 || h <= 0) return;
 
         int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
@@ -151,32 +159,5 @@ public final class ScreenFade {
         }
         GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
-    }
-
-    // 1.13.2 (Legacy Fabric): mc.window unmapped -> read the GL viewport (FRAMEBUFFER
-    // pixels). Correct for the capture TEXTURE size, but NOT for the fullscreen quad:
-    // the HUD/GUI renders under a SCALED ortho, so a framebuffer-sized quad is
-    // guiScale× too big and only its top-left corner shows (a magnified corner). The
-    // quad must use the GUI-SCALED size instead — see s1mp1e$scaledW/H below.
-    private static final java.nio.IntBuffer S1MP1E_VP = BufferUtils.createIntBuffer(16);
-    private static int s1mp1e$vpW() { S1MP1E_VP.clear(); GL11.glGetIntegerv(GL11.GL_VIEWPORT, S1MP1E_VP); return S1MP1E_VP.get(2); }
-    private static int s1mp1e$vpH() { S1MP1E_VP.clear(); GL11.glGetIntegerv(GL11.GL_VIEWPORT, S1MP1E_VP); return S1MP1E_VP.get(3); }
-
-    // GUI-scaled screen dims WITHOUT the unmapped Window.getScaledWidth(): recover them
-    // from the active ortho projection. MC's GUI pass sets glOrtho(0, scaledW, scaledH,
-    // 0, ...), whose matrix has m[0] = 2/scaledW and m[5] = -2/scaledH — invert to get
-    // the scaled size. Falls back to the viewport if the projection isn't ortho.
-    private static final java.nio.FloatBuffer S1MP1E_PROJ = BufferUtils.createFloatBuffer(16);
-    private static float s1mp1e$scaledW() {
-        S1MP1E_PROJ.clear();
-        GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, S1MP1E_PROJ);
-        float m0 = S1MP1E_PROJ.get(0);
-        return (Math.abs(m0) > 1e-6f) ? Math.abs(2f / m0) : s1mp1e$vpW();
-    }
-    private static float s1mp1e$scaledH() {
-        S1MP1E_PROJ.clear();
-        GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, S1MP1E_PROJ);
-        float m5 = S1MP1E_PROJ.get(5);
-        return (Math.abs(m5) > 1e-6f) ? Math.abs(2f / m5) : s1mp1e$vpH();
     }
 }

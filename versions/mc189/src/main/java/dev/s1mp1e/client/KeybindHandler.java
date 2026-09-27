@@ -42,6 +42,10 @@ public final class KeybindHandler {
 
     /** Edge-detect state for the menu-open key. */
     private boolean menuWasDown;
+    /** Require the menu key to be seen RELEASED once before the first open is allowed. LWJGL can
+     *  report a key still "down" from before the window took focus (e.g. a modifier held while
+     *  launching), which would otherwise auto-open the config right after entering a world. */
+    private boolean menuArmed;
     /** One-time global font swap guard. */
     private boolean fontSwapped;
 
@@ -76,9 +80,21 @@ public final class KeybindHandler {
                 if (mc.fontRendererObj != null
                         && dev.s1mp1e.client.gui.GlassFont.available()
                         && !(mc.fontRendererObj instanceof dev.s1mp1e.client.gui.S1mp1eFontRenderer)) {
-                    mc.fontRendererObj = new dev.s1mp1e.client.gui.S1mp1eFontRenderer(mc);
-                    fontSwapped = true;
-                    System.out.println("[S1mp1e] global PingFang font installed");
+                    // Only replace a VANILLA FontRenderer. If another mod (a font mod that
+                    // installs its own FontRenderer subclass, etc.) has already put a
+                    // non-net.minecraft.* renderer in place, defer to it rather than clobber
+                    // it — S1mp1e's own screens/HUD use GlassFont directly, so PingFang is
+                    // kept where it matters even when we don't take over vanilla text.
+                    String frClass = mc.fontRendererObj.getClass().getName();
+                    if (!frClass.startsWith("net.minecraft.")) {
+                        fontSwapped = true;   // respect the other mod's font, permanently
+                        System.out.println("[S1mp1e] a non-vanilla FontRenderer is present ("
+                                + frClass + "); keeping it, PingFang stays in S1mp1e's own UI");
+                    } else {
+                        mc.fontRendererObj = new dev.s1mp1e.client.gui.S1mp1eFontRenderer(mc);
+                        fontSwapped = true;
+                        System.out.println("[S1mp1e] global PingFang font installed");
+                    }
                 }
             } catch (Throwable t) {
                 fontSwapped = true;   // don't retry a failing construction every tick
@@ -88,9 +104,13 @@ public final class KeybindHandler {
 
         // Menu-open key (default RightShift, launcher/GUI configurable). Edge-detected so
         // a held key opens once; polled before the in-game guard so it works from menus too.
+        // Guarded like the newer versions: the window must be active and the key must have
+        // been observed released once (menuArmed), so a stale "down" state carried over from
+        // launch can't auto-open the config a few seconds after entering a world.
         int mkc = S1mp1eConfig.getMenuKey();
-        boolean md = mkc > 0 && Keyboard.isKeyDown(mkc);
-        if (md && !menuWasDown && mc.currentScreen == null) {
+        boolean md = mkc > 0 && org.lwjgl.opengl.Display.isActive() && Keyboard.isKeyDown(mkc);
+        if (!md) menuArmed = true;   // released -> real presses from now on are intentional
+        if (menuArmed && md && !menuWasDown && mc.currentScreen == null) {
             mc.displayGuiScreen(new S1mp1eConfigScreen());
         }
         menuWasDown = md;

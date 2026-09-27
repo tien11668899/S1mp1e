@@ -36,7 +36,7 @@ public final class OldAnimationsModule extends Module {
     private final Setting swingWhileUsing = add(Setting.bool("Swing while using", true));
 
     public OldAnimationsModule() {
-        super("OldAnimations", "Visual");
+        super("OldAnimations", "Combat");
         CombatHooks.bindOldAnimations(this);
     }
 

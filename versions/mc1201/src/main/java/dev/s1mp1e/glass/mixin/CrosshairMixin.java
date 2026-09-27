@@ -21,6 +21,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class CrosshairMixin {
     @Inject(method = "renderCrosshair", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$crosshair(DrawContext ctx, CallbackInfo ci) {
+        // Combat ring / hit marker go in BEFORE the crosshair (vanilla sprite or the custom shape below), so the
+        // crosshair always stays on top of them.
+        try {
+            dev.s1mp1e.client.module.AttackRingModule.drawUnderCrosshair(ctx);
+            dev.s1mp1e.client.module.HitMarkerModule.drawUnderCrosshair(ctx);
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e] combat under-crosshair draw failed: " + t);
+        }
         if (!(ModuleManager.byName("Crosshair") instanceof CrosshairModule ch) || !ch.enabled) return; // vanilla draws
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null) return;

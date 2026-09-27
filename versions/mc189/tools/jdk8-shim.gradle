@@ -9,3 +9,27 @@ allprojects {
         options.compilerArgs += ['-Xlint:-options']
     }
 }
+
+// runClient support without a JDK 8. ForgeGradle's :makeStart compiles the GradleStart launcher
+// with an in-process Ant javac (com.sun.tools.javac.Main), which the JRE this project builds under
+// does not have — and it hardcodes -source/-target 1.6, which JDK 21's javac rejects, so the shim's
+// forked-javac trick cannot rescue it either. The GradleStart classes are already compiled and
+// cached in the FG 'start' dir from an earlier build (Java 6 bytecode, so they load fine on the
+// game's Java 8) and the extracted source is byte-identical to a fresh extraction, so they are
+// current. When they are present, skip the recompile and let runClient reuse them; only when they
+// are genuinely missing does makeStart run (and fail loudly, pointing here).
+gradle.projectsEvaluated {
+    def ms = rootProject.tasks.findByName('makeStart')
+    if (ms != null) {
+        ms.onlyIf {
+            def cached = new File(gradle.gradleUserHomeDir,
+                'caches/minecraft/net/minecraftforge/forge/1.8.9-11.15.1.2318-1.8.9/start/GradleStart.class')
+            if (cached.exists()) {
+                logger.lifecycle "[jdk8-shim] :makeStart skipped — reusing cached GradleStart classes at " + cached.parent
+                return false
+            }
+            logger.lifecycle "[jdk8-shim] :makeStart running — no cached GradleStart; this needs a JDK 8 (JRE has no javac)"
+            return true
+        }
+    }
+}

@@ -22,6 +22,8 @@ public final class GlassRectRenderState implements GuiElementRenderState {
    private final ScreenRectangle scissor;
    @Nullable
    private final ScreenRectangle bounds;
+   /** The visible glass shape (no shadow/refraction pad), in screen space - what a layer check should test against. */
+   private final ScreenRectangle core;
    private final int pad;
 
    public GlassRectRenderState(
@@ -48,6 +50,11 @@ public final class GlassRectRenderState implements GuiElementRenderState {
       this.scissor = scissor;
       ScreenRectangle b = new ScreenRectangle(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad).transformMaxBounds(this.pose);
       this.bounds = scissor != null ? scissor.intersection(b) : b;
+      this.core = new ScreenRectangle(x0, y0, Math.max(x1 - x0, 1), Math.max(y1 - y0, 1)).transformMaxBounds(this.pose);
+   }
+
+   public ScreenRectangle coreBounds() {
+      return this.core;
    }
 
    public void buildVertices(VertexConsumer vc) {

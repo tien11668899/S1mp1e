@@ -40,9 +40,20 @@ public final class GlassProgram {
     public static final int BTN   = 2;
     /** Full-screen gaussian for the menu backdrop. */
     public static final int BLUR  = 3;
+    /** Solid coloured rounded rect (AA SDF, no backdrop) — the config-GUI fill primitive. */
+    public static final int ROUND = 4;
+    /** iOS-26 scroll-edge: progressive backdrop blur + dark fade, ramped by UV0.y. */
+    public static final int EDGE  = 5;
+    /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
+    public static final int LENS  = 6;
 
-    private static final int COUNT = 4;
-    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur" };
+    /** Liquid-glass RING (glass_ring.fsh): the glass material on an annulus - the attack-cooldown track. */
+    public static final int RING  = 7;
+    /** Flat anti-aliased round-capped ARC (ring_arc.fsh, no backdrop) - the attack-cooldown progress. */
+    public static final int ARC   = 8;
+
+    private static final int COUNT = 9;
+    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens", "glass_ring", "ring_arc" };
 
     private static final int[] program    = new int[COUNT];
     private static final int[] uProj       = new int[COUNT];
@@ -52,6 +63,19 @@ public final class GlassProgram {
     private static final int[] uModulate   = new int[COUNT];
     private static final int[] uRadius     = new int[COUNT];
     private static final int[] uDim        = new int[COUNT];
+    private static final int[] uCorner     = new int[COUNT];
+    private static final int[] uShadow     = new int[COUNT];
+    private static final int[] uArcP     = new int[COUNT];
+    private static final int[] uArcT     = new int[COUNT];
+    private static final int[] uArcS     = new int[COUNT];
+    private static final int[] uArcR     = new int[COUNT];
+    private static final int[] uArcG     = new int[COUNT];
+
+    /** Drop-shadow multiplier for the GLASS program (1 = normal, 0 = suppressed).
+     *  Persistent: applied on every GLASS bind; the hotbar drops it to 0 while a
+     *  screen darkens the background, then restores it, so no other surface is
+     *  affected. */
+    private static float shadowScale = 1f;
 
     /** Reused 16-float scratch for streaming a {@link Matrix4f} into a mat4 uniform. */
     private static final FloatBuffer MAT16 = BufferUtils.createFloatBuffer(16);
@@ -62,9 +86,14 @@ public final class GlassProgram {
     private GlassProgram() {}
 
     public static boolean usable()     { return state == 1 && program[GLASS] != 0; }
+    public static boolean ringUsable() { return state == 1 && program[RING] != 0; }
+    public static boolean arcUsable()  { return state == 1 && program[ARC]  != 0; }
     public static boolean lineUsable() { return state == 1 && program[LINE]  != 0; }
     public static boolean btnUsable()  { return state == 1 && program[BTN]   != 0; }
     public static boolean blurUsable() { return state == 1 && program[BLUR]  != 0; }
+    public static boolean roundUsable(){ return state == 1 && program[ROUND] != 0; }
+    public static boolean edgeUsable() { return state == 1 && program[EDGE]  != 0; }
+    public static boolean lensUsable() { return state == 1 && program[LENS]  != 0; }
 
     /** Build all four once. Returns false if this GPU can't run the glass path. */
     public static boolean ensureReady() {
@@ -90,7 +119,10 @@ public final class GlassProgram {
                 + " (glass=" + (program[GLASS] != 0)
                 + " line="   + (program[LINE]  != 0)
                 + " btn="    + (program[BTN]   != 0)
-                + " blur="   + (program[BLUR]  != 0) + ")");
+                + " blur="   + (program[BLUR]  != 0)
+                + " round="  + (program[ROUND] != 0)
+                + " edge="   + (program[EDGE]  != 0)
+                + " lens="   + (program[LENS]  != 0) + ")");
             return true;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] glass shaders unavailable: " + t);
@@ -127,6 +159,13 @@ public final class GlassProgram {
             uModulate[kind]  = GL20.glGetUniformLocation(p, "ColorModulator");
             uRadius[kind]    = GL20.glGetUniformLocation(p, "Radius");
             uDim[kind]       = GL20.glGetUniformLocation(p, "Dim");
+            uCorner[kind]    = GL20.glGetUniformLocation(p, "Corner");
+            uShadow[kind]    = GL20.glGetUniformLocation(p, "ShadowScale");
+            uArcP[kind]      = GL20.glGetUniformLocation(p, "ArcProgress");
+            uArcT[kind]      = GL20.glGetUniformLocation(p, "ArcThick");
+            uArcS[kind]      = GL20.glGetUniformLocation(p, "ArcShape");
+            uArcR[kind]      = GL20.glGetUniformLocation(p, "ArcRatio");
+            uArcG[kind]      = GL20.glGetUniformLocation(p, "ArcGap");
             return p;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] " + fshName + " unavailable: " + t);
@@ -134,35 +173,71 @@ public final class GlassProgram {
         }
     }
 
-    /** MC's shader program, saved on bind and restored on unbind so MC's
-     *  own GUI draws in the same frame do not run with program 0. */
-    private static int prevProg = 0;
-
     /** Bind one program and set its frame-constant uniforms. */
     public static void bind(int kind) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        prevProg = GL20.glGetInteger(GL20.GL_CURRENT_PROGRAM);
+        // No readback of GL_CURRENT_PROGRAM: glGet* flushes the pipeline and stalls the CPU on the
+        // GPU (once per batch = several per GUI frame). We do not need MC's previous program — MC's
+        // GUI/HUD draws each call RenderSystem.setShader(...) (-> GlProgramManager.useProgram) before
+        // drawing, so it re-establishes its own program regardless of what we leave bound; unbind()
+        // therefore just returns to program 0 (see unbind()). This whole layer already bypasses any
+        // program cache with raw glUseProgram, so a bare glUseProgram(0) stays consistent.
         GL20.glUseProgram(program[kind]);
         // Core-profile matrices replace the old gl_ModelViewProjectionMatrix. Read at
         // bind time so any GUI model-view push already applied by a mixin (e.g. the
         // hotbar's 1.15x scale) is captured; all quads in one batch share these.
         setMat(uProj[kind],      RenderSystem.getProjectionMatrix());
-        setMat(uModelView[kind], RenderSystem.getModelViewStack().peek().getModel());
+        setMat(uModelView[kind], RenderSystem.getModelViewStack().peek().getModel());   // 1.17.1: MatrixStack.Entry has getModel(), not getPositionMatrix()
         if (uSampler0[kind] >= 0) GL20.glUniform1i(uSampler0[kind], 0);
         if (uScreen[kind]   >= 0) GL20.glUniform2f(uScreen[kind], mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight());
         if (uModulate[kind] >= 0) GL20.glUniform4f(uModulate[kind], 1f, 1f, 1f, 1f);
+        // GLASS drop-shadow multiplier — persistent, set every bind so a value the
+        // hotbar leaves at 0 can never leak into the panel or inventory glass.
+        if ((kind == GLASS || kind == RING) && uShadow[kind] >= 0) GL20.glUniform1f(uShadow[kind], shadowScale);
     }
 
-    public static void unbind() { GL20.glUseProgram(prevProg); }
+    /** Return to program 0. MC re-binds its own shader (RenderSystem.setShader) before its next
+     *  draw, so 0 is a safe idle state and needs no GL_CURRENT_PROGRAM readback to restore. */
+    public static void unbind() { GL20.glUseProgram(0); }
 
     /** True when this program samples the captured backdrop. */
-    public static boolean needsBackdrop(int kind) { return kind == GLASS; }
+    public static boolean needsBackdrop(int kind) { return kind == RING || kind == GLASS || kind == EDGE || kind == LENS; }
 
     /** Blur-specific uniforms; call right after {@link #bind}. */
     public static void setBlur(float radiusPx, float dim) {
         if (uRadius[BLUR] >= 0) GL20.glUniform1f(uRadius[BLUR], radiusPx);
         if (uDim[BLUR]    >= 0) GL20.glUniform1f(uDim[BLUR],    dim);
     }
+
+    /** Corner scale (0..1 of the half-size) for the ROUND program; call right after {@link #bind}. */
+    public static void setCorner(float corner) {
+        if (uCorner[ROUND] >= 0) GL20.glUniform1f(uCorner[ROUND], corner);
+    }
+
+    /** Scroll-edge uniforms (max blur radius px + max dim) for the EDGE program;
+     *  call right after {@link #bind}. */
+    public static void setEdge(float radiusPx, float dim) {
+        if (uRadius[EDGE] >= 0) GL20.glUniform1f(uRadius[EDGE], radiusPx);
+        if (uDim[EDGE]    >= 0) GL20.glUniform1f(uDim[EDGE],    dim);
+    }
+
+    /** ARC uniforms: progress 0..1 (12 o'clock clockwise) and stroke width / outer radius; call right after
+     *  {@link #bind}(ARC). */
+    public static void setArc(float progress, float thickFrac, int shape, float ratio) {
+        setArc(progress, thickFrac, shape, ratio, 0f);
+    }
+
+    public static void setArc(float progress, float thickFrac, int shape, float ratio, float gap) {
+        if (uArcP[ARC] >= 0) GL20.glUniform1f(uArcP[ARC], progress);
+        if (uArcT[ARC] >= 0) GL20.glUniform1f(uArcT[ARC], thickFrac);
+        if (uArcS[ARC] >= 0) GL20.glUniform1f(uArcS[ARC], shape);
+        if (uArcR[ARC] >= 0) GL20.glUniform1f(uArcR[ARC], ratio);
+        if (uArcG[ARC] >= 0) GL20.glUniform1f(uArcG[ARC], gap);
+    }
+
+    /** GLASS drop-shadow multiplier. Persists until changed; the hotbar sets 0
+     *  while a screen is open and restores 1 immediately after its own draws. */
+    public static void setShadowScale(float s) { shadowScale = s; }
 
     // ---- helpers ----------------------------------------------------------
 
@@ -189,8 +264,10 @@ public final class GlassProgram {
     }
 
     private static String read(String domain, String path) throws Exception {
-        // Classpath-load (avoids needing fabric-api-resource-loader; mod assets
-        // aren't registered as a resource pack when only fabric-loader is present).
+        // Read shaders straight off the CLASSPATH rather than the resource manager:
+        // version-agnostic (the RM's getResource()/getInputStream() signatures churned
+        // 1.18->1.19 to Optional<Resource>/open()), and works before the mod's assets
+        // are registered as a resource pack.
         InputStream in = GlassProgram.class.getResourceAsStream("/assets/" + domain + "/" + path);
         if (in == null) throw new java.io.FileNotFoundException("/assets/" + domain + "/" + path);
         try {

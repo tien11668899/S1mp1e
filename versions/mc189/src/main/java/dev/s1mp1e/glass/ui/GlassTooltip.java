@@ -1,5 +1,6 @@
 package dev.s1mp1e.glass.ui;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import dev.s1mp1e.glass.anim.Fade;
@@ -9,6 +10,7 @@ import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraftforge.fml.client.config.GuiUtils;
 
 /**
@@ -67,34 +69,72 @@ public final class GlassTooltip {
                             int screenW, int screenH, FontRenderer font) {
         if (lines == null || lines.isEmpty()) return;
 
+        // Feature D: while the creative item grid is mid-glide, the item drawn under
+        // the cursor is the eased (not-yet-settled) stack, so vanilla's tooltip for
+        // the logical row's item would be a mismatch. Skip it for that frame; the
+        // ghost pass fades any lingering card, and it returns the instant the glide
+        // settles (or on the click, which snaps to the target row first).
+        if (dev.s1mp1e.glass.hook.GlassCreativeGlide.suppressTooltip()) return;
+
         // Pipeline down (driver/compile) -> plain vanilla tooltip, no glass.
         if (!GlassProgram.ensureReady() || !GlassProgram.usable()) {
             GuiUtils.drawHoveringText(lines, mouseX, mouseY, screenW, screenH, -1, font);
             return;
         }
 
+        // GuiUtils.drawHoveringText's own GL prelude: item lighting/rescale off and
+        // depth off, so the text draws pure white (not shaded by the item lighting
+        // GuiContainer leaves enabled when it calls renderToolTip). Blend stays on.
+        GlStateManager.disableRescaleNormal();
+        RenderHelper.disableStandardItemLighting();
+        GlStateManager.disableLighting();
+        GlStateManager.disableDepth();
+
         // ---- vanilla's exact box math (GuiUtils.drawHoveringText) ----------
+        List<String> textLines = lines;
         // widest line
         int textWidth = 0;
-        for (int i = 0; i < lines.size(); i++) {
-            int lw = font.getStringWidth(lines.get(i));
+        for (int i = 0; i < textLines.size(); i++) {
+            int lw = font.getStringWidth(textLines.get(i));
             if (lw > textWidth) textWidth = lw;
         }
         // horizontal placement + the standard flip when near the right edge
+        boolean needsWrap = false;
+        int titleLinesCount = 1;
         int tooltipX = mouseX + 12;
         if (tooltipX + textWidth + 4 > screenW) {
             tooltipX = mouseX - 16 - textWidth;
-            if (tooltipX < 4) tooltipX = 4; // vanilla re-wraps here; we clamp instead
+            if (tooltipX < 4) {   // does not fit either side: wrap like GuiUtils
+                textWidth = mouseX > screenW / 2 ? mouseX - 12 - 8 : screenW - 16 - mouseX;
+                needsWrap = true;
+            }
+        }
+        if (needsWrap) {
+            int wrapped = 0;
+            List<String> out = new ArrayList<String>();
+            for (int i = 0; i < textLines.size(); i++) {
+                List<String> parts = font.listFormattedStringToWidth(textLines.get(i), textWidth);
+                if (i == 0) titleLinesCount = parts.size();
+                for (int j = 0; j < parts.size(); j++) {
+                    String line = parts.get(j);
+                    int lw = font.getStringWidth(line);
+                    if (lw > wrapped) wrapped = lw;
+                    out.add(line);
+                }
+            }
+            textWidth = wrapped;
+            textLines = out;
+            tooltipX = mouseX > screenW / 2 ? mouseX - 16 - textWidth : mouseX + 12;
         }
         // vertical placement + clamp so it stays on screen.
-        // Vanilla (GuiUtils) line box: base 8 px, +10 px per extra line, +2 px
-        // gap after the first line. (The task's "8 px per extra line" is a loose
-        // gloss; 10 is what vanilla actually advances, and we must match it so the
-        // glass panel and the text register exactly over a real vanilla tooltip.)
+        // Vanilla (GuiUtils) line box: base 8 px, +10 px per extra line, +2 px gap
+        // after the title block. We must match it so the glass panel and the text
+        // register exactly over a real vanilla tooltip.
         int tooltipY = mouseY - 12;
         int tooltipHeight = 8;
-        if (lines.size() > 1) {
-            tooltipHeight += (lines.size() - 1) * 10 + 2;
+        if (textLines.size() > 1) {
+            tooltipHeight += (textLines.size() - 1) * 10;
+            if (textLines.size() > titleLinesCount) tooltipHeight += 2;
         }
         if (tooltipY + tooltipHeight + 6 > screenH) {
             tooltipY = screenH - tooltipHeight - 6;
@@ -137,7 +177,6 @@ public final class GlassTooltip {
         activeThisFrame = true;
 
         // ---- draw: glass panel at spring pose, text at final layout --------
-        GlStateManager.disableDepth();
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
         drawPanel(alpha);
@@ -147,13 +186,18 @@ public final class GlassTooltip {
         if (a >= 8) {
             int col = (a >= 252) ? 0xFFFFFFFF : ((a << 24) | 0xFFFFFF);
             int ty = tooltipY;
-            for (int i = 0; i < lines.size(); i++) {
-                font.drawStringWithShadow(lines.get(i), (float) tooltipX, (float) ty, col);
-                if (i == 0) ty += 2; // vanilla's title gap (titleLinesCount == 1 here)
+            for (int i = 0; i < textLines.size(); i++) {
+                font.drawStringWithShadow(textLines.get(i), (float) tooltipX, (float) ty, col);
+                if (i + 1 == titleLinesCount) ty += 2; // vanilla's title/body gap
                 ty += 10;
             }
         }
+
+        // GuiUtils epilogue: restore item lighting/rescale + depth. Blend stays on.
+        GlStateManager.enableLighting();
         GlStateManager.enableDepth();
+        RenderHelper.enableStandardItemLighting();
+        GlStateManager.enableRescaleNormal();
     }
 
     /**
@@ -194,7 +238,20 @@ public final class GlassTooltip {
         int y = Math.round(sy.value());
         int w = Math.round(sw.value());
         int h = Math.round(sh.value());
-        // pad 8, corner 0.92 (~26.2's 0xEB/255 knob), no lift, frosted panel
+        // pad 8, corner 0.92 (~26.2's 0xEB/255 knob), no lift, frosted panel.
+        // corner 0.92 -> radius = min(w,h)*0.5*0.5*0.92 = min(w,h)*0.23, matching the
+        // 26.2 tooltip. This is an EXISTING surface; the radius is unchanged (R2).
         GlassRenderer.glass(x, y, x + w, y + h, 8f, 0.92f, 0f, a, GlassRenderer.FROST_PANEL);
+
+        // Grey readability scrim BETWEEN the glass and the text (E): 0x16161A at a
+        // peak 0x48 (~28%), inset 1 px, radius = card radius - 1. Stacks above the
+        // glass and below the text so the refracted GUI-below can never wash out the
+        // words. Alpha rides the panel fade so it appears/ghosts with the card.
+        int scrimA = Math.round(Math.max(0f, Math.min(1f, a)) * 0x48) & 0xFF;
+        if (scrimA > 1 && w > 2 && h > 2) {
+            float scrimR = Math.max(0f, Math.min(w, h) * 0.23f - 1f);
+            GlassRenderer.roundRect(x + 1, y + 1, x + w - 1, y + h - 1, scrimR,
+                                    (scrimA << 24) | 0x16161A);
+        }
     }
 }

@@ -62,6 +62,9 @@ public final class XpFlowHudModule extends Module implements HudRenderer {
         float peak = 64f * env;                                    // 0..64 alpha
 
         int base = color.colorValue & 0xFFFFFF;
+        // HUD accent: the sheen follows Chroma HUD when its Accents setting is on (no-op otherwise),
+        // sampled at the moving band centre so it flows with the global sweep; nearby hues derive below.
+        base = ChromaHudModule.accent(0xFF000000 | base, bx, (y0 + y1) * 0.5f) & 0xFFFFFF;
         float[] hsb = java.awt.Color.RGBtoHSB((base >> 16) & 0xFF, (base >> 8) & 0xFF, base & 0xFF, null);
         int cL = java.awt.Color.HSBtoRGB((hsb[0] - 0.07f + 1f) % 1f, hsb[1], hsb[2]) & 0xFFFFFF;   // nearby −
         int cR = java.awt.Color.HSBtoRGB((hsb[0] + 0.07f) % 1f,      hsb[1], hsb[2]) & 0xFFFFFF;   // nearby +

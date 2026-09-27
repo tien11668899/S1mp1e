@@ -24,6 +24,16 @@ public final class GlassWidgets {
 
     private GlassWidgets() {}
 
+    /**
+     * Exponential glide toward a target on a time constant, frame-rate independent — the same curve the config menu's
+     * {@code easeScroll} uses (call it with {@code tauMs = 90} for the menu-page feel). {@code dtMs} is the real frame
+     * time in ms. Used by the vertical glass scrollbar (feature C) and the silky list glide (feature D).
+     */
+    public static float approach(float cur, float tgt, float dtMs, float tauMs) {
+        float k = 1f - (float) Math.exp(-Math.max(0f, dtMs) / Math.max(1e-3f, tauMs));
+        return cur + (tgt - cur) * k;
+    }
+
     // ---- rounded fills (batch, true AA corners) ----
 
     /** Refractive liquid-glass container panel with a dark readability scrim on top. */

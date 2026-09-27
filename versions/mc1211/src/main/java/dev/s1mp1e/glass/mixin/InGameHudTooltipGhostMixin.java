@@ -34,6 +34,9 @@ public abstract class InGameHudTooltipGhostMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void s1mp1e$tooltipGhost(DrawContext context, RenderTickCounter tickDelta, CallbackInfo ci) {
-        GlassTooltip.ghostPass();
+        // With a screen open the ghost runs from the top-layer pass after the screen + toasts
+        // (GameRendererTooltipLayerMixin -> GlassTooltip.endDefer), so it sits above the screen like the live card;
+        // here it only runs for frames without a screen (still exactly once per frame).
+        if (net.minecraft.client.MinecraftClient.getInstance().currentScreen == null) GlassTooltip.ghostPass();
     }
 }

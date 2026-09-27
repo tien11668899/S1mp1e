@@ -144,13 +144,25 @@ public final class GlassItemNameHandler {
             return;
         }
 
-        // Vanilla's exact display string: rarity-coloured name, italic prefix for
-        // custom-named stacks.
-        String s = stack.getDisplayName();
-        if (stack.hasDisplayName()) {
-            s = EnumChatFormatting.ITALIC + s;
+        // mc1211's display string: rarity-COLOURED name (colour code FIRST so it doesn't
+        // reset the italic that follows), italic for custom-named stacks, then the Forge
+        // Item.getHighlightTip pass that GuiIngameForge.renderToolHightlight also applies.
+        String s = "" + stack.getRarity().rarityColor
+                 + (stack.hasDisplayName() ? EnumChatFormatting.ITALIC.toString() : "")
+                 + stack.getDisplayName();
+        try {
+            s = stack.getItem().getHighlightTip(stack, s);
+        } catch (Throwable t) {
+            // a mod's getHighlightTip threw -> keep the plain rarity-coloured name
         }
+        // Prefer the item's own FontRenderer (a few items override it), like vanilla does.
         FontRenderer font = mc.fontRendererObj;
+        try {
+            FontRenderer itemFont = stack.getItem().getFontRenderer(stack);
+            if (itemFont != null) font = itemFont;
+        } catch (Throwable t) {
+            // keep the default font renderer
+        }
         int strWidth = font.getStringWidth(s);
 
         // name switch -> crossfade the OLD name out, spring the width to the new
@@ -209,6 +221,10 @@ public final class GlassItemNameHandler {
         if (na > 4) {
             font.drawStringWithShadow(s, cx - strWidth / 2f, (float) y, (na << 24) | 0xFFFFFF);
         }
-        GlStateManager.disableBlend();
+        // Never disableBlend on exit (project GL rule): the font renderer left the
+        // real GL colour tinted while GlStateManager's cache still reads white, so
+        // force the cache to reset instead of tearing blend down.
+        GlStateManager.color(0f, 0f, 0f, 0f);
+        GlStateManager.color(1f, 1f, 1f, 1f);
     }
 }

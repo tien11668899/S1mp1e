@@ -92,13 +92,63 @@ public abstract class ButtonGlassMixin {
     // to the subclass impl.
     @Shadow protected abstract void renderWidget(DrawContext context, int mouseX, int mouseY, float delta);
 
+    /** A villager trade button: the MerchantScreen's label-less 88x20 ButtonWidgets (WidgetButtonPage). */
+    private static boolean s1mp1e$isTradeButton(ClickableWidget w) {
+        return w instanceof net.minecraft.client.gui.widget.ButtonWidget
+                && w.getWidth() == 88 && w.getHeight() == 20
+                && MinecraftClient.getInstance().currentScreen instanceof net.minecraft.client.gui.screen.ingame.MerchantScreen;
+    }
+
     @Redirect(method = "render",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/widget/ClickableWidget;"
                             + "renderWidget(Lnet/minecraft/client/gui/DrawContext;IIF)V"))
     private void s1mp1e$glassButton(ClickableWidget self, DrawContext context,
                                     int mouseX, int mouseY, float delta) {
+        // Villager trade buttons (the 88x20 label-less ButtonWidgets of the MerchantScreen): 26.2 draws them as faint
+        // glass capsules (AbstractButton.extractDefaultSprite -> glass, even inside a container screen) and slides them
+        // with the trade list mid-glide (MerchantGlide, armed by MerchantGlassMixin only while the list glides).
+        if (s1mp1e$isTradeButton(self)) {
+            final boolean glass = GlassProgram.ensureReady() && GlassProgram.btnUsable();
+            final int bx = self.getX(), by = self.getY(), bw = this.width, bh = this.height;
+            dev.s1mp1e.client.gui.MerchantGlide.Painter painter;
+            if (glass) {
+                boolean over = this.hovered || self.isFocused();
+                Fade fade = s1mp1e$hoverFades.get(self);
+                if (fade == null) {
+                    fade = new Fade(over ? 1f : 0f, HOVER_FADE_MS);
+                    s1mp1e$hoverFades.put(self, fade);
+                }
+                fade.to(over ? 1f : 0f);
+                final float lift = LIFT_ON * fade.value();
+                final float opacity = this.alpha * ScreenOpenFade.value(MinecraftClient.getInstance().currentScreen);
+                final boolean act = this.active;
+                context.draw();   // land the panel batch first; the capsule is immediate GL (absolute coords)
+                painter = dy -> GlassRenderer.button(bx, by + dy, bx + bw, by + bh + dy, 1.0f, lift, opacity, act);
+            } else {
+                painter = dy -> {
+                    context.getMatrices().push();
+                    context.getMatrices().translate(0f, dy, 0f);
+                    this.renderWidget(context, mouseX, mouseY, delta);
+                    context.getMatrices().pop();
+                };
+            }
+            if (dev.s1mp1e.client.gui.MerchantGlide.handles(self)) {
+                dev.s1mp1e.client.gui.MerchantGlide.render(self, context, painter);
+            } else {
+                painter.paint(0f);
+            }
+            return;
+        }
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable()) {
+            this.renderWidget(context, mouseX, mouseY, delta);
+            return;
+        }
+        // Icon buttons that paint their OWN sprite instead of the default button background (the book page-turn arrows,
+        // textured icon buttons): 26.2 only glasses the default sprite (extractDefaultSprite), so their icon — here the
+        // book navigation arrow — must stay vanilla rather than becoming an empty capsule.
+        if (self instanceof net.minecraft.client.gui.widget.PageTurnWidget
+                || self instanceof net.minecraft.client.gui.widget.TexturedButtonWidget) {
             this.renderWidget(context, mouseX, mouseY, delta);
             return;
         }

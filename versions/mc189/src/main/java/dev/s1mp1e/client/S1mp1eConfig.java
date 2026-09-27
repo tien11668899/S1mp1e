@@ -13,6 +13,7 @@ import java.util.Map;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -22,7 +23,16 @@ import net.minecraft.client.Minecraft;
 import org.lwjgl.input.Keyboard;
 
 /**
- * Persists module state to {@code .minecraft/config/s1mp1e/modules.json}.
+ * Persists module state to {@code modules.json}.
+ *
+ * <p>Two locations, picked at runtime:
+ * <ul>
+ *   <li><b>shared</b> — {@code <.minecraft>/s1mp1e-mods/modules.json}, used whenever the
+ *       S1mp1e launcher started the game (its game dir is {@code <.minecraft>/instances/<mc>}),
+ *       so 1.8.9, 1.20.1, 1.21.1 and 26.2 all read and write ONE file and stay in sync;</li>
+ *   <li><b>per-instance</b> — {@code <gameDir>/config/s1mp1e/modules.json}, the historical
+ *       path, used for dev runs and non-launcher launches (Feather).</li>
+ * </ul>
  *
  * <p>Gson is used directly rather than added as a dependency: vanilla 1.8.9
  * already ships it (2.2.4) and loads it on the game classpath — verified by the
@@ -37,11 +47,35 @@ import org.lwjgl.input.Keyboard;
  */
 public final class S1mp1eConfig {
 
-    private static final String  DIR_NAME  = "s1mp1e";
-    private static final String  FILE_NAME = "modules.json";
-    private static final Charset UTF8      = Charset.forName("UTF-8");
+    private static final String  DIR_NAME   = "s1mp1e";
+    private static final String  SHARED_DIR = "s1mp1e-mods";
+    private static final String  FILE_NAME  = "modules.json";
+    private static final Charset UTF8       = Charset.forName("UTF-8");
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    /**
+     * Where this build sits among the versions sharing modules.json, and the id it
+     * records once it has reconciled with the shared file. Higher rank = newer game
+     * version; on the FIRST reconcile the newer version's value wins a conflict, and
+     * after every version has reconciled once saves merge mutually (last writer wins).
+     * Derived from the version id (see rankOf) so the outcome does not depend on launch order.
+     */
+    private static final String VERSION_ID   = "1.8.9";
+    private static final int    VERSION_RANK = rankOf(VERSION_ID);   // 1.8.9 -> 10809
+
+    /** Bookkeeping fields in the shared document; any build that does not know them
+     *  simply carries them through untouched (they are plain unknown top-level keys). */
+    private static final String KEY_SEED_RANK = "_seedRank";
+    private static final String KEY_MIGRATED  = "_migrated";
+
+    /** Rank given to a shared file that already holds settings but predates this bookkeeping:
+     *  above every build, so the first build to meet it ADOPTS it instead of seeding over the
+     *  user's existing cross-version settings. */
+    private static final int PRESCHEME_RANK = Integer.MAX_VALUE;
+
+    /** GLFW right shift — the code the shared (cross-version) file stores for the default. */
+    private static final int GLFW_RIGHT_SHIFT = 344;
 
     /**
      * The last text actually written. save() is called on every settings change
@@ -50,8 +84,10 @@ public final class S1mp1eConfig {
      */
     private static String lastWritten;
 
-    /** Key that opens the in-game config GUI. Default RightShift; the launcher and
-     *  the in-GUI rebind both persist a new value into this same modules.json. */
+    /** Key that opens the in-game config GUI, ALWAYS in LWJGL2 code space in memory
+     *  (that is what {@code Keyboard.isKeyDown} wants). Default RightShift; the launcher
+     *  and the in-GUI rebind both persist a new value into modules.json — as a GLFW code
+     *  when the shared file is in use, unchanged when the per-instance file is. */
     private static int menuKey = Keyboard.KEY_RSHIFT;   // LWJGL2 code 0x36 = 54
     public static int getMenuKey() { return menuKey; }
     public static void setMenuKey(int code) { menuKey = code; save(); }
@@ -60,21 +96,84 @@ public final class S1mp1eConfig {
 
     // ---- paths -----------------------------------------------------------
 
-    private static File configFile() {
-        File base;
+    private static File gameDir() {
         Minecraft mc = Minecraft.getMinecraft();
         // getMinecraft() is a plain static field read and is null until the
         // Minecraft constructor runs; a coremod-time call must not NPE.
-        base = (mc != null && mc.mcDataDir != null) ? mc.mcDataDir : new File(".");
-        return new File(new File(new File(base, "config"), DIR_NAME), FILE_NAME);
+        return (mc != null && mc.mcDataDir != null) ? mc.mcDataDir : new File(".");
+    }
+
+    /**
+     * The shared cross-version file, or {@code null} when this launch is not under
+     * {@code <.minecraft>/instances/<mc>} (dev runClient, Feather, …).
+     */
+    private static File sharedFile() {
+        File base = gameDir();
+        File instances = base.getParentFile();              // instances/<mc> -> instances
+        if (instances == null) return null;
+        File dotMinecraft = instances.getParentFile();      // instances -> .minecraft
+        if (dotMinecraft == null) return null;
+        File shared = new File(dotMinecraft, SHARED_DIR);
+        return shared.isDirectory() ? new File(shared, FILE_NAME) : null;
+    }
+
+    private static File perInstanceFile() {
+        return new File(new File(new File(gameDir(), "config"), DIR_NAME), FILE_NAME);
+    }
+
+    private static boolean sharedInUse() { return sharedFile() != null; }
+
+    private static File configFile() {
+        File shared = sharedFile();
+        return shared != null ? shared : perInstanceFile();
     }
 
     // ---- load ------------------------------------------------------------
 
     public static void load() {
+        File shared = sharedFile();
+        File legacy = perInstanceFile();
+
+        if (shared == null) {
+            loadFrom(legacy, false, true);
+            // Drop the write cache rather than seed it: what we just read may be
+            // a subset of what we serialise (older build, hand-edited file), so
+            // the first save() must be allowed through to normalise the file.
+            lastWritten = null;
+            return;
+        }
+
+        JsonObject root      = readRoot(shared);
+        boolean    firstTime = !hasMigrated(root);
+        // On its FIRST reconcile the newest build wins conflicts, so a build that outranks
+        // everything the file has seen keeps ITS OWN values rather than adopting the file's.
+        // Every other case adopts: the shared file is the truth.
+        boolean    adopt     = !firstTime || VERSION_RANK < readSeedRank(root);
+
+        // This build's own prior state first (a 1.8.9 install that predates the shared
+        // folder, including modules only 1.8.9 has), then the shared file on top.
+        if (legacy.isFile()) loadFrom(legacy, false, true);
+        loadFrom(shared, true, adopt);
+
+        lastWritten = null;
+
+        // Reconcile NOW rather than on whatever edit happens to come first: the rank rules
+        // only apply to a build's first save, so getting it out of the way here means the
+        // user's first in-game change is an ordinary (mutual) save and therefore sticks.
+        if (firstTime) save();
+    }
+
+    /**
+     * @param glfwKeys     {@code true} for the shared file, whose {@code menuKey} is a GLFW
+     *                     code (what 1.20.1/1.21.1/26.2 write); {@code false} for the
+     *                     per-instance file, which keeps 1.8.9's LWJGL semantics.
+     * @param adoptModules {@code false} while this build is seeding the shared file on its
+     *                     first reconcile — the open key is still taken (it is a user choice,
+     *                     never rank-gated), but module values are left at ours.
+     */
+    private static void loadFrom(File f, boolean glfwKeys, boolean adoptModules) {
         Reader reader = null;
         try {
-            File f = configFile();
             if (!f.isFile()) return;                 // first run — defaults stand
 
             reader = new InputStreamReader(new FileInputStream(f), UTF8);
@@ -83,9 +182,18 @@ public final class S1mp1eConfig {
 
             JsonElement mk = root.getAsJsonObject().get("menuKey");
             if (mk != null && mk.isJsonPrimitive()) {
-                try { menuKey = mk.getAsInt(); } catch (Throwable ignored) {}
+                try {
+                    int code = mk.getAsInt();
+                    if (glfwKeys) {
+                        int lwjgl = KeyCodes.glfwToLwjgl(code);
+                        if (lwjgl != 0) menuKey = lwjgl;   // unmapped -> keep what we have
+                    } else {
+                        menuKey = code;
+                    }
+                } catch (Throwable ignored) {}
             }
 
+            if (!adoptModules) return;
             JsonElement modulesEl = root.getAsJsonObject().get("modules");
             if (modulesEl == null || !modulesEl.isJsonObject()) return;
             JsonObject modules = modulesEl.getAsJsonObject();
@@ -97,11 +205,6 @@ public final class S1mp1eConfig {
                 if (v == null || !v.isJsonObject()) continue;
                 applyModule(m, v.getAsJsonObject());
             }
-
-            // Drop the write cache rather than seed it: what we just read may be
-            // a subset of what we serialise (older build, hand-edited file), so
-            // the first save() must be allowed through to normalise the file.
-            lastWritten = null;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] config load failed, using defaults: " + t);
         } finally {
@@ -228,37 +331,183 @@ public final class S1mp1eConfig {
         return true;
     }
 
+    /**
+     * MERGE at SETTING level, never replace: modules.json is shared by every version and
+     * this build knows only some of the modules and some of each module's settings.
+     * Starting from the document on disk keeps unknown top-level fields, unknown modules
+     * AND unknown settings intact.
+     *
+     * <p>Conflict rule for the fields this build DOES know:
+     * <ul>
+     *   <li>already reconciled once ({@link #VERSION_ID} listed in {@code _migrated}) —
+     *       write our value: plain last-writer-wins;</li>
+     *   <li>first reconcile and we are the newest build seen so far
+     *       ({@code VERSION_RANK >= _seedRank}) — write our value, overriding the older
+     *       build's;</li>
+     *   <li>first reconcile and a newer build got here first — only fill fields that are
+     *       absent, so an older build can add but never downgrade.</li>
+     * </ul>
+     * {@code menuKey} is deliberately NOT rank-gated: it is a user choice made in the
+     * launcher or the in-game rebind, so it is always plain last-writer-wins.
+     */
     private static JsonObject build() {
-        JsonObject modules = new JsonObject();
+        JsonObject root = readRoot(configFile());
+
+        JsonElement modsEl = root.get("modules");
+        JsonObject modules = (modsEl != null && modsEl.isJsonObject())
+                ? modsEl.getAsJsonObject() : new JsonObject();
+
+        boolean firstTime    = !hasMigrated(root);
+        int     fileSeedRank = readSeedRank(root);
+        boolean seeding      = VERSION_RANK >= fileSeedRank;
 
         List<Module> all = ModuleManager.all();
         for (int i = 0; i < all.size(); i++) {
             Module m = all.get(i);
 
-            JsonObject settings = new JsonObject();
+            JsonElement modEl = modules.get(m.name);
+            JsonObject mod = (modEl != null && modEl.isJsonObject())
+                    ? modEl.getAsJsonObject() : new JsonObject();
+
+            JsonElement setEl = mod.get("settings");
+            JsonObject settings = (setEl != null && setEl.isJsonObject())
+                    ? setEl.getAsJsonObject() : new JsonObject();
+
+            put(mod, "enabled", new JsonPrimitive(Boolean.valueOf(m.enabled)), firstTime, seeding);
+
             for (int j = 0; j < m.settings.size(); j++) {
                 Setting s = m.settings.get(j);
+                JsonPrimitive v = null;
                 switch (s.type) {
-                    case BOOL:   settings.addProperty(s.name, Boolean.valueOf(s.boolValue));  break;
-                    case INT:    settings.addProperty(s.name, Integer.valueOf(s.intValue));   break;
-                    case DOUBLE: settings.addProperty(s.name, Double.valueOf(s.doubleValue)); break;
-                    case COLOR:  settings.addProperty(s.name, Integer.valueOf(s.colorValue)); break;
-                    case MODE:   settings.addProperty(s.name, s.modeValue);                   break;
+                    case BOOL:   v = new JsonPrimitive(Boolean.valueOf(s.boolValue));  break;
+                    case INT:    v = new JsonPrimitive(Integer.valueOf(s.intValue));   break;
+                    case DOUBLE: v = new JsonPrimitive(Double.valueOf(s.doubleValue)); break;
+                    case COLOR:  v = new JsonPrimitive(Integer.valueOf(s.colorValue)); break;
+                    case MODE:   if (s.modeValue != null) v = new JsonPrimitive(s.modeValue); break;
                     default: break;
                 }
+                if (v != null) put(settings, s.name, v, firstTime, seeding);
             }
 
-            JsonObject mod = new JsonObject();
-            mod.addProperty("enabled", Boolean.valueOf(m.enabled));
             mod.add("settings", settings);
             modules.add(m.name, mod);
         }
 
-        JsonObject root = new JsonObject();
         root.addProperty("version", Integer.valueOf(1));
-        root.addProperty("menuKey", Integer.valueOf(menuKey));
+        root.addProperty("menuKey", Integer.valueOf(menuKeyForFile()));
         root.add("modules", modules);
+
+        if (firstTime) {
+            JsonArray migrated = readMigrated(root);
+            migrated.add(new JsonPrimitive(VERSION_ID));
+            root.add(KEY_MIGRATED, migrated);
+            root.addProperty(KEY_SEED_RANK, Integer.valueOf(Math.max(fileSeedRank, VERSION_RANK)));
+        }
         return root;
+    }
+
+    /** Writes {@code value} unless a newer build already owns this field (see {@link #build()}). */
+    private static void put(JsonObject obj, String key, JsonElement value,
+                            boolean firstTime, boolean seeding) {
+        if (!firstTime || seeding || !obj.has(key)) obj.add(key, value);
+    }
+
+    /** The open key in the code space of the file we are about to write. */
+    private static int menuKeyForFile() {
+        if (!sharedInUse()) return menuKey;          // per-instance file keeps LWJGL codes
+        int glfw = KeyCodes.lwjglToGlfw(menuKey);
+        return glfw != 0 ? glfw : GLFW_RIGHT_SHIFT;  // no GLFW equivalent -> the default
+    }
+
+    /** The whole document currently on disk, or an empty object if missing/unreadable. */
+    private static JsonObject readRoot(File f) {
+        Reader reader = null;
+        try {
+            if (!f.isFile()) return new JsonObject();
+            reader = new InputStreamReader(new FileInputStream(f), UTF8);
+            JsonElement root = new JsonParser().parse(reader);
+            if (root != null && root.isJsonObject()) return root.getAsJsonObject();
+        } catch (Throwable ignored) {
+            // unreadable — fall back to writing only what this build knows
+        } finally {
+            close(reader);
+        }
+        return new JsonObject();
+    }
+
+    private static int readSeedRank(JsonObject root) {
+        try {
+            JsonElement e = root.get(KEY_SEED_RANK);
+            if (e != null && e.isJsonPrimitive()) return fromStored(e.getAsInt());
+        } catch (Throwable ignored) {
+            // garbage in the field — fall through
+        }
+        // A shared file written before this bookkeeping existed already holds the user's
+        // real cross-version settings. Rank it above every build so the first one to meet
+        // it adopts it, fills in whatever is missing, and takes it from there — nobody's
+        // "first reconcile" gets to reset it to defaults.
+        JsonElement mods = root.get("modules");
+        if (mods != null && mods.isJsonObject() && !mods.getAsJsonObject().entrySet().isEmpty()) {
+            return PRESCHEME_RANK;
+        }
+        return -1;
+    }
+
+    /**
+     * The rank of a Minecraft version id: {@code major*10000 + minor*100 + patch}, so
+     * "1.8.9" = 10809, "1.12.2" = 11202, "1.20.1" = 12001, "26.2" = 260200. Every build
+     * derives its own rank from {@link #VERSION_ID} with this one function, so any number of
+     * versions order correctly with no table to keep in sync.
+     */
+    static int rankOf(String id) {
+        int[] p = new int[3];
+        String[] parts = id.split("\\.");
+        for (int i = 0; i < 3 && i < parts.length; i++) {
+            int v = 0;
+            String s = parts[i];
+            for (int k = 0; k < s.length() && Character.isDigit(s.charAt(k)); k++) {
+                v = v * 10 + (s.charAt(k) - '0');
+                if (v > 99) { v = 99; break; }
+            }
+            p[i] = v;
+        }
+        return p[0] * 10000 + p[1] * 100 + p[2];
+    }
+
+    /**
+     * Maps a stored {@code _seedRank} onto the version-derived scale. The first K-1 builds
+     * wrote a small table index (1.8.9=0, 1.20.1=1, 1.21.1=2, 26.2=3) or 99 for an adopted
+     * pre-bookkeeping file; anything else below the scale is treated the same as 99 (adopt).
+     */
+    private static int fromStored(int v) {
+        if (v < 0) return -1;
+        if (v >= 10000) return v;
+        switch (v) {
+            case 0:  return 10809;    // 1.8.9
+            case 1:  return 12001;    // 1.20.1
+            case 2:  return 12101;    // 1.21.1
+            case 3:  return 260200;   // 26.2
+            default: return PRESCHEME_RANK;
+        }
+    }
+
+    private static JsonArray readMigrated(JsonObject root) {
+        JsonElement e = root.get(KEY_MIGRATED);
+        if (e != null && e.isJsonArray()) return e.getAsJsonArray();
+        return new JsonArray();
+    }
+
+    private static boolean hasMigrated(JsonObject root) {
+        JsonArray a = readMigrated(root);
+        for (int i = 0; i < a.size(); i++) {
+            try {
+                JsonElement e = a.get(i);
+                if (e != null && e.isJsonPrimitive() && VERSION_ID.equals(e.getAsString())) return true;
+            } catch (Throwable ignored) {
+                // non-string entry — not us
+            }
+        }
+        return false;
     }
 
     private static void close(java.io.Closeable c) {

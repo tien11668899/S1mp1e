@@ -186,7 +186,16 @@ public final class GlassTooltip {
         int y = Math.round(sy.value());
         int w = Math.round(sw.value());
         int h = Math.round(sh.value());
-        // pad 8, corner 0.92, no lift, frosted panel
+        // pad 8, corner 0.92 (= min(w,h)*0.23 px radius), no lift, frosted panel
         GlassRenderer.glass(x, y, x + w, y + h, 8f, 0.92f, 0f, a, GlassRenderer.FROST_PANEL);
+        // Grey readability scrim between glass and text (spec E): RGB 0x16161A, peak alpha 0x48, inset 1 px,
+        // radius max(0, min(w,h)*0.23 - 1). Drawn AFTER the card so it stacks above the glass and below the text.
+        if (GlassProgram.roundUsable() && w > 2 && h > 2) {
+            int sa = Math.round(0x48 * a) & 0xFF;
+            if (sa > 0) {
+                float r = Math.max(0f, Math.min(w, h) * 0.23f - 1f);
+                GlassRenderer.roundRect(x + 1, y + 1, x + w - 1, y + h - 1, r, (sa << 24) | 0x16161A);
+            }
+        }
     }
 }

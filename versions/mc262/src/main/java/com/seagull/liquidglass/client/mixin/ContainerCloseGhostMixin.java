@@ -5,7 +5,6 @@ import com.seagull.liquidglass.client.animation.Spring;
 import com.seagull.liquidglass.client.render.GlassPipeline;
 import com.seagull.liquidglass.client.render.GlassRectRenderState;
 import com.seagull.liquidglass.client.render.PanelGhost;
-import com.seagull.liquidglass.client.render.TooltipGlass;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -174,7 +173,8 @@ public abstract class ContainerCloseGhostMixin {
       at = {@At("TAIL")}
    )
    private void lg$dragGhosts(GuiGraphicsExtractor g, CallbackInfo ci) {
-      TooltipGlass.ghostPass(g);
+      // (The tooltip card's fade-out ghost used to be driven from here - i.e. inside the content stratum, under the slot
+      //  items. It now runs on the top layer at GuiGraphicsExtractor.extractDeferredElements RETURN: TooltipLayerMixin.)
       if (GlassPipeline.usable() && !lg$drag.isEmpty()) {
          Iterator<Entry<Long, Fade>> it = lg$drag.entrySet().iterator();
 

@@ -1,6 +1,7 @@
 package dev.s1mp1e.glass.render;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.render.BufferRenderer;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
@@ -82,9 +83,6 @@ public final class GlassRenderer {
 
     /** Lazily-created GL objects (0 until first bound; created once, reused). */
     private static int vao = 0, vbo = 0;
-    /** MC's VAO/VBO bindings, saved and restored around our draw so its own
-     *  GUI rendering in the same frame is not left pointing at VAO 0. */
-    private static int prevVao = 0, prevVbo = 0;
 
     /** Growable client-side staging; grown on demand, uploaded each endBatch. */
     private static FloatBuffer cpu =
@@ -100,6 +98,11 @@ public final class GlassRenderer {
         if (kind == GlassProgram.GLASS && !GlassProgram.usable())    return false;
         if (kind == GlassProgram.LINE  && !GlassProgram.lineUsable()) return false;
         if (kind == GlassProgram.BTN   && !GlassProgram.btnUsable())  return false;
+        if (kind == GlassProgram.ROUND && !GlassProgram.roundUsable()) return false;
+        if (kind == GlassProgram.EDGE  && !GlassProgram.edgeUsable()) return false;
+        if (kind == GlassProgram.LENS  && !GlassProgram.lensUsable()) return false;
+        if (kind == GlassProgram.RING  && !GlassProgram.ringUsable()) return false;
+        if (kind == GlassProgram.ARC   && !GlassProgram.arcUsable())  return false;
         batchTex = GlassProgram.needsBackdrop(kind);
         if (batchTex && !SceneCapture.hasBackdrop()) return false;
 
@@ -110,10 +113,11 @@ public final class GlassRenderer {
         RenderSystem.depthMask(false);
         if (batchTex) {
             // Bind our SceneCapture backdrop to unit 0 so the shader's Sampler0
-            // (uniform = 0, set in GlassProgram.bind) reads it. bindTexture binds
-            // to the active unit, so select GL_TEXTURE0 first. (Not setShaderTexture:
-            // that feeds MC's own shader system, not our standalone program's sampler.)
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            // (uniform = 0, set in GlassProgram.bind) reads it. Select GL_TEXTURE0
+            // THROUGH RenderSystem (not raw GL13.glActiveTexture) so its active-unit
+            // cache stays in sync — otherwise the next item model's lightmap bind
+            // (unit 2) lands on the wrong unit and the item samples a black lightmap.
+            RenderSystem.activeTexture(GL13.GL_TEXTURE0);
             RenderSystem.bindTexture(SceneCapture.texture());
         }
         GlassProgram.bind(kind); // sets ProjMat/ModelViewMat/Sampler0/ScreenSize/ColorModulator
@@ -177,11 +181,6 @@ public final class GlassRenderer {
         if (batchKind < 0) return;
         if (vertCount > 0) {
             cpu.flip();
-            // Save MC's current bindings so we can restore them (NOT bind 0):
-            // MC keeps its own VAO bound across the GUI pass and would otherwise
-            // hit "Array object is not active" on every draw after ours.
-            prevVao = GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING);
-            prevVbo = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             GL30.glBindVertexArray(vao);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
             // Orphan + upload exactly the used floats (buffer's data store is
@@ -194,8 +193,17 @@ public final class GlassRenderer {
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
             GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, vertCount);
-            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, prevVbo);
-            GL30.glBindVertexArray(prevVao);
+            // Restore MC's binding state WITHOUT a glGet readback. We must not leave our VAO bound:
+            // MC's BufferRenderer caches currentVertexArray/currentVertexBuffer/vertexFormat and, on
+            // its next draw with the same format, SKIPS the rebind on a cache hit — so it would draw
+            // against our VAO and raise "Array object is not active". Calling MC's own
+            // BufferRenderer.unbindAll() zeroes BOTH real GL (VAO / array buffer / element buffer -> 0)
+            // AND that cache, leaving them in sync; MC's next BufferRenderer.draw() then re-binds its
+            // own format's VAO/VBO cleanly. This replaces the previous
+            // glGetInteger(GL_VERTEX_ARRAY_BINDING) + glGetInteger(GL_ARRAY_BUFFER_BINDING) save/
+            // restore, whose two pipeline-flushing readbacks PER BATCH were the bulk of the glass
+            // layer's per-frame GPU stalls.
+            BufferRenderer.unbindAll();
         }
         GlassProgram.unbind();
         batchKind = -1;
@@ -205,6 +213,21 @@ public final class GlassRenderer {
         // own program + sampler on its next draw).
         RenderSystem.enableCull();
         RenderSystem.depthMask(true);
+        if (batchTex) {
+            // Resync unit 0 THROUGH RenderSystem (not raw GL13) so its active-unit AND
+            // texture caches match real GL — else items drawn after us sample our backdrop
+            // (invisible) or bind their lightmap to the wrong unit (black). bind 0 defeats
+            // the no-op-when-cache-equal short circuit.
+            RenderSystem.activeTexture(GL13.GL_TEXTURE0);
+            RenderSystem.bindTexture(0);
+        }
+        // Leave RenderSystem's shader colour at WHITE so the first vanilla draw after our
+        // glass (the leftmost hotbar item, the held-item-name text) is not tinted black by
+        // a stale ColorModulator. Cache-defeat: a bare white set no-ops when the cache
+        // already reads white while real GL is not, so force the write with a 0 set first.
+        RenderSystem.setShaderColor(0f, 0f, 0f, 0f);
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        batchTex = false;
     }
 
     // ---- convenience wrappers matching 26.2's call sites -------------------
@@ -236,5 +259,114 @@ public final class GlassRenderer {
                               float corner, float lift, float opacity, boolean enabled) {
         draw(GlassProgram.BTN, x0, y0, x1, y1, 10f,
              corner, 1f - lift, opacity, enabled ? 1f : 0.4f);
+    }
+
+    /** Refracting LENS (switch knob / slider thumb): full-capsule corner, samples the backdrop.
+     *  {@code corner} 0..1 of the half-size (1 = capsule), {@code frost} 1 = sharp, &lt;1 = softened. */
+    public static void lens(float x0, float y0, float x1, float y1,
+                            float corner, float lift, float opacity, float frost) {
+        draw(GlassProgram.LENS, x0, y0, x1, y1, 10f, corner, 1f - lift, opacity, frost);
+    }
+
+    /**
+     * Solid/translucent COLOURED rounded rect with true AA SDF corners (no backdrop,
+     * never flickers). {@code radiusPx} is the corner radius in GUI px (clamped to the
+     * half-size); {@code argb} is the packed fill colour.
+     */
+    /**
+     * Liquid-glass RING (glass_ring.fsh): the same glass material on a band of outer size {@code outerR} and width
+     * {@code thickness} (GUI px) around ({@code cx},{@code cy}), on a shape: 0 circle, 1 rounded square, 2 plus that
+     * wraps the crosshair (the shape code rides on the green knob). Frost 0.5 like the panels.
+     */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity) {
+        ring(cx, cy, outerR, thickness, opacity, 0);
+    }
+
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape) {
+        ring(cx, cy, outerR, thickness, opacity, shape, 0.45f);
+    }
+
+    /** {@code ratio} = the plus arm's half-width / reach (shape 2); quantised to 16 steps on the green knob. */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape, float ratio) {
+        ring(cx, cy, outerR, thickness, opacity, shape, ratio, 0f);
+    }
+
+    /** {@code gap} = the plus's central-hole half-size / reach; >0 wraps a separated crosshair arm by arm. */
+    private static int gapCode(float gap) { return Math.max(0, Math.min(14, Math.round(gap / 0.92f * 14f))); }
+
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape, float ratio, float gap) {
+        if (outerR <= 0f || opacity <= 0f) return;
+        float t = Math.max(0.02f, Math.min(1f, thickness / outerR));
+        int rc = Math.max(0, Math.min(15, Math.round((ratio - 0.08f) / 0.84f * 15f)));
+        float g = shape == 2 ? (gapCode(gap) * 16 + rc) / 255f : (shape == 1 ? 245 / 255f : 1f);   // glass_ring: 255 circle, 245 square, plus = gap*16+ratio
+        draw(GlassProgram.RING, cx - outerR, cy - outerR, cx + outerR, cy + outerR, 10f, t, g, opacity, FROST_PANEL);
+    }
+
+    /**
+     * Flat anti-aliased ARC with round caps (ring_arc.fsh) from 12 o'clock over {@code |progress|} of the shape
+     * (clockwise for a positive progress, counter-clockwise for a negative one), stroke {@code thickness} px.
+     */
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb) {
+        arc(cx, cy, outerR, thickness, progress, argb, 0);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape) {
+        arc(cx, cy, outerR, thickness, progress, argb, shape, 0.45f);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape,
+                           float ratio) {
+        arc(cx, cy, outerR, thickness, progress, argb, shape, ratio, 0f);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape,
+                           float ratio, float gap) {
+        if (outerR <= 0f || progress == 0f || (argb >>> 24) == 0) return;
+        if (!beginBatch(GlassProgram.ARC)) return;
+        GlassProgram.setArc(progress, Math.max(0.02f, Math.min(1f, thickness / outerR)), shape, ratio, gap);
+        float a = ((argb >>> 24) & 255) / 255f, r = ((argb >> 16) & 255) / 255f,
+              g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        batchQuad(cx - outerR, cy - outerR, cx + outerR, cy + outerR, 1f, r, g, b, a);
+        endBatch();
+    }
+
+    public static void roundRect(float x0, float y0, float x1, float y1, float radiusPx, int argb) {
+        if (!beginBatch(GlassProgram.ROUND)) return;
+        float half = Math.min(x1 - x0, y1 - y0) / 2f;
+        float corner = half <= 0f ? 0f : Math.min(1f, radiusPx / half);
+        GlassProgram.setCorner(corner);
+        float a = ((argb >>> 24) & 255) / 255f, r = ((argb >> 16) & 255) / 255f,
+              g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        batchQuad(x0, y0, x1, y1, 1f, r, g, b, a);   // pad=1 -> 1px AA margin for the SDF
+        endBatch();
+    }
+
+    /**
+     * One iOS-26 scroll-edge band: samples the captured composite and ramps a
+     * gaussian blur + dark fade strongest at the OUTER edge, feathering to sharp
+     * inside. {@code (x0,y0)-(x1,y1)} is the band rect in GUI px; when
+     * {@code outerIsTop} the band's top row (y0) is the outer/frame edge (v=0),
+     * otherwise the bottom row (y1) is. {@code alpha} is the whole-band opacity
+     * (open fade × scroll amount), carried in vertex BLUE per the knob contract.
+     */
+    public static void edgeBand(float x0, float y0, float x1, float y1,
+                                boolean outerIsTop, float radiusPx, float dim, float alpha) {
+        if (!beginBatch(GlassProgram.EDGE)) return;
+        GlassProgram.setEdge(radiusPx, dim);
+        float vTop = outerIsTop ? 0f : 1f;
+        float vBot = outerIsTop ? 1f : 0f;
+        // edge.fsh reads only vColor.b (opacity) and vLocal (= UV0); u is unused,
+        // v carries the 0(outer)->1(inner) ramp. Cull is off, so winding is free.
+        vertEdge(x0, y0, 0f, vTop, alpha);
+        vertEdge(x0, y1, 0f, vBot, alpha);
+        vertEdge(x1, y1, 1f, vBot, alpha);
+        vertEdge(x0, y0, 0f, vTop, alpha);
+        vertEdge(x1, y1, 1f, vBot, alpha);
+        vertEdge(x1, y0, 1f, vTop, alpha);
+        endBatch();
+    }
+
+    private static void vertEdge(float x, float y, float u, float v, float opacity) {
+        vert(x, y, u, v, 1f, 1f, opacity, 1f);
     }
 }

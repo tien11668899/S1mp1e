@@ -67,8 +67,8 @@ public final class ScreenFade {
         float w = mc.getWindow().getScaledWidth();
         float h = mc.getWindow().getScaledHeight();
 
-        // Raw GL throughout, then an explicit GlStateManager re-sync: mixing
-        // GlStateManager calls with glPushAttrib/glPopAttrib leaves its cache
+        // Raw GL throughout, then an explicit RenderSystem re-sync: mixing
+        // RenderSystem calls with glPushAttrib/glPopAttrib leaves its cache
         // believing state that the pop has already reverted, and the next
         // frame's cached no-op then draws untextured — white again.
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
@@ -100,6 +100,12 @@ public final class ScreenFade {
         GL11.glPopAttrib();
         RenderSystem.bindTexture(0);
         RenderSystem.color4f(1f, 1f, 1f, 1f);
+        // ...and INVALIDATE the cache (hard rule 5). The line above can itself be a cached
+        // no-op: glPopAttrib(GL_CURRENT_BIT) has already reverted the REAL colour to whatever
+        // it was at push time, which RenderSystem never saw. If its cache still reads white,
+        // color4f(white) issues nothing and a non-white colour survives to tint every later
+        // draw. clearCurrentColor forces the next colour write through, whoever makes it.
+        RenderSystem.clearCurrentColor();
     }
 
     /**
@@ -146,6 +152,13 @@ public final class ScreenFade {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
         }
         GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+        // The raw binds above bypass RenderSystem's texture-unit cache. Restore
+        // through RenderSystem so its cache matches actual GL again — bind 0 first
+        // to defeat its no-op-on-equal-cache short circuit (bytecode-verified on
+        // 1.15.2), else MC keeps sampling this capture texture and the whole
+        // screen goes white. (mc189/mc1165 fix; missing from the mc1144 form.)
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
+        RenderSystem.bindTexture(0);
+        RenderSystem.bindTexture(prevTex);
     }
 }

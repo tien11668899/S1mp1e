@@ -1,184 +1,171 @@
 package dev.s1mp1e.client.module;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import dev.s1mp1e.client.HudBounds;
+import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
-import dev.s1mp1e.client.HudBounds;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderItem;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.MathHelper;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Your own worn armour plus the held item, each with its remaining durability.
+ * Worn armour as icons, each hugged by a colour OUTLINE that follows the item's REAL
+ * silhouette — the icon sprite's alpha mask is read (via {@link Silhouette}) and the 1px-outside
+ * contour is traced, so the outline clings to the item's actual shape (like a text outline follows
+ * the glyph). The trace is ordered CLOCKWISE from the top and covers the remaining-durability
+ * fraction, so it disappears clockwise as durability drops; the item's material colour flows a
+ * bright ripple along it. No held item, no number, no green bar — this is the mc1211 redesign.
  *
- * <p>Fair play: this reads {@code mc.thePlayer.inventory} only. It shows the
- * player something already on their own inventory screen — no other entity is
- * ever touched.
+ * <p>Fair play: reads {@code mc.thePlayer.inventory.armorInventory} only. The silhouette is cached
+ * per item type; any read failure degrades to just the icon (never crashes).
  *
- * <p>The non-obvious bit is 1.8.9's slot order. {@code InventoryPlayer
- * .armorInventory} is indexed 0=boots .. 3=helmet: {@code ContainerPlayer} maps
- * its top armour slot (k=0) to inventory index {@code getSizeInventory()-1-k}
- * = 39, and {@code InventoryPlayer.getStackInSlot} turns 39 into
- * {@code armorInventory[39-36] = [3]}. So a head-to-toe list has to walk the
- * array backwards.
+ * <p>1.8.9 slot order: {@code InventoryPlayer.armorInventory} is indexed 0=boots .. 3=helmet, so a
+ * head-to-toe list walks the array backwards.
  */
-public final class ArmorHudModule extends Module implements HudBounds {
+public final class ArmorHudModule extends Module implements HudBounds, HudRenderer {
 
-    private int lastW = 60, lastH = 18;   // last rendered footprint (post-scale), for the HUD editor
+    private static final int CELL = 20;      // per-piece cell (icon 16 + 1px outline + margin)
+    /** contour points (x,y pairs) per item type; empty = read failed (retried next frame). */
+    private static final Map<Item, int[]> CACHE = new HashMap<Item, int[]>();
 
-    /** Vertical pitch per row: 16 px icon + 2 px breathing room. */
-    private static final int ROW_H   = 18;
-    private static final int ICON_W  = 16;
-    private static final int GAP     = 4;
-    private static final int PAD     = 3;
-    /** Durability bar width; also the minimum text column width. */
-    private static final int BAR_W   = 28;
-    private static final int BAR_H   = 2;
-
-    private final Setting posX  = add(Setting.integer("X", 4, 0, 4000));
-    private final Setting posY  = add(Setting.integer("Y", 60, 0, 4000));
-    private final Setting color = add(Setting.color("Text Colour", 0xFFFFFFFF));
-    private final Setting bg    = add(Setting.bool("Background", true));
-    private final Setting scale = add(Setting.number("Scale", 1.0D, 0.5D, 2.0D));
+    public final Setting posX  = add(Setting.integer("X", 4, 0, 4000));
+    public final Setting posY  = add(Setting.integer("Y", 60, 0, 4000));
+    public final Setting scale = add(Setting.number("Scale", 1.0D, 0.5D, 2.0D));
+    private int lastW = CELL, lastH = CELL;
 
     public ArmorHudModule() {
         super("ArmorHUD", "HUD");
-        // Purely additive readout of your own data -- on by default so a fresh
-        // install shows something without hand-editing config. The behaviour-
-        // changing modules (crosshair replacement, old animations, no-hurt-cam)
-        // stay OFF until the player opts in via their keybind.
+        // Purely additive readout of your own data -- on by default so a fresh install shows
+        // something. The render half is driven centrally by HudRenderDispatcher, so this module
+        // does NOT subscribe to any Forge event.
         this.enabled = true;
-
-        // Self-registering: the handler bails on !enabled, so it is safe to sit
-        // on the bus for the whole session. ModuleManager must NOT register us
-        // again or every row would draw twice.
-        MinecraftForge.EVENT_BUS.register(this);
     }
 
-    @SubscribeEvent
-    public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
+    @Override
+    public void renderHud() {
         if (!enabled) return;
-        // TEXT is the last non-chat element Forge fires, so we land on top of
-        // the vanilla HUD without having to fight the hotbar's matrix.
-        if (event.type != RenderGameOverlayEvent.ElementType.TEXT) return;
-
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null || mc.theWorld == null) return;
-        // F3 owns the top-left corner; hideGUI (F1) hides everything but menus.
-        if (mc.gameSettings.showDebugInfo) return;
         if (mc.gameSettings.hideGUI && mc.currentScreen == null) return;
 
         ItemStack[] armour = mc.thePlayer.inventory.armorInventory;
-
-        // Head to toe, then the held item last.
-        ItemStack[] rows = new ItemStack[5];
-        int n = 0;
+        List<ItemStack> rows = new ArrayList<ItemStack>(4);
         for (int i = armour.length - 1; i >= 0; i--) {
-            if (armour[i] != null) rows[n++] = armour[i];
+            if (armour[i] != null) rows.add(armour[i]);
         }
-        ItemStack held = mc.thePlayer.inventory.getCurrentItem();
-        if (held != null) rows[n++] = held;
+        int n = rows.size();
         if (n == 0) return;
 
-        FontRenderer fr = mc.fontRendererObj;
-        String[] labels = new String[n];
-        int textW = BAR_W;
-        for (int i = 0; i < n; i++) {
-            labels[i] = label(rows[i]);
-            int w = Math.round(dev.s1mp1e.client.gui.GlassFont.width(labels[i]));
-            if (w > textW) textW = w;
-        }
-
-        int boxW = PAD * 2 + ICON_W + GAP + textW;
-        int boxH = PAD * 2 + n * ROW_H;
-
         float s = (float) scale.doubleValue;
-        lastW = Math.round(boxW * s);
-        lastH = Math.round(boxH * s);
+        lastW = Math.round(CELL * s);
+        lastH = Math.round(n * CELL * s);
+        float time = (System.nanoTime() % 3_000_000_000L) / 3.0e9f;
+
         GlStateManager.pushMatrix();
-        GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
-        GlStateManager.scale(s, s, 1f);
+        try {
+            GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
+            GlStateManager.scale(s, s, 1f);
 
-        if (bg.boolValue) {
-            Gui.drawRect(0, 0, boxW, boxH, 0x60000000);
-        }
-
-        // Items first. Without GUI item lighting the models render flat-black,
-        // and leaving it enabled would unlight every HUD element drawn after us.
-        RenderItem ri = mc.getRenderItem();
-        RenderHelper.enableGUIStandardItemLighting();
-        GlStateManager.enableRescaleNormal();
-        for (int i = 0; i < n; i++) {
-            int iy = PAD + i * ROW_H;
-            ri.renderItemAndEffectIntoGUI(rows[i], PAD, iy);
-            // null text -> vanilla's stack-size / durability overlay only
-            ri.renderItemOverlayIntoGUI(fr, rows[i], PAD, iy, null);
-        }
-        GlStateManager.disableRescaleNormal();
-        RenderHelper.disableStandardItemLighting();
-        // Defeat GlStateManager's colour cache (see GlassRenderer.endBatch):
-        // a bare color(1,1,1,1) no-ops when the cache already reads white
-        // while the real GL colour is not, which leaks a tint onto the
-        // glass pipeline that draws after us.
-        GlStateManager.color(0f, 0f, 0f, 0f);
-        GlStateManager.color(1f, 1f, 1f, 1f);
-
-        // Text and bars afterwards: renderItemIntoGUI pushes items to z=150,
-        // so anything drawn at z=0 that overlapped an icon would be swallowed.
-        int textX = PAD + ICON_W + GAP;
-        for (int i = 0; i < n; i++) {
-            int iy = PAD + i * ROW_H;
-            dev.s1mp1e.client.gui.GlassFont.drawARGB(labels[i], (float) textX, (float) (iy + 1), color.colorValue, true);
-
-            ItemStack stack = rows[i];
-            if (stack.isItemStackDamageable() && stack.getMaxDamage() > 0) {
-                int left = stack.getMaxDamage() - stack.getItemDamage();
-                float ratio = MathHelper.clamp_float((float) left / (float) stack.getMaxDamage(), 0f, 1f);
-                // hue 0 = red at 0 %, hue 1/3 = green at 100 %
-                int rgb = MathHelper.hsvToRGB(ratio / 3f, 1f, 1f) | 0xFF000000;
-                int by = iy + ICON_W - BAR_H - 1;
-                Gui.drawRect(textX, by, textX + BAR_W, by + BAR_H, 0xFF202020);
-                Gui.drawRect(textX, by, textX + Math.round(BAR_W * ratio), by + BAR_H, rgb);
+            // Outlines first (immediate-mode fills, no item lighting), icons on top. The outline
+            // sits 1px OUTSIDE the shape, so the icon never covers it.
+            for (int i = 0; i < n; i++) {
+                ItemStack st = rows.get(i);
+                int ix = CELL / 2 - 8, iy = i * CELL + CELL / 2 - 8;
+                Silhouette.draw(contour(st), ix, iy, durabilityRatio(st), materialColor(st), time);
             }
+            // Gui.drawRect left the colour register on the last ripple hue and blend disabled; reset
+            // the colour cache (see GlassRenderer.endBatch) before the item pass multiplies against it.
+            GlStateManager.color(0f, 0f, 0f, 0f);
+            GlStateManager.color(1f, 1f, 1f, 1f);
+
+            RenderItem ri = mc.getRenderItem();
+            RenderHelper.enableGUIStandardItemLighting();
+            GlStateManager.enableRescaleNormal();
+            for (int i = 0; i < n; i++) {
+                ItemStack st = rows.get(i);
+                int ix = CELL / 2 - 8, iy = i * CELL + CELL / 2 - 8;
+                ri.renderItemAndEffectIntoGUI(st, ix, iy);
+            }
+            GlStateManager.disableRescaleNormal();
+            RenderHelper.disableStandardItemLighting();
+
+            // Restore state for whatever draws after us this frame (including the glass pipeline).
+            // RenderItem leaves GL_ALPHA_TEST off and the colour register non-white while
+            // GlStateManager's cache still reads white, so a bare color(1,1,1,1) no-ops — force the
+            // cache. NEVER disableBlend on exit (memory rule): leave blend enabled.
+            GlStateManager.color(0f, 0f, 0f, 0f);
+            GlStateManager.color(1f, 1f, 1f, 1f);
+            GlStateManager.enableAlpha();
+            GlStateManager.enableBlend();
+        } finally {
+            GlStateManager.popMatrix();
         }
-
-        // Restore the exact state Post(TEXT) is entered with. Gui.drawRect leaves the
-        // bar's saturated hue on the colour register, and RenderItem.renderItemIntoGUI
-        // exits with GL_ALPHA_TEST off for an undamaged single item — leaking either one
-        // tints/breaks everything drawn later this frame, including the glass pipeline.
-        // Defeat GlStateManager's colour cache (see GlassRenderer.endBatch):
-        // a bare color(1,1,1,1) no-ops when the cache already reads white
-        // while the real GL colour is not, which leaks a tint onto the
-        // glass pipeline that draws after us.
-        GlStateManager.color(0f, 0f, 0f, 0f);
-        GlStateManager.color(1f, 1f, 1f, 1f);
-        GlStateManager.enableAlpha();
-        GlStateManager.disableBlend();
-
-        GlStateManager.popMatrix();
     }
 
-    // ---- HudBounds (for the HUD editor) ----
+    /** The 1px-outside contour of the item icon's silhouette (traced by {@link Silhouette}), cached per
+     *  Item type. Only successful reads are cached, so a transient atlas miss retries next frame. */
+    private static int[] contour(ItemStack st) {
+        Item item = st.getItem();
+        int[] cached = CACHE.get(item);
+        if (cached != null) return cached;
+        int[] out;
+        try {
+            Minecraft mc = Minecraft.getMinecraft();
+            out = Silhouette.trace(mc.getRenderItem().getItemModelMesher().getItemModel(st).getParticleTexture());
+        } catch (Throwable t) {
+            out = new int[0];
+        }
+        if (out.length > 0) CACHE.put(item, out);
+        return out;
+    }
+
+    private static int materialColor(ItemStack st) {
+        Item item = st.getItem();
+        if (item instanceof ItemArmor) {
+            ItemArmor armor = (ItemArmor) item;
+            if (armor.hasColor(st)) return armor.getColor(st) & 0xFFFFFF;   // dyed leather
+        }
+        String id;
+        try {
+            Object name = Item.itemRegistry.getNameForObject(item);
+            id = name == null ? "" : name.toString().toLowerCase(Locale.ROOT);
+        } catch (Throwable t) {
+            id = "";
+        }
+        if (id.contains("netherite")) return 0x6A5E5A;
+        if (id.contains("diamond"))   return 0x4AEDD9;
+        if (id.contains("golden") || id.contains("gold")) return 0xFAEE4D;
+        if (id.contains("iron"))      return 0xD8D8D8;
+        if (id.contains("chainmail")) return 0x9A9A9A;
+        if (id.contains("turtle"))    return 0x2FA149;
+        if (id.contains("leather"))   return 0xA06540;
+        return 0xC0C0C8;
+    }
+
+    private static float durabilityRatio(ItemStack st) {
+        if (st.isItemStackDamageable() && st.getMaxDamage() > 0) {
+            float left = (float) (st.getMaxDamage() - st.getItemDamage()) / (float) st.getMaxDamage();
+            return Math.max(0f, Math.min(1f, left));
+        }
+        return 1f;
+    }
+
+    // ---- HudBounds ----
     public int hudX() { return posX.intValue; }
     public int hudY() { return posY.intValue; }
     public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
-    public int hudW() { return lastW > 0 ? lastW : 60; }
-    public int hudH() { return lastH > 0 ? lastH : 18; }
+    public int hudW() { return lastW > 0 ? lastW : CELL; }
+    public int hudH() { return lastH > 0 ? lastH : CELL; }
     public void hudResetPos() { posX.reset(); posY.reset(); }
     public String hudLabel() { return name; }
-
-    /** Remaining durability, or the stack size for things that cannot break. */
-    private static String label(ItemStack stack) {
-        if (stack.isItemStackDamageable() && stack.getMaxDamage() > 0) {
-            return String.valueOf(stack.getMaxDamage() - stack.getItemDamage());
-        }
-        return stack.stackSize > 1 ? "x" + stack.stackSize : "-";
-    }
 }

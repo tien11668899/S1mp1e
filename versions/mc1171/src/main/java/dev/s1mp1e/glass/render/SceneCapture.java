@@ -41,18 +41,41 @@ public final class SceneCapture {
     public static boolean hasBackdrop() { return texture != 0; }
 
     /**
-     * Copy the current framebuffer into the backdrop texture. Cheap enough to
-     * call once a frame; reallocates only when the window resizes.
+     * Copy the current framebuffer into the backdrop texture, DE-DUPLICATED.
+     *
+     * <p>Several call sites each want a fresh backdrop — the container panel,
+     * the tooltip, the item-name popup — and with a tooltip up in the inventory
+     * that was THREE full-screen copies in one frame. A 3 ms guard collapses
+     * duplicates so a secondary site (tooltip / recipe book) reuses whatever the
+     * primary panel just grabbed instead of re-copying (and, worse, capturing
+     * the primary's own glass into the backdrop → self-ghosting).
+     *
+     * <p>Use this for SECONDARY/reuse sites. Frame-primary sites that must own a
+     * deterministic backdrop every frame (the HUD hotbar, each screen's panel)
+     * call {@link #grabNow()} instead — the time guard silently skips a grab
+     * whenever the previous frame ran long enough ago (i.e. at the high frame
+     * rates of a paused screen), which left those surfaces sampling a stale
+     * backdrop from a different render stage → flicker and dark edges.
      */
     public static void grab() {
-        // Same-frame de-duplication. Several call sites each want a fresh
-        // backdrop — the container panel, the tooltip, the item-name popup —
-        // and with a tooltip up in the inventory that was THREE full-screen
-        // copies in one frame. A 3 ms guard collapses them to one while still
-        // allowing a genuine grab every frame far above any real frame rate.
         long now = System.nanoTime();
         if (now - lastGrabNanos < MIN_GRAB_GAP_NS) return;
-        lastGrabNanos = now;
+        doGrab();
+    }
+
+    /**
+     * Force a fresh framebuffer copy NOW, bypassing the {@link #grab()} time
+     * guard. For frame-primary backdrops that must be deterministic every frame
+     * regardless of frame rate — the HUD hotbar (world) and each screen's own
+     * panel (world + blur + dim). Also refreshes the guard timestamp so a
+     * following secondary {@link #grab()} within 3 ms still folds onto this copy.
+     */
+    public static void grabNow() {
+        doGrab();
+    }
+
+    private static void doGrab() {
+        lastGrabNanos = System.nanoTime();
 
         MinecraftClient mc = MinecraftClient.getInstance();
         int w = mc.getWindow().getFramebufferWidth(), h = mc.getWindow().getFramebufferHeight();

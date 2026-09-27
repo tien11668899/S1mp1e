@@ -2,6 +2,8 @@ package dev.s1mp1e.glass.hook;
 
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.anim.Spring;
+import dev.s1mp1e.glass.asm.BlitSuppressor;
+import dev.s1mp1e.glass.render.GlassCreativeTabs;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.PanelGhost;
@@ -9,6 +11,7 @@ import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.gui.inventory.GuiContainerCreative;
 import net.minecraft.inventory.Slot;
 import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.GuiScreenEvent;
@@ -24,9 +27,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Liquid glass for vanilla container screens — the 1.8.9 Forge port of
+ * Liquid glass for vanilla container screens — the 1.12.2 Forge port of
  * LiquidGlass26's {@code GlassPanels} + {@code ContainerScreensGlassMixin} +
- * {@code ContainerCloseGhostMixin}.
+ * {@code ContainerCloseGhostMixin} (via the mc189 line).
  *
  * <p>Timing mirrors 26.2. The panel is drawn from
  * {@link net.minecraftforge.client.event.GuiScreenEvent.BackgroundDrawnEvent},
@@ -37,11 +40,16 @@ import java.util.Set;
  * belongs. We grab there, then draw the frosted panel, the slot lattice, the
  * quick-craft drag highlight and the hover pill.
  *
- * <p>Forge events can't cancel the vanilla {@code drawGuiContainerBackgroundLayer}
- * blit in 1.8.9, so the opaque GUI texture still paints over our glass for these
- * vanilla screens — accepted for now (the mod's own screens will render their
- * glass unobstructed later; the close-ghost already shows it during the fade).
- * A no-op {@link GuiScreenEvent.DrawScreenEvent.Post} marks that intent.
+ * <p>The opaque panel texture that vanilla then blits over our glass is dropped
+ * by the coremod: {@code GuiContainer.drawScreen}'s call to
+ * {@code drawGuiContainerBackgroundLayer} is bracketed with
+ * {@link dev.s1mp1e.glass.asm.ContainerHook#arm}/{@code disarm}, which arm
+ * {@link BlitSuppressor} with {@link #panelRect}. The suppressor matches the
+ * panel strips by geometry ({@code x == guiLeft && w == xSize}, inside the panel
+ * band), so both halves of a double chest, the creative item panel, the
+ * furnace, beacon, anvil, horse and friends lose only their texture while the
+ * creative tabs/search/scrollbar, furnace fire/arrow and the player model stay
+ * vanilla.
  */
 public final class GlassContainerHandler {
 
@@ -60,6 +68,16 @@ public final class GlassContainerHandler {
 
     // ---- panel open-fade, tracked per screen instance ---------------------
     private static Object curScreen;
+    /** True once this frame's {@code BackgroundDrawnEvent} drew the panel for
+     *  {@link #curScreen}; cleared at every {@code DrawScreenEvent.Pre}, so a
+     *  screen that stops posting the event gets its vanilla texture back. */
+    private static boolean panelThisFrame;
+    /** This frame's panel open-fade value (0..1), mirrored statically so the creative scrollbar /
+     *  glide overlay (a different call path — {@code drawGuiContainerBackgroundLayer}) can match it. */
+    private static float lastFade = 1f;
+
+    /** The current container panel's open-fade (0..1) — used by {@link CreativeGlideHook}. */
+    public static float panelFade() { return lastFade; }
     /** Panel open fade: eased, and interruptible if the screen is
      *  re-opened before the close ghost finished. */
     private final Fade openFade = new Fade(0f, PanelGhost.FADE_MS);
@@ -73,6 +91,14 @@ public final class GlassContainerHandler {
 
     // ---- quick-craft drag highlight: alpha per absolute slot cell ---------
     private final HashMap<Long, Fade> dragAlpha = new HashMap<Long, Fade>();
+
+    // -----------------------------------------------------------------------
+    // Frame boundary for hasPanelFor().
+    // -----------------------------------------------------------------------
+    @SubscribeEvent
+    public void onDrawScreenPre(GuiScreenEvent.DrawScreenEvent.Pre e) {
+        panelThisFrame = false;
+    }
 
     // -----------------------------------------------------------------------
     // Panel + lattice + drag + hover, all before the vanilla GUI texture.
@@ -96,8 +122,11 @@ public final class GlassContainerHandler {
             return;
         }
 
-        // Backdrop = world + dim, grabbed the instant before any glass draws.
-        SceneCapture.grab();
+        // Backdrop = world + dim + HUD, grabbed the instant before any glass draws.
+        // forceGrab, not grabOnce: this call site's POSITION is the point. Sharing
+        // the HUD's world-only capture would refract an undimmed frame, and which
+        // of the two won used to depend on timing jitter -> flicker.
+        SceneCapture.forceGrab();
 
         // Per-instance open fade: fadeByte = min(1, elapsedMs / 150).
         long now = System.nanoTime();
@@ -109,17 +138,45 @@ public final class GlassContainerHandler {
             PanelGhost.cancel();
         }
         float fade = openFade.value();
+        lastFade = fade;
 
         // Frosted panel (pad 12, corner 0.19, frost 0.5) + close-ghost bookkeeping.
         PanelGhost.beginFrame();
-        PanelGhost.remember(gl, gt, xs, ys);
-        GlassRenderer.panel(gl, gt, gl + xs, gt + ys, fade);
+        if (screen instanceof GuiContainerCreative) {
+            // Feature (B): ONE glass sheet — the body plus BOTH tab rows (GlassCreativeTabs.BAND above
+            // and below), so the tabs are fused to the panel with no seam. The corner knob is rescaled
+            // for the taller sheet so its ABSOLUTE radius equals the unextended body panel's (R2).
+            int band = GlassCreativeTabs.BAND;
+            int top = gt - band, bot = gt + ys + band;
+            PanelGhost.remember(gl, top, xs, bot - top);
+            drawCreativeSheet(gl, top, gl + xs, bot, xs, ys, fade);
+            // Animated selected/hover pills on the band, before vanilla draws the tab icons on top.
+            GlassCreativeTabs.frame(screen, e.getMouseX(), e.getMouseY(), fade);
+        } else {
+            PanelGhost.remember(gl, gt, xs, ys);
+            GlassRenderer.panel(gl, gt, gl + xs, gt + ys, fade);
+        }
+        panelThisFrame = true;
 
         List<Slot> slots = screen.inventorySlots.inventorySlots;
 
         drawLattice(slots, gl, gt, fade);
         drawDrag(screen, gl, gt);
-        drawHover(slots, gl, gt, e.getMouseX(), e.getMouseY(), now);
+        drawHover(screen, slots, gl, gt, e.getMouseX(), e.getMouseY(), now);
+    }
+
+    /**
+     * The creative fused sheet (feature B): one refracting glass panel spanning the body plus both
+     * tab bands. The body panel uses corner knob 0.19 ({@link GlassRenderer#panel}); to keep the SAME
+     * absolute corner radius on the taller sheet (R2 — do not change the existing body radius), the
+     * knob is rescaled so {@code min(sheetHalf)*0.5*knob == bodyRadiusPx}.
+     */
+    private static void drawCreativeSheet(int x0, int y0, int x1, int y1, int xs, int ys, float fade) {
+        float bodyR   = Math.min(xs, ys) / 2f * 0.5f * 0.19f;      // body panel absolute radius (px)
+        float sheetMin = Math.min(x1 - x0, y1 - y0);
+        float corner  = bodyR / Math.max(1f, sheetMin * 0.25f);    // = bodyR / (sheetHalf*0.5)
+        if (corner > 1f) corner = 1f; else if (corner < 0f) corner = 0f;
+        GlassRenderer.glass(x0, y0, x1, y1, GlassRenderer.PAD_PANEL, corner, 0f, fade, GlassRenderer.FROST_PANEL);
     }
 
     /** Slot-separator lattice: one cell per slot with a 4-bit neighbour mask. */
@@ -188,7 +245,7 @@ public final class GlassContainerHandler {
                         f = new Fade(0f, DRAG_IN_MS);
                         dragAlpha.put(k, f);
                     }
-                    f.to(1f);
+                    f.retarget(1f);
                 }
             }
         }
@@ -199,7 +256,7 @@ public final class GlassContainerHandler {
             Map.Entry<Long, Fade> en = it.next();
             Long k = en.getKey();
             Fade f = en.getValue();
-            if (!current.contains(k)) f.to(0f, DRAG_OUT_MS);
+            if (!current.contains(k)) f.retarget(0f, DRAG_OUT_MS);
             float a = f.value();
             if (a <= DRAG_DROP && f.isIdle()) {
                 it.remove();
@@ -225,7 +282,7 @@ public final class GlassContainerHandler {
      * hop stretches a bridging box, fading in/out over {@link #HOVER_FADE_S}.
      * It snaps in place the first time it appears.
      */
-    private void drawHover(List<Slot> slots, int gl, int gt, int mouseX, int mouseY, long now) {
+    private void drawHover(GuiContainer screen, List<Slot> slots, int gl, int gt, int mouseX, int mouseY, long now) {
         Slot hov = null;
         int px = mouseX - gl, py = mouseY - gt;
         for (int i = 0; i < slots.size(); i++) {
@@ -235,6 +292,12 @@ public final class GlassContainerHandler {
                     && s.isEnabled()) {
                 hov = s;
             }
+        }
+        // While the creative grid is mid-glide the slot content is shifted, so a hover pill sitting on a
+        // fixed grid cell would highlight a mismatched item — suppress it for grid slots during the glide
+        // (feature D; the tab band's own hover pill is handled by GlassCreativeTabs).
+        if (hov != null && CreativeGlideHook.gliding(screen) && CreativeGlideHook.isGridSlot(hov)) {
+            hov = null;
         }
         boolean hovering = hov != null;
 
@@ -257,10 +320,10 @@ public final class GlassContainerHandler {
                 hy1.setTarget(cy); hy2.setTarget(cy);
             }
             hoverActive = true;
-            hoverFade.to(1f);
+            hoverFade.retarget(1f);
         } else {
             hoverActive = false;
-            hoverFade.to(0f);
+            hoverFade.retarget(0f);
             if (hoverFade.value() <= 0.004f || hx1 == null) return;
         }
 
@@ -288,10 +351,18 @@ public final class GlassContainerHandler {
     public void onGuiOpen(GuiOpenEvent e) {
         GuiScreen old = Minecraft.getMinecraft().currentScreen;
         if (!(old instanceof GuiContainer)) return;
-        // Only fires when leaving a container (close, or switch to another
-        // screen); the incoming screen, if a container, re-remembers next frame.
-        PanelGhost.trigger();
+        // Only fires when leaving a container (close, or switch to another screen).
+        // If the INCOMING screen is itself a container (chest -> inventory, a
+        // double-tapped E), the new panel takes over immediately, so arming a
+        // fade-out ghost only flashes the old panel for the one frame before
+        // onBackgroundDrawn cancels it. Kill it here instead.
+        if (e.getGui() instanceof GuiContainer) {
+            PanelGhost.cancel();
+        } else {
+            PanelGhost.trigger();
+        }
         curScreen = null;
+        panelThisFrame = false;
         hoverActive = false;
         hoverFade.snap(0f);
         hx1 = hx2 = hy1 = hy2 = null;
@@ -299,9 +370,11 @@ public final class GlassContainerHandler {
     }
 
     // -----------------------------------------------------------------------
-    // Draw the fade-out ghost from the HUD overlay pass. GlassHudHandler has
-    // already grabbed a fresh backdrop at Pre(ALL); Post(ALL) fires every frame
-    // in-world, so once the container closes the ghost fades over the world.
+    // Draw the fade-out ghost from the HUD overlay pass — the ONLY place the
+    // ghost is drawn (GlassHudHandler no longer draws it, which composited it
+    // twice). GlassHudHandler has already grabbed a fresh backdrop at Pre(ALL);
+    // Post(ALL) fires every frame in-world, so once the container closes the
+    // ghost fades over the world.
     // -----------------------------------------------------------------------
     @SubscribeEvent
     public void onOverlayPost(RenderGameOverlayEvent.Post e) {
@@ -310,13 +383,13 @@ public final class GlassContainerHandler {
     }
 
     // -----------------------------------------------------------------------
-    // The vanilla container GUI texture paints over our glass and can't be
-    // cancelled from a Forge event in 1.8.9; this documented no-op marks the
-    // point where the mod's own screens will later take over rendering.
+    // Safety net after every screen draw.
     // -----------------------------------------------------------------------
     @SubscribeEvent
     public void onDrawScreenPost(GuiScreenEvent.DrawScreenEvent.Post e) {
-        // intentionally empty
+        // If the vanilla background layer threw before ContainerHook could
+        // disarm, clear the suppressor so the next screen's blits aren't eaten.
+        BlitSuppressor.disarm();
     }
 
     // ---- helpers ----------------------------------------------------------
@@ -328,8 +401,8 @@ public final class GlassContainerHandler {
 
     /**
      * Cache the protected {@code GuiContainer} geometry fields and the private
-     * drag set once. Field-name lookups try the SRG name first (obfuscated /
-     * Feather runtime) then the MCP name (dev {@code runClient}); the drag set
+     * drag set once. Field-name lookups try the SRG name first (obfuscated
+     * production runtime) then the MCP name (dev {@code runClient}); the drag set
      * are found by name, with a type scan as a last-resort fallback.
      */
     private static void ensureReflect() {
@@ -347,8 +420,8 @@ public final class GlassContainerHandler {
         fGuiTop  = findField(GuiContainer.class, "field_147009_r", "guiTop");
         fXSize   = findField(GuiContainer.class, "field_146999_f", "xSize");
         fYSize   = findField(GuiContainer.class, "field_147000_g", "ySize");
-        // Both drag fields by name (SRG first for the reobfuscated Feather
-        // runtime, then MCP for dev), verified against MCP stable_20:
+        // Both drag fields by name (SRG first for the reobfuscated runtime, then
+        // MCP for dev), verified against the 1.12.2 mcp-srg.srg:
         //   field_147007_t = dragSplitting, field_147008_s = dragSplittingSlots
         fDragSlots = findField(GuiContainer.class, "field_147008_s", "dragSplittingSlots");
         if (fDragSlots == null) {
@@ -385,6 +458,29 @@ public final class GlassContainerHandler {
      * geometry unreadable) the texture must still render or the screen is blank.
      */
     public static boolean hasPanelFor(Object screen) {
-        return curScreen == screen;
+        return panelThisFrame && curScreen == screen;
+    }
+
+    /**
+     * The panel rectangle {@code {guiLeft, guiTop, xSize, ySize}} for a container
+     * screen, read through the same cached reflected geometry fields the panel
+     * itself uses. Returns {@code null} when the screen is not a
+     * {@code GuiContainer} or the geometry can't be read — the ASM
+     * {@link dev.s1mp1e.glass.asm.ContainerHook} then leaves the vanilla texture
+     * alone rather than blanking the screen.
+     */
+    public static int[] panelRect(Object screen) {
+        if (!(screen instanceof GuiContainer)) return null;
+        ensureReflect();
+        if (fGuiLeft == null || fGuiTop == null || fXSize == null || fYSize == null) return null;
+        try {
+            int gl = fGuiLeft.getInt(screen);
+            int gt = fGuiTop.getInt(screen);
+            int xs = fXSize.getInt(screen);
+            int ys = fYSize.getInt(screen);
+            return new int[] { gl, gt, xs, ys };
+        } catch (Throwable t) {
+            return null;
+        }
     }
 }

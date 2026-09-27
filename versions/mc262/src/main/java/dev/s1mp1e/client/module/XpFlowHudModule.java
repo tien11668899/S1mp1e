@@ -73,7 +73,7 @@ public final class XpFlowHudModule extends Module {
         float bx = x0 - HALF + s * (fillW + 2f * HALF);            // band centre crosses the fill + both margins
         float peak = 64f * env;                                    // 0..64 alpha
 
-        int base = color.colorValue & 0xFFFFFF;
+        int base = ChromaHudModule.accent(color.colorValue, x0, y0) & 0xFFFFFF;   // chroma accent when enabled
         float[] hsb = java.awt.Color.RGBtoHSB((base >> 16) & 0xFF, (base >> 8) & 0xFF, base & 0xFF, null);
         int cL = java.awt.Color.HSBtoRGB((hsb[0] - 0.07f + 1f) % 1f, hsb[1], hsb[2]) & 0xFFFFFF;   // nearby −
         int cR = java.awt.Color.HSBtoRGB((hsb[0] + 0.07f) % 1f,      hsb[1], hsb[2]) & 0xFFFFFF;   // nearby +

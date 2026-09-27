@@ -32,6 +32,13 @@ public abstract class CrosshairHideMixin {
 
     @Inject(method = "extractCrosshair", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$crosshair(GuiGraphicsExtractor g, DeltaTracker delta, CallbackInfo ci) {
+        // Combat rings/markers go in BEFORE the crosshair's nextStratum(): the crosshair (vanilla or custom) stays on top.
+        try {
+            dev.s1mp1e.client.module.AttackRingModule.drawUnderCrosshair(g, delta);
+            dev.s1mp1e.client.module.HitMarkerModule.drawUnderCrosshair(g);
+        } catch (Throwable t) {
+            dev.s1mp1e.client.ErrorOnce.report("Combat under-crosshair draw", t);
+        }
         if (!(ModuleManager.byName("Crosshair") instanceof CrosshairModule ch) || !ch.enabled) return; // vanilla draws
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;

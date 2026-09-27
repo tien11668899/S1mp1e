@@ -118,9 +118,16 @@ public abstract class HandledScreenGlassMixin {
         // @Inject shift=BEFORE drew glass then let the PNG paint over it -> the panel
         // was invisible while open; this @Redirect fixes that, matching 1.16.5.)
 
-        // Creative: run its OWN drawBackground so CreativeGlassMixin can @Redirect the
-        // ordinal-0 item-panel blit inside it (tabs/search/scrollbar draw normally).
-        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen) {
+        // Creative / stonecutter / loom: run their OWN drawBackground so the per-screen mixin can @Redirect the
+        // body-PNG blit -> glass and the scroller sprite -> the glass slider, while their recipe list / pattern grid
+        // (drawn INSIDE drawBackground) still renders. The shared swallow below would drop those lists — so these
+        // screens are delegated exactly like creative (verified against the mc1201 sibling). Merchant is NOT here:
+        // its trades are child ButtonWidgets (drawn by super.render) and its scrollbar is drawn in render(), not the
+        // swallowed drawBackground, so the shared glass panel + lattice + hover still applies and only the merchant
+        // scrollbar sprite is replaced (MerchantScrollGlassMixin).
+        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen
+                || (Object) this instanceof net.minecraft.client.gui.screen.ingame.StonecutterScreen
+                || (Object) this instanceof net.minecraft.client.gui.screen.ingame.LoomScreen) {
             this.drawBackground(matrices, delta, mouseX, mouseY);
             return;
         }
@@ -138,9 +145,12 @@ public abstract class HandledScreenGlassMixin {
 
         int gl = this.x, gt = this.y, xs = this.backgroundWidth, ys = this.backgroundHeight;
 
-        // Backdrop = world + dim (renderBackground already ran this frame), grabbed
-        // the instant before any glass draws.
-        SceneCapture.grab();
+        // Backdrop = world + dim (renderBackground already ran this frame). Reuse the capture the in-world HUD
+        // already took this frame (grabNow at InGameHud.render HEAD, refreshed every frame so never stale)
+        // instead of forcing a fresh grab: the recipe book renders BEFORE us and its result-item draws flush
+        // the still-DEFERRED screen-dim into the framebuffer, so a forced grab here would capture the DIMMED
+        // world and darken the panel. Only grab if nothing captured yet this frame.
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         long now = System.nanoTime();
         if (!s1mp1e$opened) {

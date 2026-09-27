@@ -62,10 +62,30 @@ public final class GlassRenderer {
 
     /** Begin a group of quads sharing one program. False -> nothing to draw. */
     public static boolean beginBatch(int kind) {
+        if (!beginState(kind)) return false;
+        GL11.glBegin(GL11.GL_QUADS);
+        return true;
+    }
+
+    /**
+     * Everything {@link #beginBatch} does EXCEPT opening the {@code GL_QUADS} block.
+     *
+     * <p>Between {@code glBegin} and {@code glEnd} only the vertex-attribute commands
+     * are legal; {@code glUniform*} raises {@code GL_INVALID_OPERATION} and is silently
+     * dropped. So any program whose per-draw uniforms have to be pushed (ROUND's
+     * {@code Corner}, EDGE's {@code Radius}/{@code Dim}) must set them here, between the
+     * program bind and {@link #openQuads()}.
+     */
+    private static boolean beginState(int kind) {
         if (!GlassProgram.ensureReady()) return false;
-        if (kind == GlassProgram.GLASS && !GlassProgram.usable())    return false;
+        if (kind == GlassProgram.GLASS && !GlassProgram.usable())     return false;
         if (kind == GlassProgram.LINE  && !GlassProgram.lineUsable()) return false;
         if (kind == GlassProgram.BTN   && !GlassProgram.btnUsable())  return false;
+        if (kind == GlassProgram.ROUND && !GlassProgram.roundUsable())return false;
+        if (kind == GlassProgram.EDGE  && !GlassProgram.edgeUsable()) return false;
+        if (kind == GlassProgram.LENS  && !GlassProgram.lensUsable()) return false;
+        if (kind == GlassProgram.RING  && !GlassProgram.ringUsable()) return false;
+        if (kind == GlassProgram.ARC   && !GlassProgram.arcUsable())  return false;
         batchTex = GlassProgram.needsBackdrop(kind);
         if (batchTex && !SceneCapture.hasBackdrop()) return false;
 
@@ -76,14 +96,21 @@ public final class GlassRenderer {
         GlStateManager.depthMask(false);
         if (batchTex) {
             GlStateManager.enableTexture();
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            // Rule 5 texture-unit hygiene: select unit 0 through GlStateManager
+            // (it takes the GL enum and keeps its unit cache coherent) instead of
+            // the raw GL13.glActiveTexture, then bind the backdrop.
+            GlStateManager.activeTexture(GL13.GL_TEXTURE0);
             GlStateManager.bindTexture(SceneCapture.texture());
         } else {
             GlStateManager.disableTexture();
         }
         GlassProgram.bind(kind);
-        GL11.glBegin(GL11.GL_QUADS);
         return true;
+    }
+
+    /** Open the immediate-mode quad block once every per-draw uniform is pushed. */
+    private static void openQuads() {
+        GL11.glBegin(GL11.GL_QUADS);
     }
 
     /** One quad inside an open batch. Same knob contract as {@link #draw}. */
@@ -112,7 +139,18 @@ public final class GlassRenderer {
         GlStateManager.enableTexture();
         GlStateManager.depthMask(true);
         GlStateManager.enableAlphaTest();
+        // CRITICAL colour-cache reset (hard rule 5): batchQuad sets the vertex colour
+        // with RAW GL11.glColor4f, which bypasses GlStateManager's colour cache. If we
+        // reset through GlStateManager.color, its cache still believes the colour is
+        // white (it never saw the raw calls) and NO-OPs — leaving the real GL colour at
+        // the LAST quad's value. The lattice's empty-corner cell ends on alpha 0, so
+        // every vanilla draw AFTER the glass this frame gets multiplied to invisible.
+        // The in-game-verified fix is a RAW glColor4f, which puts the real GL colour
+        // back to white. We then ALSO clear GlStateManager's cached colour so the cache
+        // cannot keep a stale non-white value it would compare-equal against next frame
+        // (clearColor() with no args resets the cache on 1.13.2). Never disableBlend.
         GL11.glColor4f(1f, 1f, 1f, 1f);
+        GlStateManager.clearColor();
     }
 
     // ---- convenience wrappers matching 26.2's call sites -------------------
@@ -144,5 +182,121 @@ public final class GlassRenderer {
                               float corner, float lift, float opacity, boolean enabled) {
         draw(GlassProgram.BTN, x0, y0, x1, y1, 10f,
              corner, 1f - lift, opacity, enabled ? 1f : 0.4f);
+    }
+
+    /** Refracting LENS (switch knob / slider thumb): full-capsule corner, samples the backdrop.
+     *  {@code corner} 0..1 of the half-size (1 = capsule), {@code frost} 1 = sharp, &lt;1 = softened. */
+    public static void lens(float x0, float y0, float x1, float y1,
+                            float corner, float lift, float opacity, float frost) {
+        draw(GlassProgram.LENS, x0, y0, x1, y1, 10f, corner, 1f - lift, opacity, frost);
+    }
+
+    /**
+     * Liquid-glass RING (glass_ring.fsh): the same glass material on a band of outer size {@code outerR} and width
+     * {@code thickness} (GUI px) around ({@code cx},{@code cy}), on a shape: 0 circle, 1 rounded square, 2 plus that
+     * wraps the crosshair (the shape code rides on the green knob). Frost 0.5 like the panels.
+     */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity) {
+        ring(cx, cy, outerR, thickness, opacity, 0);
+    }
+
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape) {
+        ring(cx, cy, outerR, thickness, opacity, shape, 0.45f);
+    }
+
+    /** {@code ratio} = the plus arm's half-width / reach (shape 2); quantised to 16 steps on the green knob. */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape, float ratio) {
+        ring(cx, cy, outerR, thickness, opacity, shape, ratio, 0f);
+    }
+
+    /** {@code gap} = the plus's central-hole half-size / reach; >0 wraps a separated crosshair arm by arm. */
+    private static int gapCode(float gap) { return Math.max(0, Math.min(14, Math.round(gap / 0.92f * 14f))); }
+
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity, int shape, float ratio, float gap) {
+        if (outerR <= 0f || opacity <= 0f) return;
+        float t = Math.max(0.02f, Math.min(1f, thickness / outerR));
+        int rc = Math.max(0, Math.min(15, Math.round((ratio - 0.08f) / 0.84f * 15f)));
+        float g = shape == 2 ? (gapCode(gap) * 16 + rc) / 255f : (shape == 1 ? 245 / 255f : 1f);   // glass_ring: 255 circle, 245 square, plus = gap*16+ratio
+        draw(GlassProgram.RING, cx - outerR, cy - outerR, cx + outerR, cy + outerR, 10f, t, g, opacity, FROST_PANEL);
+    }
+
+    /**
+     * Flat anti-aliased ARC with round caps (ring_arc.fsh) from 12 o'clock over {@code |progress|} of the shape
+     * (clockwise for a positive progress, counter-clockwise for a negative one), stroke {@code thickness} px.
+     */
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb) {
+        arc(cx, cy, outerR, thickness, progress, argb, 0);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape) {
+        arc(cx, cy, outerR, thickness, progress, argb, shape, 0.45f);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape,
+                           float ratio) {
+        arc(cx, cy, outerR, thickness, progress, argb, shape, ratio, 0f);
+    }
+
+    public static void arc(float cx, float cy, float outerR, float thickness, float progress, int argb, int shape,
+                           float ratio, float gap) {
+        if (outerR <= 0f || progress == 0f || (argb >>> 24) == 0) return;
+        if (!beginState(GlassProgram.ARC)) return;
+        GlassProgram.setArc(progress, Math.max(0.02f, Math.min(1f, thickness / outerR)), shape, ratio, gap);
+        openQuads();
+        float a = ((argb >>> 24) & 255) / 255f, r = ((argb >> 16) & 255) / 255f,
+              g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        batchQuad(cx - outerR, cy - outerR, cx + outerR, cy + outerR, 1f, r, g, b, a);
+        endBatch();
+    }
+
+    /**
+     * Solid/translucent COLOURED rounded rect with true AA SDF corners (no backdrop,
+     * never flickers). {@code radiusPx} is the corner radius in GUI px (clamped to the
+     * half-size); {@code argb} is the packed fill colour.
+     */
+    public static void roundRect(float x0, float y0, float x1, float y1, float radiusPx, int argb) {
+        if (!beginState(GlassProgram.ROUND)) return;
+        float half = Math.min(x1 - x0, y1 - y0) / 2f;
+        float corner = half <= 0f ? 0f : Math.min(1f, radiusPx / half);
+        GlassProgram.setCorner(corner);   // BEFORE glBegin — glUniform is illegal inside a primitive
+        openQuads();
+        float a = ((argb >>> 24) & 255) / 255f, r = ((argb >> 16) & 255) / 255f,
+              g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        batchQuad(x0, y0, x1, y1, 1f, r, g, b, a);   // pad=1 -> 1px AA margin for the SDF
+        endBatch();
+    }
+
+    /**
+     * One iOS-26 scroll-edge band: samples the captured composite and ramps a
+     * gaussian blur + dark fade strongest at the OUTER edge, feathering to sharp
+     * inside. {@code (x0,y0)-(x1,y1)} is the band rect in GUI px; when
+     * {@code outerIsTop} the band's top row (y0) is the outer/frame edge (v=0),
+     * otherwise the bottom row (y1) is. {@code alpha} is the whole-band opacity
+     * (open fade × scroll amount), carried in vertex BLUE per the knob contract.
+     */
+    public static void edgeBand(float x0, float y0, float x1, float y1,
+                                boolean outerIsTop, float radiusPx, float dim, float alpha) {
+        if (!beginState(GlassProgram.EDGE)) return;
+        GlassProgram.setEdge(radiusPx, dim);   // BEFORE glBegin — glUniform is illegal inside a primitive
+        openQuads();
+        float vTop = outerIsTop ? 0f : 1f;
+        float vBot = outerIsTop ? 1f : 0f;
+        // edge.fsh reads only vColor.b (opacity) and vLocal (= texcoord); u carries the
+        // 0->1 span (feathered corners), v the 0(outer)->1(inner) ramp. Immediate-mode
+        // quad wound TL->BL->BR->TR (front-facing) — the GUI pass runs with cull on.
+        vertEdge(x0, y0, 0f, vTop, alpha);
+        vertEdge(x0, y1, 0f, vBot, alpha);
+        vertEdge(x1, y1, 1f, vBot, alpha);
+        vertEdge(x1, y0, 1f, vTop, alpha);
+        endBatch();
+    }
+
+    /** One vertex of an EDGE band inside the open GL_QUADS batch. edge.fsh reads
+     *  vColor.b for opacity, so R=G=1, B=opacity, A=1; texcoord carries (u,v). */
+    private static void vertEdge(float x, float y, float u, float v, float opacity) {
+        if (batchKind < 0) return;
+        GL11.glColor4f(1f, 1f, opacity, 1f);
+        GL11.glTexCoord2f(u, v);
+        GL11.glVertex2f(x, y);
     }
 }

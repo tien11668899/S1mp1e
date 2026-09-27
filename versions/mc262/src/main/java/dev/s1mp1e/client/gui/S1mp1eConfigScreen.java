@@ -76,9 +76,33 @@ public final class S1mp1eConfigScreen extends Screen {
     private final float[] editHudRect  = new float[4];
     private final float[] layoutRect   = new float[4];   // "編輯排版" — only for LayoutEditable modules
 
+    /** Module to open on (its category tab + its detail page); consumed by the first {@link #init()}. */
+    private Module initialFocus;
+
     public S1mp1eConfigScreen() { super(Component.literal("S1mp1e")); }
 
-    @Override protected void init() { openFade.snap(0f); openFade.to(1f); rebuildTab(); }
+    /** Opens straight onto {@code focus}: its category tab selected and its settings shown (deep link). */
+    public S1mp1eConfigScreen(Module focus) { this(); this.initialFocus = focus; }
+
+    @Override protected void init() {
+        openFade.snap(0f); openFade.to(1f);
+        Module focus = initialFocus;
+        initialFocus = null;   // only the first init (a resize re-runs init and must keep the user's place)
+        int focusTab = focus == null ? -1 : categoryIndex(focus.category);
+        if (focusTab >= 0) { tab = focusTab; tabSlide.snap(focusTab); applySelect(focus); }
+        rebuildTab();
+        if (focusTab >= 0) {   // scroll the rail so the focused row is in view
+            layout();
+            int idx = modules.indexOf(focus);
+            float view = listY1 - listY0;
+            if (idx >= 0) modScroll = modScrollTarget = clampScroll((idx + 1) * ROW_MOD - view, modules.size() * ROW_MOD, view);
+        }
+    }
+
+    private static int categoryIndex(String category) {
+        for (int i = 0; i < TABS.length; i++) if (TABS[i].equalsIgnoreCase(category)) return i;
+        return -1;
+    }
     @Override public boolean isPauseScreen() { return true; }
 
     private void rebuildTab() {

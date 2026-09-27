@@ -36,7 +36,38 @@ public final class S1mp1eClient implements ClientModInitializer {
             for (String target : new String[] {
                     "net.minecraft.client.gui.widget.ClickableWidget",
                     "net.minecraft.client.gui.widget.SliderWidget",
-                    "net.minecraft.client.option.KeyBinding" }) {
+                    "net.minecraft.client.option.KeyBinding",
+                    // BATCH A new targets — keep this list current so a broken injection fails at launch, not later.
+                    "net.minecraft.client.gui.screen.ingame.HandledScreen",
+                    "net.minecraft.client.gui.screen.ingame.AbstractInventoryScreen",
+                    "net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen",
+                    "net.minecraft.client.gui.screen.advancement.AdvancementsScreen",
+                    "net.minecraft.client.gui.screen.ingame.BookScreen",
+                    // BATCH A stage 2 — list-screen glass + scrollbar + glide targets.
+                    "net.minecraft.client.gui.screen.ingame.StonecutterScreen",
+                    "net.minecraft.client.gui.screen.ingame.LoomScreen",
+                    "net.minecraft.client.gui.screen.ingame.MerchantScreen",
+                    // BATCH B — HUD overlay (G) + module (H) targets.
+                    "net.minecraft.client.gui.hud.InGameHud",
+                    "net.minecraft.client.gui.hud.ChatHud",
+                    "net.minecraft.client.gui.screen.ChatScreen",
+                    "net.minecraft.client.gui.hud.PlayerListHud",
+                    "net.minecraft.client.gui.hud.BossBarHud",
+                    "net.minecraft.client.toast.AdvancementToast",
+                    "net.minecraft.client.toast.RecipeToast",
+                    "net.minecraft.client.toast.SystemToast",
+                    "net.minecraft.client.toast.TutorialToast",
+                    "net.minecraft.client.render.entity.EntityRenderer",
+                    "net.minecraft.client.render.WorldRenderer",
+                    // Verify pass — A stats/social/book-edit, list chrome, outline line-width phase.
+                    "net.minecraft.client.gui.screen.Screen",
+                    "net.minecraft.client.gui.screen.StatsScreen",
+                    "net.minecraft.client.gui.widget.EntryListWidget",
+                    "net.minecraft.client.gui.screen.multiplayer.SocialInteractionsScreen",
+                    "net.minecraft.client.gui.screen.ingame.BookEditScreen",
+                    "net.minecraft.client.render.RenderPhase$LineWidth",
+                    "net.minecraft.client.gui.DrawContext",
+                    "net.minecraft.client.render.GameRenderer" }) {
                 try {
                     Class.forName(target, true, S1mp1eClient.class.getClassLoader());
                     System.out.println("[S1mp1e] mixin target preload OK: " + target);
@@ -52,6 +83,15 @@ public final class S1mp1eClient implements ClientModInitializer {
 
         // HUD modules paint here, once per frame. Each module guards itself (F1 /
         // no player), and a throw in one is swallowed so it never kills the HUD pass.
+        //
+        // NOTE: HudRenderCallback is @Deprecated as of 1.21 (Fabric API moved the HUD to a
+        // LayeredDrawer and prefers HudLayerRegistrationCallback). It still fires after the
+        // whole HUD in fabric-api 0.116, so our info HUD modules (FPS/coords/keystrokes) draw
+        // on top and read correctly; the only downside is these overlays are not a true HUD
+        // layer, so a mid-fade vanilla element (toast/title) could momentarily sit above them.
+        // We keep HudRenderCallback for parity with the approved 1.20.1 build (which uses the
+        // identical registration); migrating only this version would risk changing the approved
+        // HUD layering with no measured benefit. Revisit together across versions if it matters.
         HudRenderCallback.EVENT.register((ctx, tickCounter) -> {
             MinecraftClient c = MinecraftClient.getInstance();
             if (c.player == null) return;

@@ -7,6 +7,7 @@ import dev.s1mp1e.client.S1mp1eHudCtx;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
 import dev.s1mp1e.client.hud.HudGlass;
+import dev.s1mp1e.client.hud.HudText;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.core.Direction;
@@ -64,8 +65,8 @@ public final class CoordinatesHudModule extends Module implements HudBounds, Hud
         try {
             g.pose().translate(x0, y0);
             g.pose().scale(sc, sc);
-            GlassFont.drawARGB(g, l1, PAD, PAD, color.colorValue, true);
-            if (l2 != null) GlassFont.drawARGB(g, l2, PAD, PAD + LINE, color.colorValue, true);
+            HudText.draw(g, l1, PAD, PAD, color.colorValue, true);
+            if (l2 != null) HudText.draw(g, l2, PAD, PAD + LINE, color.colorValue, true);
         } finally {
             g.pose().popMatrix();
         }

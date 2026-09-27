@@ -7,6 +7,7 @@ import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.anim.Spring;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
+import dev.s1mp1e.glass.render.GuiFlush;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.util.math.MatrixStack;
@@ -86,10 +87,13 @@ public final class GlassTooltip {
             tooltipY = screenH - tooltipHeight - 6;
         }
 
-        // Grab the GUI drawn so far (slots, items, dimmer) as the refraction
-        // backdrop. Tooltips draw LAST, so the framebuffer does not yet contain
-        // this tooltip -> no self-ghosting.
-        SceneCapture.grab();
+        // Flush any pending / ImmediatelyFast-batched GUI draws, then grab the GUI drawn so far (dim, panel,
+        // slots, ITEMS, dimmer) as the refraction backdrop. grabNow (not the deduped grab): in a container
+        // screen the panel already grabbed its own backdrop BEFORE the items were drawn, so a deduped grab here
+        // would fold onto that stale copy and the tooltip would refract the world instead of the item under the
+        // cursor. Tooltips draw LAST, so the framebuffer does not yet contain this tooltip -> no self-ghosting.
+        GuiFlush.flush();
+        SceneCapture.grabNow();
 
         // ---- panel geometry: content box + PADDING 3 -----------------------
         int x0 = tooltipX - PADDING;
@@ -127,11 +131,17 @@ public final class GlassTooltip {
         if (a >= 8) {
             int col = (a >= 252) ? 0xFFFFFFFF : ((a << 24) | 0xFFFFFF);
             int ty = tooltipY;
+            // Lift the text onto the tooltip Z-layer (vanilla uses +400) so it sorts ABOVE the item models
+            // drawn into the shared buffer; the raw-GL glass panel reset Z and item icons carry their own +400,
+            // so without this the icons depth-test over the letters.
+            matrices.push();
+            matrices.translate(0f, 0f, 400f);
             for (int i = 0; i < lines.size(); i++) {
                 font.drawWithShadow(matrices, lines.get(i), (float) tooltipX, (float) ty, col);
                 if (i == 0) ty += 2; // vanilla's title gap
                 ty += 10;
             }
+            matrices.pop();
         }
         RenderSystem.enableDepthTest();
         return true;
@@ -174,5 +184,13 @@ public final class GlassTooltip {
         int h = Math.round(sh.value());
         // pad 8, corner 0.92, no lift, frosted panel
         GlassRenderer.glass(x, y, x + w, y + h, 8f, 0.92f, 0f, a, GlassRenderer.FROST_PANEL);
+        // Grey readability scrim between glass and text (user rule E): RGB 0x16161A, peak alpha 0x48 (~28%),
+        // inset 1 px, radius min(w,h)*0.23-1. Drawn AFTER the card (stacks above the glass) and BEFORE the text
+        // (drawPanel runs before the text draw), through the ROUND program so it never samples the backdrop / flickers.
+        if (GlassProgram.roundUsable()) {
+            float r = Math.max(0f, Math.min(w, h) * 0.23f - 1f);
+            int sa = Math.round(0x48 * a) & 0xFF;
+            if (sa > 0) GlassRenderer.roundRect(x + 1, y + 1, x + w - 1, y + h - 1, r, (sa << 24) | 0x16161A);
+        }
     }
 }

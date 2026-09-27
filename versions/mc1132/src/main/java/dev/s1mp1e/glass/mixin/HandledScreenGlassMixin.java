@@ -78,11 +78,11 @@ import java.util.Set;
  *       now.</li>
  * </ul>
  *
- * <p>The close ghost DRAW ({@code InGameHudPanelGhostMixin}) is SKIPPED on 1.13.2
- * (the HUD-pass grab that fed it lived in the dropped hotbar mixin), so
- * {@link PanelGhost#drawGhosts()} is never called here; the {@link PanelGhost}
- * bookkeeping below ({@code beginFrame}/{@code remember}/{@code cancel}) still runs
- * harmlessly.
+ * <p>The close ghost: the {@link PanelGhost} bookkeeping below
+ * ({@code beginFrame}/{@code remember}/{@code cancel}) records this panel's rect every
+ * frame; {@code MinecraftClientContainerGhostMixin} triggers the fade on close and
+ * {@code InGameHudPanelGhostMixin} draws it ({@link PanelGhost#drawGhosts()} at
+ * {@code InGameHud.render} TAIL), fed by the hotbar mixin's scene grab at render HEAD.
  */
 @Mixin(HandledScreen.class)
 public abstract class HandledScreenGlassMixin {

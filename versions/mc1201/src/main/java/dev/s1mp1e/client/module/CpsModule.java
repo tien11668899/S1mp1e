@@ -7,6 +7,7 @@ import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
+import dev.s1mp1e.client.gui.HudText;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 
@@ -72,7 +73,7 @@ public final class CpsModule extends Module implements HudBounds, HudRenderer {
         String text = showRight.boolValue ? (left + " | " + right + " CPS") : (left + " CPS");
         lastW = Math.round(GlassFont.width(text));
         lastH = Math.round(GlassFont.height());
-        GlassFont.drawARGB(ctx, text, posX.intValue, posY.intValue, color.colorValue, shadow.boolValue);
+        HudText.draw(ctx, text, posX.intValue, posY.intValue, color.colorValue, shadow.boolValue);
     }
 
     // ---- HudBounds (for the HUD editor) ----

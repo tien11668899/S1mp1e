@@ -50,6 +50,9 @@ public final class HungerSaturationHudModule extends Module implements HudRender
         int top = sh - 39 - FOOD_LIFT;                 // vanilla food-bar top, minus our status-bar lift
         int x0 = right - 81, x1 = right, y0 = top, y1 = top + 9;   // 10 food icons over 81px, 9px tall
         int gold = color.colorValue & 0xFFFFFF;
+        // HUD accent: the golden tint follows Chroma HUD when its Accents setting is on (no-op
+        // otherwise), sampled at the bar centre. The white scrolling glint stays neutral.
+        gold = ChromaHudModule.accent(0xFF000000 | gold, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f) & 0xFFFFFF;
 
         // base golden tint over the whole bar — alpha scales with saturation
         int baseA = Math.round(30f + ratio * 95f);     // ~30..125 alpha

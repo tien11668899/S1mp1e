@@ -10,6 +10,7 @@ import dev.s1mp1e.client.LayoutEditable;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
+import dev.s1mp1e.client.gui.HudText;
 import dev.s1mp1e.client.gui.S1mp1eHudEditScreen;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
@@ -96,8 +97,11 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
                     GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, 1f, GlassRenderer.FROST_PANEL);
                     if (fade[i] > 0.02f) {
                         int ga = Math.round(fade[i] * 130f);
-                        GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f,
-                                                (ga << 24) | (glow.colorValue & 0xFFFFFF));
+                        // Press highlight is a HUD accent: follows Chroma HUD when its Accents setting is on
+                        // (no-op otherwise), sampled at the cap centre so it lines up with the global sweep.
+                        int glowArgb = ChromaHudModule.accent((ga << 24) | (glow.colorValue & 0xFFFFFF),
+                                                              x + w * 0.5f, y + h * 0.5f);
+                        GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f, glowArgb);
                     }
                 }
             } finally {
@@ -118,7 +122,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
             int tc = HudGlass.lerpArgb(TX_REST, TX_DOWN, fade[i]);
             float tw = GlassFont.width(LABEL[i]);
             float ty = y + (h - GlassFont.height()) / 2f;   // centred (no +1 nudge)
-            GlassFont.drawARGB(ctx, LABEL[i], x + (w - tw) / 2f, ty, tc, false);
+            HudText.draw(ctx, LABEL[i], x + (w - tw) / 2f, ty, tc, false);
         }
     }
 

@@ -1,5 +1,6 @@
 package dev.s1mp1e.glass.ui;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -65,6 +66,59 @@ public final class GlassTooltip {
                                TextRenderer font) {
         if (lines == null || lines.isEmpty()) return false;
         if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return false;
+        if (deferring) {
+            // Feature E / R1: inside a screen render — record it and draw it as the LAST GUI layer of the frame
+            // (after the screen, the autosave indicator and the TOASTS), see GameRendererTooltipLayerMixin.
+            dLines = new ArrayList<OrderedText>(lines);
+            dMouseX = mouseX; dMouseY = mouseY; dScreenW = screenW; dScreenH = screenH; dFont = font;
+            dPending = true;
+            return true;
+        }
+        return drawNow(context, lines, mouseX, mouseY, screenW, screenH, font);
+    }
+
+    // ---- top-layer deferral (feature E / R1) ------------------------------------------------------------------
+    // In 1.21.1 GameRenderer.render draws the screen (renderWithTooltip), THEN the autosave indicator and the toasts;
+    // a tooltip drawn inside the screen would therefore sit UNDER a toast. 26.2 promotes the tooltip strata to the end
+    // of the frame; the immediate-mode equivalent is to record the tooltip during the screen render and draw it (and
+    // the 150 ms fade-out ghost) right after the toasts — the very last GUI draw — with a fresh grab of everything
+    // drawn below it, so the card refracts the GUI beneath it and nothing can draw over it.
+    private static boolean deferring, dPending;
+    private static List<OrderedText> dLines;
+    private static int dMouseX, dMouseY, dScreenW, dScreenH;
+    private static TextRenderer dFont;
+
+    /** Open the deferral window (GameRenderer, just before {@code Screen.renderWithTooltip}). */
+    public static void beginDefer() {
+        deferring = true;
+        dPending = false;
+        dLines = null;
+    }
+
+    /**
+     * Close the window and draw the recorded tooltip + the ghost as the top layer (GameRenderer, right after
+     * {@code ToastManager.draw}). No-op when no window is open (no screen rendered this frame), so the ghost still runs
+     * exactly once per frame: from here when a screen rendered, from the HUD tail otherwise.
+     */
+    public static void endDefer(DrawContext context) {
+        if (!deferring) return;
+        deferring = false;
+        if (context == null) { dPending = false; dLines = null; return; }
+        if (dPending) {
+            dPending = false;
+            List<OrderedText> l = dLines;
+            dLines = null;
+            drawNow(context, l, dMouseX, dMouseY, dScreenW, dScreenH, dFont);
+        }
+        ghostPass(context);
+    }
+
+    /** True while a screen is rendering inside the deferral window (the HUD-tail ghost pass must then stand down). */
+    public static boolean deferring() { return deferring; }
+
+    private static boolean drawNow(DrawContext context, List<? extends OrderedText> lines,
+                                   int mouseX, int mouseY, int screenW, int screenH, TextRenderer font) {
+        if (lines == null || lines.isEmpty() || font == null) return false;
 
         // ---- vanilla's exact box math --------------------------------------
         int textWidth = 0;
@@ -163,7 +217,14 @@ public final class GlassTooltip {
      * analogue of {@code GlassTooltipHandler}'s overlay Post). Exactly one call per
      * frame is the only invariant — the active flag ping-pongs regardless of order.
      */
-    public static void ghostPass() {
+    public static void ghostPass() { ghostPass(null); }
+
+    /**
+     * {@link #ghostPass()} with the frame's {@link DrawContext}: when given (the top-layer call after the toasts), the
+     * GUI drawn so far is flushed and freshly grabbed first, so the fading ghost refracts the GUI beneath it (not a
+     * stale world grab) and sits on the very top layer like the live card (R1, R4).
+     */
+    public static void ghostPass(DrawContext context) {
         if (activeThisFrame) {
             activeThisFrame = false;
             return;
@@ -175,6 +236,10 @@ public final class GlassTooltip {
         panelFade.to(0f);
         alpha = panelFade.value();
         if (alpha > 0.02f) {
+            if (context != null) {
+                context.draw();
+                SceneCapture.grabNow();
+            }
             RenderSystem.disableDepthTest();
             drawPanel(alpha);          // springs frozen at last pose, alpha decaying
             RenderSystem.enableDepthTest();
@@ -194,5 +259,19 @@ public final class GlassTooltip {
         int h = Math.round(sh.value());
         // pad 8, corner 0.92, no lift, frosted panel
         GlassRenderer.glass(x, y, x + w, y + h, 8f, 0.92f, 0f, a, GlassRenderer.FROST_PANEL);
+        greyScrim(x, y, w, h, a);
+    }
+
+    /**
+     * Feature E — the grey readability scrim between the glass card and the text: RGB {@code 0x16161A}, peak alpha
+     * {@code 0x48} (~28%), inset 1 px, radius {@code max(0, min(w,h)*0.23 - 1)} (the card corner 0.92 gives radius
+     * {@code min(w,h)*0.23}, so this tracks it minus the 1 px inset). Drawn AFTER the card so it stacks above the glass
+     * and below the text — keeps text legible while the card still refracts the GUI beneath it.
+     */
+    public static void greyScrim(int x, int y, int w, int h, float a) {
+        int sa = Math.round(0x48 * (a < 0f ? 0f : (a > 1f ? 1f : a)));
+        if (sa <= 0) return;
+        float rIn = Math.max(0f, Math.min(w, h) * 0.23f - 1f);
+        GlassRenderer.roundRect(x + 1, y + 1, x + w - 1, y + h - 1, rIn, (sa << 24) | 0x16161A);
     }
 }

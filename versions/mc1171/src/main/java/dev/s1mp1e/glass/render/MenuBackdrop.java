@@ -16,19 +16,25 @@ package dev.s1mp1e.glass.render;
  * §7: draw the full-screen quad as two triangles through the shared VAO/VBO,
  * bind program {@code BLUR} ({@code menu_blur.fsh}) and set {@code Radius}/{@code
  * Dim}, driving state via {@code RenderSystem} instead of {@code glPushAttrib}.
- * That path cannot land here yet because it depends on the rest of the core port
- * that is NOT done in this module: {@link GlassProgram} still compiles GLSL-120
- * shaders (so {@code BLUR} won't link on a core context) and does not yet expose
- * the {@code ProjMat}/{@code ModelViewMat} uniforms, and {@link GlassRenderer}
- * still owns no shared VAO/VBO. Wiring a half-ported blur here would only produce
- * GL errors.
  *
- * <p>So this class is gutted to inert stubs (signatures preserved): {@link #draw}
- * returns {@code false} so callers fall back to vanilla's dirt background, and
- * {@link #capture}/{@link #ready} do nothing. This module has NO call sites for
- * MenuBackdrop today, so nothing regresses; the glass hotbar + capsule-button
- * paths do not touch it. Restore the real behaviour per spec §7 once
- * {@link GlassProgram}/{@link GlassRenderer}/the shaders are on core profile.
+ * <p><b>Why it is still stubbed (updated — the old note here was stale).</b> The
+ * core port it once waited on is now DONE: {@link GlassProgram} compiles core
+ * GLSL-150 shaders, links and validates the {@code BLUR} program, and exposes the
+ * {@code ProjMat}/{@code ModelViewMat} uniforms, and {@link GlassRenderer} owns a
+ * shared VAO/VBO + a full-screen two-triangle quad. So the blur COULD be wired per
+ * spec §7. It is deliberately NOT, because the user-approved look (the 1.20.1
+ * reference) shows world-less screens — the settings page, Options — over
+ * <em>vanilla's own</em> tiled background, not a blurred title panorama. Enabling
+ * the menu blur here would make 1.17.1 diverge from that approved look, so this
+ * line intentionally keeps parity with the Fabric references and vanilla.
+ *
+ * <p>This class is therefore inert stubs (signatures preserved): {@link #draw}
+ * returns {@code false} so callers fall back to vanilla's background, and
+ * {@link #capture}/{@link #ready} do nothing. There are NO call sites for
+ * MenuBackdrop today ({@code TitleScreenBackdropCaptureMixin} only feeds the no-op
+ * {@link #capture()}), so nothing regresses; the glass hotbar + capsule-button
+ * paths do not touch it. To actually enable the blur later, implement §7 here AND
+ * add a draw call site — but only if the approved look is changed to want it.
  */
 public final class MenuBackdrop {
 

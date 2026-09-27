@@ -3,7 +3,7 @@
   "id": "s1mp1e",
   "version": "${version}",
   "name": "S1mp1e Client",
-  "description": "Apple Liquid Glass UI for Minecraft 1.17.1 (Fabric). Snell refraction, dispersion, Fresnel edge light, measured springs. Renders only — no tint, no unfair gameplay hooks.",
+  "description": "Apple Liquid Glass UI for Minecraft 1.18.2 (Fabric). Snell refraction, dispersion, Fresnel edge light, measured springs. Renders only — no tint, no unfair gameplay hooks.",
   "authors": [ "S1mp1e" ],
   "license": "ARR",
   "environment": "client",

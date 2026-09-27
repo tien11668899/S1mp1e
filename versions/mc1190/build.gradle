@@ -1,12 +1,11 @@
-// S1mp1e Client — 1.16.5 line (Fabric).
-// The glass render layer (4 GLSL-120 programs + immediate-mode GlassRenderer)
-// is the SAME code as the 1.8.9/1.12.2 lines — 1.16.5 still has the fixed-
-// function pipeline (glBegin/glEnd, gl_ModelViewProjectionMatrix, gl_Color).
-// Only the plumbing changes: Forge coremod/events -> Fabric mixins + entrypoint,
-// and MC API names go yarn (Minecraft->MinecraftClient, ResourceLocation->
-// Identifier, mc.displayWidth->mc.getWindow().getWidth()).
+// S1mp1e Client — 1.19.2 line (Fabric).
+// The glass render layer is the core-profile port (GLSL 150 core + RenderSystem
+// shaders) shared with the 1.17.1+ lines — 1.19.2 has the OpenGL 3.2 core
+// pipeline, so the fixed-function code of the 1.8.9/1.12.2 lines does not apply.
+// Only the plumbing changes vs 1.20.1: GUI uses MatrixStack + DrawableHelper
+// instead of DrawContext, and a handful of widget/screen API shifts.
 //
-// Toolchain: JDK8 target via --release 8, Gradle 8.10 + Loom 1.7 on JDK21.
+// Toolchain: Java 17 target via --release 17, Gradle 8.10 + Loom 1.7.4 on JDK21.
 plugins {
     id 'fabric-loom' version '1.7.4'
 }
@@ -32,7 +31,7 @@ processResources {
     filesMatching("fabric.mod.json") { expand "version": project.version }
 }
 
-// 1.16.5 runs on Java 8; emit Java-8 bytecode.
+// 1.19.2 runs on Java 17; emit Java-17 bytecode.
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 17
     it.options.encoding = 'UTF-8'
@@ -40,5 +39,14 @@ tasks.withType(JavaCompile).configureEach {
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+}
+
+// Dev runs only: force-load the GUI mixin targets at startup so a broken injection fails immediately.
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+        }
+    }
 }
 
