@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.module;
 
+import dev.s1mp1e.client.hud.HudText;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -97,7 +98,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
                     if (fade[i] > 0.02f) {
                         int ga = Math.round(fade[i] * 130f);
                         GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f,
-                                                (ga << 24) | (glow.colorValue & 0xFFFFFF));
+                                                (ga << 24) | (ChromaHudModule.accent(glow.colorValue, x, y) & 0xFFFFFF));   // H2 accents: follows the Chroma HUD hue when on
                     }
                 }
             } finally {
@@ -117,7 +118,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
             int tc = HudGlass.lerpArgb(TX_REST, TX_DOWN, fade[i]);
             float tw = GlassFont.width(LABEL[i]);
             float ty = y + (h - GlassFont.height()) / 2f;   // centred (no +1 nudge)
-            GlassFont.drawARGB(LABEL[i], x + (w - tw) / 2f, ty, tc, false);
+            HudText.draw(LABEL[i], x + (w - tw) / 2f, ty, tc, false);
         }
 
         // Leave blend enabled and the colour cache white for the modules drawn after us.

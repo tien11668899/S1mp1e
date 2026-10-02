@@ -32,6 +32,7 @@ public abstract class TitleScreenBackdropCaptureMixin {
                      target = "Lnet/minecraft/client/gui/RotatingCubeMapRenderer;render(FF)V",
                      shift = At.Shift.AFTER))
     private void s1mp1e$capturePanorama(int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        MenuBackdrop.rememberTitle((TitleScreen) (Object) this);
         MenuBackdrop.capture();
     }
 }

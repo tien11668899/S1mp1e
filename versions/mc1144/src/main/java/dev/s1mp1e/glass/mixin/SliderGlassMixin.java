@@ -3,10 +3,12 @@ package dev.s1mp1e.glass.mixin;
 import dev.s1mp1e.client.gui.ScreenOpenFade;
 import dev.s1mp1e.client.gui.VanillaSliderSkin;
 import dev.s1mp1e.glass.render.GlassProgram;
-import dev.s1mp1e.glass.ui.SliderGlassHost;
+import dev.s1mp1e.glass.ui.GlassSliderPainter;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.gui.widget.AbstractButtonWidget;
 import net.minecraft.client.gui.widget.SliderWidget;
+import net.minecraft.text.LiteralText;
 import org.apache.logging.log4j.LogManager;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,34 +19,32 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Vanilla option sliders (FOV, render distance, volume, brightness, sensitivity…) → liquid glass:
- * a glass capsule row like the glass buttons, the label lifted above a thin track, and the
- * white-pill → glass-lens knob. The 1.14.4 counterpart of 1.16.5's {@code SliderGlassMixin} and
- * of the 1.8.9 {@code ButtonHook} slider branch.
+ * Vanilla option sliders (FOV, render distance, volume, brightness, sensitivity…) → liquid glass, the 1.14.4
+ * counterpart of the 26.2 client's slider skin ({@link VanillaSliderSkin}): glass row like the glass buttons,
+ * label lifted above a thin track, white-pill → glass-lens knob.
  *
- * <p><b>1.14.4 delta — no {@code renderButton} to inject.</b> {@code SliderWidget} does not declare
- * {@code renderButton}; it only overrides {@code renderBg(MinecraftClient,int,int)}, which the
- * inherited {@code renderButton} calls. So an {@code @Inject(method = "renderButton")} here would
- * have no target and fail {@code defaultRequire 1}, and {@code ButtonGlassMixin}'s HEAD cancel of
- * {@code AbstractButtonWidget.renderButton} swallows {@code renderBg} along with it — which is
- * exactly why option sliders previously drew as a knob-less capsule. Instead this mixin implements
- * the {@link SliderGlassHost} duck and {@code ButtonGlassMixin} calls {@link #s1mp1e$paintSkin}
- * from that one hook, cancelling vanilla only when the skin actually painted.
+ * <p><b>1.14.4 delta.</b> {@code SliderWidget} does NOT declare {@code renderButton} — it only overrides
+ * {@code renderBackground} (the white knob). So there is no {@code @Inject(method = "renderButton")} here (it would
+ * fail {@code defaultRequire 1}). Instead this mixin implements {@link GlassSliderPainter}; {@code ButtonGlassMixin}
+ * (on {@code AbstractButtonWidget.renderButton} HEAD) casts a {@code SliderWidget} to that duck and calls
+ * {@link #s1mp1e$paintGlass}, cancelling vanilla only when it returns {@code true}.
  *
- * <p>Value, stepping, keyboard control and narration stay vanilla. The single input change: while
- * the skin is drawn, {@code setValueFromMouse} maps the pointer onto the skin's knob travel
- * ({@link VanillaSliderSkin#valueAt}) instead of vanilla's 8&nbsp;px handle travel, so pressing the
- * knob doesn't nudge the value and the knob stays exactly under the pointer. {@code onClick} /
- * {@code onRelease} are observed only, to know when the slider is held. With no glass programs
- * nothing is painted and nothing is remapped, so vanilla draws and behaves as shipped.
+ * <p>Value, stepping, keyboard control and narration stay vanilla. While the skin is drawn,
+ * {@code setValueFromMouse} maps the pointer onto the skin's knob travel instead of vanilla's 8 px handle travel, so
+ * pressing the knob doesn't nudge the value. {@code onClick} / {@code onRelease} are only observed, to know when the
+ * slider is held. Without the glass programs it paints (and maps) nothing, so vanilla draws.
  *
- * <p>Extends {@link AbstractButtonWidget} (the target's superclass) so the inherited
- * {@code x}/{@code y}/{@code width}/{@code height}/{@code alpha}/{@code active}/{@code visible}/
- * {@code isHovered()}/{@code isFocused()}/{@code getMessage()} members resolve at compile time; the
- * constructor is never executed.
+ * <p>On a settings page the row paints the slider instead ({@link #s1mp1e$paintRow}: the config-menu slider on the
+ * row's own track); while that row form is the one last painted, a press keeps the grab offset and the pointer maps
+ * onto that track ({@code VanillaSliderSkin.rowPress / rowValueAt}).
+ *
+ * <p>Extends {@link AbstractButtonWidget} (the target's superclass) so the inherited {@code active}/{@code alpha}/
+ * {@code hovered}/{@code width}/{@code height}/{@code x}/{@code y}/{@code isFocused()}/{@code getMessage()} members
+ * resolve; the constructor never runs.
  */
 @Mixin(SliderWidget.class)
-public abstract class SliderGlassMixin extends AbstractButtonWidget implements SliderGlassHost {
+public abstract class SliderGlassMixin extends AbstractButtonWidget
+        implements GlassSliderPainter, dev.s1mp1e.client.gui.SettingsShell.SliderAccess {
 
     @Shadow protected double value;
     @Shadow private void setValue(double value) {}
@@ -52,14 +52,44 @@ public abstract class SliderGlassMixin extends AbstractButtonWidget implements S
     @Unique private VanillaSliderSkin s1mp1e$skin;
     @Unique private boolean s1mp1e$held;
     @Unique private boolean s1mp1e$skinned;
+    @Unique private boolean s1mp1e$rowMode;
     @Unique private static boolean s1mp1e$errorLogged;
 
-    /** Never runs; present only so this mixin can extend the target's superclass. */
-    private SliderGlassMixin() { super(0, 0, ""); }
+    private SliderGlassMixin() { super(0, 0, 0, 0, ""); }
+
+    @Override
+    public double s1mp1e$value() {
+        return this.value;
+    }
+
+    @Override
+    public boolean s1mp1e$held() {
+        if (!this.s1mp1e$held) return false;
+        long window = MinecraftClient.getInstance().window.getHandle();
+        if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS
+                && !VanillaSliderSkin.devMouseDown) this.s1mp1e$held = false;
+        return this.s1mp1e$held;
+    }
+
+    /** A settings-page row paints this slider as the config-menu slider on the given track. */
+    @Override
+    public void s1mp1e$paintRow(float tx0, float tx1, float cy, float alpha) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (this.s1mp1e$skin == null) this.s1mp1e$skin = new VanillaSliderSkin();
+        long window = mc.window.getHandle();
+        boolean buttonDown = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS
+                || VanillaSliderSkin.devMouseDown;
+        if (!buttonDown || (!this.s1mp1e$rowMode && this.s1mp1e$skin.paintGap())) this.s1mp1e$held = false;
+        double pointerX = mc.mouse.getX() * mc.window.getScaledWidth() / Math.max(1, mc.window.getWidth());
+        this.s1mp1e$skin.paintRow(tx0, tx1, cy, this.value, this.s1mp1e$held, pointerX, this.active, alpha);
+        this.s1mp1e$skinned = false;
+        this.s1mp1e$rowMode = true;
+    }
 
     @Inject(method = "onClick", at = @At("HEAD"))
     private void s1mp1e$press(double mouseX, double mouseY, CallbackInfo ci) {
         this.s1mp1e$held = this.active;
+        if (this.s1mp1e$rowMode && this.s1mp1e$skin != null) this.s1mp1e$skin.rowPress(mouseX);
     }
 
     @Inject(method = "onRelease", at = @At("HEAD"))
@@ -70,52 +100,38 @@ public abstract class SliderGlassMixin extends AbstractButtonWidget implements S
     /** Mouse → value on the skin's knob travel (vanilla maps onto its own 8 px handle travel). */
     @Inject(method = "setValueFromMouse", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$mapToSkin(double mouseX, CallbackInfo ci) {
-        if (this.s1mp1e$skinned) {
+        if (this.s1mp1e$rowMode && this.s1mp1e$skin != null) {     // a settings-page row: its own track and grab offset
+            this.setValue(this.s1mp1e$skin.rowValueAt(mouseX));
+            ci.cancel();
+        } else if (this.s1mp1e$skinned) {
             this.setValue(VanillaSliderSkin.valueAt(mouseX, this.x, this.width));
             ci.cancel();
         }
     }
 
     @Override
-    public boolean s1mp1e$paintSkin(int mouseX, int mouseY) {
+    public boolean s1mp1e$paintGlass(int mouseX, int mouseY, float delta) {
         this.s1mp1e$skinned = false;
+        this.s1mp1e$rowMode = false;                 // the normal skin paints (a row's own painting never gets here)
         int x = this.x, y = this.y, w = this.width, h = this.height;
-        if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable() || !VanillaSliderSkin.fits(w, h)) {
-            return false;
-        }
+        if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable() || !VanillaSliderSkin.fits(w, h)) return false;
         try {
             MinecraftClient mc = MinecraftClient.getInstance();
+            long window = mc.window.getHandle();
+            boolean buttonDown = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
             if (this.s1mp1e$skin == null) this.s1mp1e$skin = new VanillaSliderSkin();
-
-            // "Held" only counts while the button is genuinely down AND this slider has been painted
-            // continuously: a release that never reached onRelease (screen swap, another widget
-            // grabbing focus), or a stale flag from before this slider was last on screen, would
-            // otherwise lift the knob on an unrelated press.
-            boolean buttonDown = GLFW.glfwGetMouseButton(mc.window.getHandle(),
-                    GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            // released where no onRelease reached us, or a leftover from before this slider was last painted
             if (!buttonDown || this.s1mp1e$skin.paintGap()) this.s1mp1e$held = false;
-
-            // GUI-scaled sub-pixel pointer x (mc.mouse is in physical pixels).
-            double pointerX = mc.mouse.getX() * mc.window.getScaledWidth()
-                    / Math.max(1, mc.window.getWidth());
+            double pointerX = mc.mouse.getX() * mc.window.getScaledWidth() / Math.max(1, mc.window.getWidth());
             float alpha = this.alpha * ScreenOpenFade.value(mc.currentScreen);
-
             this.s1mp1e$skin.paint(x, y, w, h, this.value, this.s1mp1e$held, pointerX,
-                    this.isHovered() || this.isFocused(), this.active, alpha);
+                    this.isHovered || this.isFocused(), this.active, alpha);
 
-            // Label lifted into the row's upper box [y, y + h - 8], centred in [x + 2, x + w - 2].
-            int a = Math.round(alpha * 255f);
-            if (a > 255) a = 255;
-            if (a >= 8) {
-                String label = this.getMessage();
-                if (label != null) {
-                    int rgb = this.active ? 0xFFFFFF : 0xA0A0A0;
-                    float lx = x + 2f, rx = x + w - 2f;
-                    float tx = (lx + rx) / 2f - mc.textRenderer.getStringWidth(label) / 2f;
-                    float ty = y + ((h - 8) - 9) / 2f + 1f;
-                    mc.textRenderer.drawWithShadow(label, tx, ty, (a << 24) | rgb);
-                }
-            }
+            int color = (this.active ? 0xFFFFFF : 0xA0A0A0)
+                    | (Math.round(Math.min(1f, Math.max(0f, this.alpha)) * 255f) << 24);
+            String label = mc.textRenderer.trimToWidth(this.getMessage(), w - 4);
+            this.drawCenteredString(mc.textRenderer, label, x + w / 2,
+                    VanillaSliderSkin.labelBottom(y, h) - 9, color);
             this.s1mp1e$skinned = true;
             return true;
         } catch (Throwable t) {

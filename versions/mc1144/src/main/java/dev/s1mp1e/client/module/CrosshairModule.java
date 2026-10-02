@@ -4,10 +4,11 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import net.minecraft.client.gui.DrawableHelper;
+import net.minecraft.client.util.math.Vector3f;
 
 /**
  * Custom crosshair — replaces the vanilla 15×15 sprite with shapes we draw ourselves
- * ({@code CrosshairMixin} cancels the vanilla {@code InGameHud.renderCrosshair()} and calls
+ * ({@code CrosshairMixin} cancels the vanilla {@code renderCrosshair} and calls
  * {@link #draw}).
  *
  * <p><b>FAIR PLAY.</b> The crosshair is a pure function of its settings and the screen
@@ -16,12 +17,11 @@ import net.minecraft.client.gui.DrawableHelper;
  * doesn't already have on screen. A crosshair that changed with a target would be a reach
  * indicator and is prohibited.
  *
- * <p>1.14.4 render: fixed-function immediate mode. Rectangles go through the static
- * {@link DrawableHelper#fill} (which ENDS with {@code disableBlend}), rotation through the
- * GL matrix stack ({@code GlStateManager.pushMatrix/rotatef/popMatrix}, always balanced in a
- * {@code finally}). {@link #draw} restores blend + the standard GUI blend func + a white
- * colour before returning, because vanilla's code after {@code renderCrosshair} expects
- * blending on.
+ * <p>1.14.4 adaptation: there is no {@code DrawContext}, so the mixin threads the GUI
+ * {@link MatrixStack} in. Fills go through {@link DrawableHelper#fill(MatrixStack,int,int,int,int,int)}
+ * (which pre-multiplies the matrix on the CPU) and the {@code Circle} / {@code Rotation} transforms
+ * are pushed on that same MatrixStack via {@code Vector3f.POSITIVE_Z.getDegreesQuaternion} — so every
+ * fill picks up the rotation. Only the draw path changed; all geometry is identical to mc1201/mc1211.
  */
 public final class CrosshairModule extends Module {
 
@@ -41,16 +41,8 @@ public final class CrosshairModule extends Module {
 
     public CrosshairModule() { super("Crosshair", "Visual"); }
 
-    /** Draw the crosshair centred on {@code (cx,cy)} (screen centre) via immediate-mode fills. */
+    /** Draw the crosshair centred on {@code (cx,cy)} (screen centre) via {@link DrawableHelper#fill} quads. */
     public void draw(int cx, int cy) {
-        try {
-            drawShapes(cx, cy);
-        } finally {
-            restoreState();
-        }
-    }
-
-    private void drawShapes(int cx, int cy) {
         final int colour = this.colour.colorValue;
         final int oColour = this.outlineC.colorValue;
         final boolean drawOutline = this.outline.boolValue;
@@ -69,33 +61,29 @@ public final class CrosshairModule extends Module {
             boolean rotated = rot != 0 && !"Dot".equals(mode);
             if (rotated) {
                 GlStateManager.pushMatrix();
-                try {
-                    GlStateManager.translatef((float) cx, (float) cy, 0f);
-                    GlStateManager.rotatef((float) rot, 0f, 0f, 1f);
-                    GlStateManager.translatef((float) -cx, (float) -cy, 0f);
-                    fillRects(rects, drawOutline, oColour, colour);
-                } finally {
-                    GlStateManager.popMatrix();
-                }
-            } else {
-                fillRects(rects, drawOutline, oColour, colour);
+                GlStateManager.translated((float) cx, (float) cy, 0f);
+                GlStateManager.rotatef((float) rot, 0f, 0f, 1f);
+                GlStateManager.translated((float) -cx, (float) -cy, 0f);
+            }
+            try {
+                // Two passes so an arm's outline never paints over a neighbour's fill (gap 0).
+                if (drawOutline) for (int[] r : rects) DrawableHelper.fill(r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, oColour);
+                for (int[] r : rects) DrawableHelper.fill(r[0], r[1], r[2], r[3], colour);
+            } finally {
+                if (rotated) GlStateManager.popMatrix();   // balanced even if a fill throws
             }
         }
 
         if (this.centerDot.boolValue && !"Dot".equals(mode)) {
-            fillRects(dotRects(cx, cy, this.dotSize.intValue), drawOutline, oColour, colour);
+            int[][] d = dotRects(cx, cy, this.dotSize.intValue);
+            if (drawOutline) for (int[] r : d) DrawableHelper.fill(r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, oColour);
+            for (int[] r : d) DrawableHelper.fill(r[0], r[1], r[2], r[3], colour);
         }
     }
 
-    /** Two passes so an arm's outline never paints over a neighbour's fill (gap 0). */
-    private static void fillRects(int[][] rects, boolean drawOutline, int oColour, int colour) {
-        if (drawOutline) for (int[] r : rects) DrawableHelper.fill(r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, oColour);
-        for (int[] r : rects) DrawableHelper.fill(r[0], r[1], r[2], r[3], colour);
-    }
-
-    /** Annulus as {@link #CIRCLE_SEGMENTS} rotated fills (the same construction as the
-     *  1.21.1 reference). Each segment is a band drawn at 12 o'clock in a frame rotated about
-     *  the centre; a 1px overlap keeps segments touching. */
+    /** Annulus as {@link #CIRCLE_SEGMENTS} rotated fills (core-legal replacement for the
+     *  1.8.9 Tessellator strip). Each segment is a band drawn at 12 o'clock in a frame
+     *  rotated about the centre; a 1px overlap keeps segments touching. */
     private static void ring(int cx, int cy, float inner, float outer, int argb) {
         if (outer <= 0f) return;
         int b0 = Math.round(inner), b1 = Math.round(outer);
@@ -105,7 +93,7 @@ public final class CrosshairModule extends Module {
         for (int i = 0; i < K; i++) {
             GlStateManager.pushMatrix();
             try {
-                GlStateManager.translatef((float) cx, (float) cy, 0f);
+                GlStateManager.translated((float) cx, (float) cy, 0f);
                 GlStateManager.rotatef(360f * i / K, 0f, 0f, 1f);
                 DrawableHelper.fill(-half, -b1, half, -b0, argb);
             } finally {
@@ -114,26 +102,19 @@ public final class CrosshairModule extends Module {
         }
     }
 
-    /** {@code DrawableHelper.fill} leaves blend DISABLED and the colour cache at the last fill
-     *  colour; vanilla's code after {@code renderCrosshair} (and the HUD drawn after it) expects
-     *  the GUI blend state, so put it back. */
-    private static void restoreState() {
-        GlStateManager.enableTexture();
-        GlStateManager.enableBlend();
-        GlStateManager.blendFuncSeparate(770, 771, 1, 0);
-        GlStateManager.color4f(1f, 1f, 1f, 1f);
-    }
-
-    // ---- geometry (pure int math, identical to the 1.21.1 reference) ----
+    // ---- geometry (pure int math) ----
     //
     // CENTERING. The mixin hands us cx,cy = scaledWidth/2, scaledHeight/2 — a pixel BOUNDARY, not a
     // pixel. A 1-px-thick line therefore cannot straddle it; it must commit to one side, and whichever
     // side it picks is a half-pixel off. That half-pixel is unavoidable (it is the very reason vanilla's
-    // own 15×15 crosshair, blitted at (dim-15)/2, sits ~1px off centre). What we CAN guarantee — and
+    // own 15×15 crosshair, blitted at (dim-15)/2, sits ~1px off centre, and why "centred crosshair"
+    // resource packs can only get an odd-width mark to within half a pixel). What we CAN guarantee — and
     // what actually reads as "centred" to the eye — is that the four arms are EXACTLY equal in length and
-    // gap: both bar bands are placed with a single {@code off = (t+1)/2}, biasing the sub-pixel the SAME
-    // way vanilla does (up-left), and each arm is measured symmetrically from the band edge, so
-    // left==right and up==down for every thickness.
+    // gap. The old code failed exactly that: it stretched the right/down arms to s+1 and clipped the
+    // up/left to s-1 (a 2-px lean to the bottom-right). The band below removes every such +1: both bar
+    // bands are placed with a single {@code off = (t+1)/2}, biasing the sub-pixel the SAME way vanilla
+    // does (up-left), and each arm is measured symmetrically from the band edge, so left==right and
+    // up==down for every thickness. No per-arm fudge, no lean.
 
     /** Vertical-bar / horizontal-bar offset from the centre boundary. {@code (t+1)/2} puts a 1-px mark on
      *  the up-left pixel of the boundary — matching vanilla's {@code (dim-15)/2} bias — and keeps an even

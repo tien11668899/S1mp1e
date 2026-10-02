@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.List;
 
 import dev.s1mp1e.client.module.ArmorHudModule;
+import dev.s1mp1e.client.module.BlockOutlineModule;
+import dev.s1mp1e.client.module.ChromaHudModule;
 import dev.s1mp1e.client.module.AttackRingModule;
 import dev.s1mp1e.client.module.HitMarkerModule;
 import dev.s1mp1e.client.module.LowFireModule;
@@ -102,6 +104,8 @@ public final class ModuleManager {
         add("ZoomModule",          safeZoom());
         add("FullbrightModule",    safeFullbright());
         add("XpFlowModule",        safeXpFlow());
+        add("BlockOutlineModule",  safeBlockOutline());
+        add("ChromaHudModule",     safeChromaHud());
         // Combat trio from 26.2 (ON by default, like 26.2).
         add("LowFireModule",       safeLowFire());
         add("AttackRingModule",    safeAttackRing());
@@ -210,6 +214,14 @@ public final class ModuleManager {
 
     private static Module safeXpFlow() {
         try { return new XpFlowHudModule(); } catch (Throwable t) { return fail("XpFlowModule", t); }
+    }
+
+    private static Module safeBlockOutline() {
+        try { return new BlockOutlineModule(); } catch (Throwable t) { return fail("BlockOutlineModule", t); }
+    }
+
+    private static Module safeChromaHud() {
+        try { return new ChromaHudModule(); } catch (Throwable t) { return fail("ChromaHudModule", t); }
     }
 
     private static Module fail(String label, Throwable t) {

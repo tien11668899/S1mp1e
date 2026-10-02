@@ -1,11 +1,17 @@
 package dev.s1mp1e.client.module;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
-import dev.s1mp1e.client.gui.GlassWidgets;
+import dev.s1mp1e.glass.render.HudLayout;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.Tessellator;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.math.Matrix4f;
 import net.minecraft.util.math.MathHelper;
+import org.lwjgl.opengl.GL11;
 
 /**
  * "Liquid sheen" on the vanilla experience bar — a slow gloss band that glides left→right across the EARNED
@@ -26,26 +32,35 @@ import net.minecraft.util.math.MathHelper;
  *
  * <p>Fair play: reads {@code mc.player.experienceProgress} only — the same fraction already on the bar.
  *
- * <p>1.14.4 port of mc1211/mc1201's {@code XpFlowHudModule}: same math, immediate-mode 1px columns via
- * {@link GlassWidgets#drawRect} (front-facing, blend left enabled) instead of a {@code DrawContext}. The XP
- * bar is lifted by {@link #XP_LIFT} = 8, mc1144's {@code InGameHudMixin.DECO_LIFT} (NOT mc1201's 11), so the
- * sheen sits on the actually-lifted bar.
+ * <p><b>1.14.4 draw path.</b> The bar's vertical position comes from {@link HudLayout#DECO_LIFT} (the px the
+ * {@code InGameHudMixin} raises the XP bar by). Rather than one {@code DrawableHelper.fill} per 1 px column —
+ * each its own Tessellator flush, hundreds per frame with the halo on — every column is collected into
+ * preallocated arrays and emitted as ONE {@code POSITION_COLOR} quad draw, in the same order, so the blend
+ * result is unchanged. Quads are wound TL&rarr;BL&rarr;BR&rarr;TR (the GUI cull winding) and pre-multiplied by
+ * the caller's {@link MatrixStack} model matrix; blend is left ON (never {@code disableBlend}) and the
+ * GlStateManager colour cache is reset 0&rarr;1 afterwards.
  */
 public final class XpFlowHudModule extends Module implements HudRenderer {
 
-    /** Must match {@code InGameHudMixin.DECO_LIFT} (px the XP bar is raised by). mc1144 = 8. */
-    private static final int XP_LIFT = 8;
     private static final int BAR_W = 182, BAR_H = 5, HALF = 18, GLOW = 3;
+
+    /** Upper bound on batched columns: every band column plus its halo rows above and below. */
+    private static final int MAX_QUADS = (2 * HALF + 1) * (1 + 2 * GLOW);
 
     public final Setting color = add(Setting.color("Sheen colour", 0xFFEAF6FF));   // cool glass white
     public final Setting glow  = add(Setting.bool("Glow", true));                  // soft emitted halo
+
+    // Scratch for the batch — preallocated (the HUD pass is render-thread only) so a frame allocates nothing.
+    private final int[] qx = new int[MAX_QUADS], qTop = new int[MAX_QUADS],
+                        qBot = new int[MAX_QUADS], qArgb = new int[MAX_QUADS];
 
     public XpFlowHudModule() { super("XpFlow", "Visual"); this.enabled = true; }
 
     @Override
     public void renderHud() {
+        if (!enabled) return;
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null || mc.options.hudHidden) return;
+        if (mc.player == null || mc.options.hudHidden) return;
         if (mc.interactionManager == null || !mc.interactionManager.hasExperienceBar()) return;
 
         float progress = MathHelper.clamp(mc.player.experienceProgress, 0f, 1f);
@@ -53,7 +68,7 @@ public final class XpFlowHudModule extends Module implements HudRenderer {
 
         int sw = mc.window.getScaledWidth(), sh = mc.window.getScaledHeight();
         int x0 = sw / 2 - 91;
-        int y0 = sh - 29 - XP_LIFT, y1 = y0 + BAR_H;      // vanilla XP-bar top (sh-29), minus our lift
+        int y0 = sh - 29 - HudLayout.DECO_LIFT, y1 = y0 + BAR_H;   // vanilla XP-bar top (sh-32+3), minus our lift
         int fillW = Math.round(progress * BAR_W);
         if (fillW <= 0) return;
 
@@ -70,6 +85,7 @@ public final class XpFlowHudModule extends Module implements HudRenderer {
         int cL = java.awt.Color.HSBtoRGB((hsb[0] - 0.07f + 1f) % 1f, hsb[1], hsb[2]) & 0xFFFFFF;   // nearby −
         int cR = java.awt.Color.HSBtoRGB((hsb[0] + 0.07f) % 1f,      hsb[1], hsb[2]) & 0xFFFFFF;   // nearby +
         boolean bloom = glow.boolValue;
+        int n = 0;
         for (int i = -HALF; i <= HALF; i++) {
             int px = Math.round(bx) + i;
             if (px < x0 || px >= x0 + fillW) continue;             // clip to the EARNED XP only
@@ -77,16 +93,51 @@ public final class XpFlowHudModule extends Module implements HudRenderer {
             int a = Math.round(peak * w);
             if (a <= 0) continue;
             int col = grad3(cL, base, cR, (i + HALF) / (2f * HALF));        // nearby colours flowing together
-            GlassWidgets.drawRect(px, y0, px + 1, y1, (a << 24) | col);
+            n = push(n, px, y0, y1, (a << 24) | col);
             if (bloom) {
                 for (int gy = 1; gy <= GLOW; gy++) {
                     int ga = Math.round(a * 0.45f * (1f - gy / (float) (GLOW + 1)));   // feathered halo
                     if (ga <= 0) continue;
-                    GlassWidgets.drawRect(px, y0 - gy, px + 1, y0 - gy + 1, (ga << 24) | col);   // above the bar
-                    GlassWidgets.drawRect(px, y1 + gy - 1, px + 1, y1 + gy, (ga << 24) | col);   // below the bar
+                    n = push(n, px, y0 - gy, y0 - gy + 1, (ga << 24) | col);   // above the bar
+                    n = push(n, px, y1 + gy - 1, y1 + gy, (ga << 24) | col);   // below the bar
                 }
             }
         }
+        if (n > 0) drawBatch(n);
+    }
+
+    /** Queue one 1 px-wide column for the batch (silently drops anything past the bound — cannot happen). */
+    private int push(int n, int x, int top, int bottom, int argb) {
+        if (n >= MAX_QUADS || bottom <= top) return n;
+        qx[n] = x; qTop[n] = top; qBot[n] = bottom; qArgb[n] = argb;
+        return n + 1;
+    }
+
+    /** Emit the queued columns as ONE POSITION_COLOR quad draw (see the class javadoc for the GL contract). */
+    private void drawBatch(int n) {
+        GlStateManager.disableTexture();
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlphaTest();
+        GlStateManager.blendFuncSeparate(770, 771, 1, 0);
+        Tessellator t = Tessellator.getInstance();
+        BufferBuilder bb = t.getBuffer();
+        bb.begin(GL11.GL_QUADS, VertexFormats.POSITION_COLOR);
+        for (int i = 0; i < n; i++) {
+            int argb = qArgb[i];
+            int a = (argb >>> 24) & 0xFF, r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
+            float x = qx[i], yt = qTop[i], yb = qBot[i];
+            // wound TL -> BL -> BR -> TR (GUI cull winding)
+            bb.vertex(x,      yt, 0f).color(r, g, b, a).next();
+            bb.vertex(x,      yb, 0f).color(r, g, b, a).next();
+            bb.vertex(x + 1f, yb, 0f).color(r, g, b, a).next();
+            bb.vertex(x + 1f, yt, 0f).color(r, g, b, a).next();
+        }
+        t.draw();
+        GlStateManager.enableAlphaTest();
+        GlStateManager.enableTexture();
+        // Blend stays ENABLED (MC's baseline). Reset the colour cache so the next HUD draw is untinted.
+        GlStateManager.color4f(0f, 0f, 0f, 0f);
+        GlStateManager.color4f(1f, 1f, 1f, 1f);
     }
 
     /** 3-stop RGB gradient: c0 at t=0, c1 at t=0.5, c2 at t=1. */

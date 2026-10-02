@@ -55,4 +55,22 @@ public abstract class AdvancementsScreenGlassMixin {
             self.blit(x, y, u, v, w, h);
         }
     }
+
+    @org.spongepowered.asm.mixin.Shadow @org.spongepowered.asm.mixin.Final
+    private java.util.Map<net.minecraft.advancement.Advancement, net.minecraft.client.gui.screen.advancement.AdvancementTab> tabs;
+    @org.spongepowered.asm.mixin.Shadow
+    private net.minecraft.client.gui.screen.advancement.AdvancementTab selectedTab;
+
+    /**
+     * A tab click cross-dissolves the whole window (26.2 parity; the 1.16.5 line has this in AdvancementsGlassMixin).
+     * At HEAD, before {@code selectedTab} flips; a no-op re-select of the current tab is skipped.
+     */
+    @Inject(method = "selectTab", at = @At("HEAD"))
+    private void s1mp1e$dissolveAdvTab(net.minecraft.advancement.Advancement advancement, CallbackInfo ci) {
+        net.minecraft.client.gui.screen.advancement.AdvancementTab next =
+                advancement == null ? null : this.tabs.get(advancement);
+        if (next != null && this.selectedTab != null && next != this.selectedTab) {
+            dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+        }
+    }
 }

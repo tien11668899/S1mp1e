@@ -5,6 +5,7 @@ import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormats;
@@ -12,41 +13,41 @@ import net.minecraft.client.util.Window;
 import org.lwjgl.opengl.GL11;
 
 /**
- * Stateless painter + hit-test toolkit shared by the config screen and the HUD editor.
- * Draws in the mod's liquid-glass style via {@link GlassRenderer}, with a solid fallback
- * whenever the glass shader is unavailable (GL2.0-less GPU or a missing scene backdrop) so
- * the UI is never invisible.
+ * Painter for the 1.14.4 config GUI — mc1201's {@code GlassWidgets} with a
+ * {@link MatrixStack} threaded through in place of {@code DrawContext}, calling
+ * the same landed immediate-mode {@link GlassRenderer} (glass / roundRect /
+ * button / lens / edgeBand) behind the same {@link GlassProgram} gates.
  *
- * <p>This is mc189's immediate-mode toolkit adapted to the 1.14.4 API: the render-primitive
- * plumbing (Tessellator/BufferBuilder, {@code GlStateManager}, scissor via the {@link Window})
- * is the 1.14.4 form, but every call into {@link GlassRenderer} is byte-for-byte the same as
- * mc189's because the render layer already carries the identical API. The one behavioural
- * change from mc189 is {@link #panel}, which follows the mc1211 recipe (real refractive glass
- * + a light readability scrim whose corner radius is {@code min(w,h) * 0.0475}).
+ * <p><b>1.14.4 transform rule.</b> The fixed-function GL modelview
+ * ({@code GlStateManager.pushMatrix / translatef / scalef / rotatef / popMatrix})
+ * reaches EVERYTHING: {@link GlassRenderer}'s immediate quads, the
+ * {@code ItemRenderer} GUI items, and the {@code DrawableHelper} / {@code TextRenderer}
+ * draws (which pre-multiply the {@link MatrixStack} on the CPU and then still go
+ * through the GL modelview). A {@link MatrixStack} transform, by contrast, reaches
+ * ONLY the MatrixStack draws ({@code fill} / text / {@code drawSprite} /
+ * {@code drawTexture}). So a block that mixes glass + items with fills/text must be
+ * transformed with {@code GlStateManager.*Matrix} and the MatrixStack left unscaled,
+ * or the two layers separate. Every draw here is immediate — there is no
+ * {@code DrawContext} batching on 1.14.4, so there is no {@code ctx.draw()} flush and
+ * paint order is simply draw order.
  */
 public final class GlassWidgets {
 
     private GlassWidgets() {}
 
-    private static MinecraftClient mc() { return MinecraftClient.getInstance(); }
+    // ---- rounded fills (batch, true AA corners) ----
 
-    /** True when a frosted glass panel can actually render this frame. */
-    public static boolean glassReady() {
-        return GlassProgram.usable() && SceneCapture.hasBackdrop();
-    }
-
-    /**
-     * Refractive liquid-glass container panel with a light dark readability scrim on top
-     * (mc1211 recipe): the backdrop-sampling GLASS program (refraction + frost + a faint
-     * grounding edge shadow), then a whisper-thin scrim so text still seats. Falls back to a
-     * solid frosted-dark rounded fill when the glass pipeline can't draw.
-     */
+    /** Refractive liquid-glass container panel with a dark readability scrim on top. */
     public static void panel(float x0, float y0, float x1, float y1, float alpha) {
         if (GlassProgram.usable() && SceneCapture.hasBackdrop()) {
+            // Real glass: refraction + frost + faint edge shadow over the captured
+            // (blurred, dimmed) backdrop. corner 0.19 ≈ 14px on this panel size.
             GlassRenderer.glass(x0, y0, x1, y1, GlassRenderer.PAD_PANEL,
                                 0.19f, 0f, alpha, GlassRenderer.FROST_PANEL);
-            // Very light dark scrim. Radius tracks the GLASS body corner (0.0475 of the min
-            // side) so no un-scrimmed crescent shows at the rounded corners.
+            // Very light dark scrim — the user wants the panel MORE see-through (like the
+            // hotbar glass, which has no scrim), so keep this to a whisper: just enough to
+            // seat the text, letting the refracted backdrop read through. Radius tracks the
+            // GLASS body corner (0.0475 of the min side) so no un-scrimmed crescent shows.
             if (GlassProgram.roundUsable())
                 GlassRenderer.roundRect(x0, y0, x1, y1, Math.min(x1 - x0, y1 - y0) * 0.0475f,
                                         (clampByte(alpha * 0.16f) << 24) | 0x1C1C1E);
@@ -55,54 +56,70 @@ public final class GlassWidgets {
         // No glass program / no backdrop: opaque frosted dark fill fallback.
         int argb = (clampByte(alpha * 0.58f) << 24) | 0x1C1C1E;
         if (GlassProgram.roundUsable()) GlassRenderer.roundRect(x0, y0, x1, y1, 14f, argb);
-        else fillRoundSmooth(x0, y0, x1, y1, argb, 14f);
-        resetColorCache();
-    }
-
-    /** Glass capsule (button/chip/toggle track). corner 1 = full capsule. */
-    public static void capsule(float x0, float y0, float x1, float y1,
-                               float corner, float lift, float alpha, boolean enabled) {
-        if (GlassProgram.btnUsable()) {
-            GlassRenderer.button(x0, y0, x1, y1, corner, lift, alpha, enabled);
-        } else {
-            int a = clampByte(alpha * (0.10f + 0.14f * lift + 0.12f));
-            drawRect(x0, y0, x1, y1, (a << 24) | 0xFFFFFF);
-            resetColorCache();
-        }
+        else fillCheap(x0, y0, x1, y1, argb, 14f);
     }
 
     /**
      * iOS-26 scroll-edge effect for a scroll list: a progressive blur + dark fade at
      * the top and bottom, each fading IN with how far that end can still scroll
      * ({@code topK}/{@code botK} in 0..1). Call AFTER the list content is flushed into
-     * the framebuffer and a fresh composite backdrop has been grabbed
-     * ({@code SceneCapture.forceGrab()}). Uses the dedicated EDGE program (rounded outer
-     * corners); falls back to the shipped {@link #edgeFade} (menu_blur EdgeMode=1) when
-     * the EDGE program is unavailable.
+     * the framebuffer and a fresh composite backdrop has been grabbed. No-op if the
+     * EDGE program or a backdrop is unavailable.
      */
     public static void scrollEdges(float x0, float yTop, float x1, float yBot,
                                    float ext, float topK, float botK, float alpha) {
+        if (!GlassProgram.edgeUsable() || !SceneCapture.hasBackdrop()) return;
         // Apple iOS-26 scroll edge = a VARIABLE BLUR + a soft gradient: the content stays
         // visible but progressively blurs toward the edge, with only a whisper of dimming
         // (NOT a dark band, NOT a fade-to-black). So blur dominates and DIM is tiny.
         final float RADIUS = 18f, DIM = 0.04f;
-        if (GlassProgram.edgeUsable() && SceneCapture.hasBackdrop()) {
-            if (topK > 0.001f)
-                GlassRenderer.edgeBand(x0, yTop, x1, yTop + ext, true,  RADIUS, DIM, alpha * clamp01(topK));
-            if (botK > 0.001f)
-                GlassRenderer.edgeBand(x0, yBot - ext, x1, yBot, false, RADIUS, DIM, alpha * clamp01(botK));
-            return;
+        if (topK > 0.001f)
+            GlassRenderer.edgeBand(x0, yTop, x1, yTop + ext, true,  RADIUS, DIM, alpha * clamp01(topK));
+        if (botK > 0.001f)
+            GlassRenderer.edgeBand(x0, yBot - ext, x1, yBot, false, RADIUS, DIM, alpha * clamp01(botK));
+    }
+
+    private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
+
+    /** Frame-rate-independent approach of {@code current} toward {@code target} with time constant {@code tauMs}
+     *  (the config-menu {@code easeScroll} feel, tau = 90 ms; feature D / the glass scrollbar's wheel glide). */
+    public static float approach(float current, float target, float dtMs, float tauMs) {
+        return current + (target - current) * (1f - (float) Math.exp(-dtMs / Math.max(1f, tauMs)));
+    }
+
+    /** Frosted white highlight / chip capsule (BTN program — AA, no backdrop). */
+    public static void capsule(float x0, float y0, float x1, float y1,
+                               float corner, float lift, float alpha, boolean enabled) {
+        if (GlassProgram.btnUsable()) {
+            GlassRenderer.button(x0, y0, x1, y1, corner, lift, alpha, enabled);
+        } else {
+            int a = clampByte(alpha * (0.12f + 0.18f * lift));
+            fillCheap(x0, y0, x1, y1, (a << 24) | 0xFFFFFF, (y1 - y0) / 2f * corner);
         }
-        // Fallback: the menu_blur EdgeMode=1 path — same [1 6 15 20 15 6 1]/64 kernel,
-        // feathered corners via smoothstep instead of the SDF; no-op without a backdrop.
-        if (topK > 0.001f) edgeFade(x0, yTop, x1, yTop + ext, true,  RADIUS, DIM, alpha * clamp01(topK));
-        if (botK > 0.001f) edgeFade(x0, yBot - ext, x1, yBot, false, RADIUS, DIM, alpha * clamp01(botK));
+    }
+
+    /** Coloured rounded fill with true AA corners. */
+    public static void fillRound(float x0, float y0, float x1, float y1, int argb, float r) {
+        if (GlassProgram.roundUsable()) GlassRenderer.roundRect(x0, y0, x1, y1, r, argb);
+        else fillCheap(x0, y0, x1, y1, argb, r);
+    }
+    /** Alias kept for the shared widget code. */
+    public static void fillRoundSmooth(float x0, float y0, float x1, float y1, int argb, float r) {
+        fillRound(x0, y0, x1, y1, argb, r);
     }
 
     /**
-     * The iOS-26 Liquid Glass KNOB (switch knob / slider thumb): a solid white pill at rest
-     * that, as {@code morph} goes 0 -> 1, grows into a clear refracting lens and back — the
-     * same composition as the 26.2 client, drawn immediately in call order, back to front.
+     * The iOS-26 Liquid Glass KNOB (switch knob / slider thumb): a solid white pill at rest that, as {@code morph}
+     * goes 0 → 1, grows into a clear refracting lens and back — the same composition as the 26.2 client, drawn
+     * immediately in call order, back to front:
+     * <ol>
+     *   <li>a dark base — the dark card refracted into the lens (shows as dark bands above/below the track);</li>
+     *   <li>the track seen through the lens: a slightly magnified band in the track colour(s), clipped to the lens
+     *       and to the track ends; with a split, the left (filled) part gets its own rounded end at {@code splitX};</li>
+     *   <li>a clear glass surface (BTN program: rim + soft drop shadow, faint body);</li>
+     *   <li>the solid white knob on top at opacity {@code 1 - morph}.</li>
+     * </ol>
+     * The shape scales about its centre by {@code 1 + (lensScale - 1) * morph}.
      */
     public static void knobLens(float cx, float cy, float hw, float hh, float morph, float lensScale,
                                 float trackX0, float trackX1, float trackHalfH, float splitX,
@@ -111,24 +128,23 @@ public final class GlassWidgets {
     }
 
     /**
-     * {@link #knobLens} with separate width / height multipliers and a corner radius at full
-     * morph (the slider lens is a wide rounded rectangle that stretches with drag speed,
-     * see {@code Motion.lensShape}).
+     * {@link #knobLens} with separate width / height multipliers and a corner radius at full morph (the slider lens
+     * is a wide rounded rectangle that stretches with drag speed, see {@link Motion#lensShape}).
      *
-     * @param cornerFrac lens corner radius at full morph as a fraction of its half-height
-     *                   (1 = capsule); the rest knob is always a capsule
+     * @param cornerFrac lens corner radius at full morph as a fraction of its half-height (1 = capsule); the rest
+     *                   knob is always a capsule
      */
     public static void knobLens(float cx, float cy, float hw, float hh, float morph,
                                 float scaleW, float scaleH, float cornerFrac,
                                 float trackX0, float trackX1, float trackHalfH, float splitX,
                                 int colLeft, int colRight, float alpha) {
-        float m = clamp01(morph);
-        float lw = hw * (1f + (scaleW - 1f) * m), lh = hh * (1f + (scaleH - 1f) * m);
+        float mo = clamp01(morph);
+        float lw = hw * (1f + (scaleW - 1f) * mo), lh = hh * (1f + (scaleH - 1f) * mo);
         float lx0 = cx - lw, lx1 = cx + lw, ly0 = cy - lh, ly1 = cy + lh;
-        float r = lh * (1f + (cornerFrac - 1f) * m);                   // capsule at rest -> rounded rect when lifted
-        float cornerKnob = clamp01(r / Math.max(0.001f, Math.min(lw, lh)));   // BTN: radius = min(half) x corner
+        float r = lh * (1f + (cornerFrac - 1f) * mo);                 // capsule at rest → rounded rect when lifted
+        float cornerKnob = clamp01(r / Math.max(0.001f, Math.min(lw, lh)));   // BTN: radius = min(half) × corner
 
-        float glassA = alpha * m;
+        float glassA = alpha * mo;
         if (glassA > 0.004f) {
             // REAL refracting lens: the world behind bent through the pill (LENS program — clear, not dark). It
             // has a full-capsule corner (unlike glass()), lift 0 so the Fresnel rim stays subtle, frost 0.65 for a
@@ -154,11 +170,12 @@ public final class GlassWidgets {
                 }
             }
             // outline: the lens shader already carries a faint Fresnel rim + soft shadow, so with a real lens we add
-            // NOTHING extra. Only the fallback draws a light rim so the frosted-white body still has an edge.
+            // NOTHING extra (the old glass_btn capsule at 0.65 read as an over-strong outline). Only the fallback
+            // draws a light rim so the frosted-white body still has an edge.
             if (!drewLens) capsule(lx0, ly0, lx1, ly1, cornerKnob, 0.10f, glassA * 0.40f, true);
         }
 
-        float whiteA = alpha * (1f - m);
+        float whiteA = alpha * (1f - mo);
         if (whiteA > 0.004f) fillRound(lx0, ly0, lx1, ly1, (clampByte(whiteA) << 24) | 0xFFFFFF, r);
     }
 
@@ -168,7 +185,9 @@ public final class GlassWidgets {
         return (a << 24) | (argb & 0xFFFFFF);
     }
 
-    /** Linear-interpolate two ARGB colours ({@code t} in [0,1]); interpolates alpha too. */
+    /** Linear-interpolate two ARGB colours ({@code t} in [0,1]); interpolates alpha too.
+     *  On 1.14.4 there is no {@code HudGlass.lerpArgb} yet (its module lands in a later
+     *  stage), so — like the 1.8.9 port — the switch's track-band colour lerp lives here. */
     public static int lerpArgb(int c0, int c1, float t) {
         if (t <= 0f) return c0;
         if (t >= 1f) return c1;
@@ -178,105 +197,24 @@ public final class GlassWidgets {
         int b = lerpB(c0 & 255, c1 & 255, t);
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
-
     private static int lerpB(int a, int b, float t) { return a + Math.round((b - a) * t); }
 
-    private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
+    // ---- sharp MatrixStack primitives (draw on top of the batch) ----
 
-    // ---- primitive rects ----
-
-    /** Solid ARGB rect. Immediate-mode front-facing quad (never {@code DrawableHelper.fill},
-     *  which ENDS with {@code disableBlend()} — we must leave blend enabled for the text and
-     *  glass drawn right after). */
-    public static void drawRect(float x0, float y0, float x1, float y1, int argb) {
-        gradient(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), argb, argb, argb, argb);
+    public static void fill(float x0, float y0, float x1, float y1, int argb) {
+        DrawableHelper.fill(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), argb);
     }
 
-    /** Coloured rounded fill with true AA corners. Prefers the ROUND SDF program (matches
-     *  mc1211/mc262); falls back to the smooth triangle-fan fill when the shader is
-     *  unavailable (GL2.0-less GPU or a failed link). Colours can't use the white-only glass. */
-    public static void fillRound(float x0, float y0, float x1, float y1, int argb, float r) {
-        if (GlassProgram.roundUsable()) {
-            GlassRenderer.roundRect(x0, y0, x1, y1, r, argb);
-            return;
-        }
-        fillRoundSmooth(x0, y0, x1, y1, argb, r);
-    }
-
-    /** Smooth (non-jagged) rounded-rect fill via a triangle fan with real corner arcs.
-     *  Colours can't use the white-only glass shader, so this gives clean rounded
-     *  toggles/sliders/swatches without the stair-stepping of {@link #fillRound}. */
-    public static void fillRoundSmooth(float x0, float y0, float x1, float y1, int argb, float r) {
-        r = Math.min(r, Math.min((x1 - x0) / 2f, (y1 - y0) / 2f));
-        if (r < 0.75f) { drawRect(x0, y0, x1, y1, argb); resetColorCache(); return; }
-        float a = (argb >>> 24) / 255f, cr = (argb >> 16 & 255) / 255f,
-              cg = (argb >> 8 & 255) / 255f, cb = (argb & 255) / 255f;
-        GlStateManager.disableTexture();
-        GlStateManager.enableBlend();
-        GlStateManager.disableAlphaTest();
-        GlStateManager.blendFuncSeparate(770, 771, 1, 0);
-        GL11.glColor4f(cr, cg, cb, a);
-        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glVertex2f((x0 + x1) / 2f, (y0 + y1) / 2f);
-        // Perimeter walked TL->BL->BR->TR — the SAME front-facing winding as gradient()/
-        // GlassRenderer.batchQuad()/drawRect. The GUI pass runs with GL_CULL_FACE on,
-        // so a reversed (back-facing) fan would be culled to nothing.
-        arc(x0 + r, y0 + r, r, 270f, 180f);   // top-left
-        arc(x0 + r, y1 - r, r, 180f,  90f);   // bottom-left
-        arc(x1 - r, y1 - r, r,  90f,   0f);   // bottom-right
-        arc(x1 - r, y0 + r, r,   0f, -90f);   // top-right
-        GL11.glVertex2f(x0 + r, y0);          // close back to the first perimeter point
-        GL11.glEnd();
-        // Leave GL_BLEND enabled (MC's expected baseline, as GlassRenderer.endBatch does) so
-        // translucent FontRenderer text drawn right after still alpha-blends during panel fades.
-        GlStateManager.enableAlphaTest();
-        GlStateManager.enableTexture();
-        resetColorCache();
-    }
-
-    /** Soft edge shadow beneath a rounded control — the "very faint edge shadow under the
-     *  glass" Apple grounds controls with. A few expanding, low-alpha rounded fills offset
-     *  slightly down; the control drawn on top hides the inner darkening so only a soft
-     *  halo shows around/under it. {@code strength} scales the overall darkness (~0..1). */
-    public static void dropShadow(float x0, float y0, float x1, float y1, float radius, float strength) {
-        float dy = 1.2f;
-        for (int i = 4; i >= 1; i--) {
-            float e = i * 1.35f;                          // outward expansion per layer
-            int a = clampByte(strength * 0.06f);
-            if (a <= 0) continue;
-            fillRoundSmooth(x0 - e, y0 - e + dy, x1 + e, y1 + e + dy, (a << 24), radius + e);
-        }
-    }
-
-    private static void arc(float cx, float cy, float r, float aDeg, float bDeg) {
-        int seg = 7;
-        for (int i = 0; i <= seg; i++) {
-            double t = Math.toRadians(aDeg + (bDeg - aDeg) * i / seg);
-            GL11.glVertex2f(cx + (float) Math.cos(t) * r, cy + (float) Math.sin(t) * r);
-        }
-    }
-
-    /** 1px inner border. */
-    public static void border(float x0, float y0, float x1, float y1, int argb) {
-        drawRect(x0, y0, x1, y0 + 1, argb);
-        drawRect(x0, y1 - 1, x1, y1, argb);
-        drawRect(x0, y0, x0 + 1, y1, argb);
-        drawRect(x1 - 1, y0, x1, y1, argb);
-    }
-
-    /** Vertical gradient (top colour -> bottom colour), ARGB. */
+    /**
+     * Vertical gradient (top colour → bottom colour), ARGB. {@code DrawableHelper.fillGradient}
+     * is a protected instance method on 1.14.4, so this uses mc189's immediate-mode quad
+     * instead: front-facing winding TL→BL→BR→TR (the GUI pass runs with GL_CULL_FACE on),
+     * {@code shadeModel(GL_SMOOTH)} for the interpolation then back to {@code GL_FLAT}, texture
+     * off for the coloured quad then back on, blend LEFT ENABLED on exit (MC's baseline — never
+     * disableBlend leaving a GUI draw path), and the GlStateManager colour cache reset 0→1 so the
+     * next textured/glass draw isn't multiplied by the stale vertex colour.
+     */
     public static void gradientV(float x0, float y0, float x1, float y1, int top, int bottom) {
-        gradient(x0, y0, x1, y1, top, top, bottom, bottom);
-    }
-
-    /** Horizontal gradient (left colour -> right colour), ARGB. */
-    public static void gradientH(float x0, float y0, float x1, float y1, int left, int right) {
-        gradient(x0, y0, x1, y1, left, right, right, left);
-    }
-
-    /** Four-corner gradient: colours for TL, TR, BR, BL. */
-    public static void gradient(float x0, float y0, float x1, float y1,
-                                int tl, int tr, int br, int bl) {
         GlStateManager.disableTexture();
         GlStateManager.enableBlend();
         GlStateManager.disableAlphaTest();
@@ -285,14 +223,14 @@ public final class GlassWidgets {
         Tessellator t = Tessellator.getInstance();
         BufferBuilder bb = t.getBuffer();
         bb.begin(GL11.GL_QUADS, VertexFormats.POSITION_COLOR);
-        vtx(bb, x0, y0, tl);
-        vtx(bb, x0, y1, bl);
-        vtx(bb, x1, y1, br);
-        vtx(bb, x1, y0, tr);
+        vtx(bb, x0, y0, top);
+        vtx(bb, x0, y1, bottom);
+        vtx(bb, x1, y1, bottom);
+        vtx(bb, x1, y0, top);
         t.draw();
         GlStateManager.shadeModel(GL11.GL_FLAT);
-        // Leave GL_BLEND enabled (MC's expected baseline) so translucent text/glass drawn
-        // right after still blends — matching GlassRenderer.endBatch and fillRoundSmooth.
+        // Blend stays ENABLED (MC's expected baseline, as GlassRenderer.endBatch leaves it) so
+        // translucent text/glass drawn right after still blends during panel fades.
         GlStateManager.enableAlphaTest();
         GlStateManager.enableTexture();
         resetColorCache();
@@ -304,36 +242,60 @@ public final class GlassWidgets {
           .next();
     }
 
-    // ---- text ----
-
-    /** Draw text (PingFang via {@link GlassFont}) with shadow at panel alpha; skips when
-     *  the effective alpha is negligible. */
-    public static void label(String s, float x, float y, int rgb, float alpha) {
-        if (clampByte(alpha) < 8) return;
-        GlassFont.draw(s, x, y, rgb & 0xFFFFFF, alpha, true);
+    /** Re-sync GlStateManager's colour cache after a raw immediate-mode draw, exactly as
+     *  {@link GlassRenderer#endBatch} does — force it to a value it can't already hold, then
+     *  white, so the real GL colour and the cache both end up white and in sync. */
+    public static void resetColorCache() {
+        GlStateManager.color4f(0f, 0f, 0f, 0f);
+        GlStateManager.color4f(1f, 1f, 1f, 1f);
     }
 
+    public static void border(float x0, float y0, float x1, float y1, int argb) {
+        fill(x0, y0, x1, y0 + 1, argb);
+        fill(x0, y1 - 1, x1, y1, argb);
+        fill(x0, y0, x0 + 1, y1, argb);
+        fill(x1 - 1, y0, x1, y1, argb);
+    }
+
+    public static void label(String s, float x, float y, int rgb, float alpha) {
+        GlassFont.draw(s, x, y, rgb, alpha, true);
+    }
     public static void labelNoShadow(String s, float x, float y, int rgb, float alpha) {
-        if (clampByte(alpha) < 8) return;
-        GlassFont.draw(s, x, y, rgb & 0xFFFFFF, alpha, false);
+        GlassFont.draw(s, x, y, rgb, alpha, false);
     }
 
     public static int strW(String s) { return Math.round(GlassFont.width(s)); }
     public static int fontH() { return Math.round(GlassFont.height()); }
 
-    // ---- misc ----
-
-    /** Re-sync GlStateManager's colour cache after a raw drawRect/gradient run, exactly as
-     *  GlassRenderer.endBatch does (hard rule 5) — a RAW glColor4f puts the real GL colour
-     *  back to white (the raw vertex colours bypassed the cache), then clearCurrentColor
-     *  drops the cache's stale value so the next textured/glass draw isn't multiplied by it. */
-    public static void resetColorCache() {
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-        GlStateManager.clearCurrentColor();
-    }
-
     public static boolean inside(int mx, int my, float x0, float y0, float x1, float y1) {
         return mx >= x0 && mx < x1 && my >= y0 && my < y1;
+    }
+
+    // ---- scissor (GUI px → framebuffer px, bottom-left origin; mc189 semantics) ----
+
+    /** Clip subsequent draws to [x0,y0,x1,y1] in GUI px. Built on {@code GlStateManager.enableScissor}
+     *  (framebuffer px, bottom-left origin), scaling by the window's GUI scale factor. */
+    public static void beginScissor(float x0, float y0, float x1, float y1) {
+        Window w = MinecraftClient.getInstance().window;
+        double s = w.getScaleFactor();
+        int x = (int) (x0 * s);
+        int y = (int) (w.getFramebufferHeight() - y1 * s);
+        int wid = (int) ((x1 - x0) * s);
+        int hei = (int) ((y1 - y0) * s);
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(x, y, Math.max(0, wid), Math.max(0, hei));
+    }
+
+    public static void endScissor() {
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+    }
+
+    // ---- cheap MatrixStack stadium fallback (only when the glass program is off) ----
+    private static void fillCheap(float x0, float y0, float x1, float y1, int argb, float r) {
+        float rr = Math.min(r, Math.min((x1 - x0) / 2f, (y1 - y0) / 2f));
+        fill(x0 + rr, y0, x1 - rr, y1, argb);
+        fill(x0, y0 + rr, x0 + rr, y1 - rr, argb);
+        fill(x1 - rr, y0 + rr, x1, y1 - rr, argb);
     }
 
     private static int clampByte(float a) {
@@ -341,57 +303,10 @@ public final class GlassWidgets {
         return v < 0 ? 0 : (v > 255 ? 255 : v);
     }
 
-    // ---- scroll-edge fallback + scissor (GUI px -> physical px, bottom-left origin) ----
+    // ---- names the 1.14.4 line's own modules were written against ----
 
-    /** iOS-26 "scroll edge effect": a progressive blur + adaptive dim that dissolves list
-     *  content toward the edge. Re-grab the finished UI FIRST ({@code SceneCapture.forceGrab()}),
-     *  then call this per list edge. {@code topEdge=true} -> strongest at y0. {@code strength}
-     *  (0..1) fades the whole effect in as the list scrolls. No-op without the blur program. */
-    public static void edgeFade(float x0, float y0, float x1, float y1, boolean topEdge,
-                                float radius, float dim, float strength) {
-        if (strength <= 0.01f || !GlassProgram.blurUsable() || !SceneCapture.hasBackdrop()) return;
-        // Raw GL only inside the push/pop region — GlStateManager here would desync its
-        // cache against what glPopAttrib restores (mirrors MenuBackdrop.draw's discipline).
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
-                        | GL11.GL_CURRENT_BIT | GL11.GL_TEXTURE_BIT);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDisable(GL11.GL_DEPTH_TEST);
-        GL11.glDepthMask(false);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, SceneCapture.texture());
-        GL11.glColor4f(1f, 1f, 1f, strength > 1f ? 1f : strength);   // vColor.a = effect strength
-        GlassProgram.bind(GlassProgram.BLUR);
-        GlassProgram.setEdgeBlur(radius, dim);
-        // texcoord.y = 0 at the dissolve EDGE, 1 at the inner boundary (drives the shader ramp)
-        float tyTop = topEdge ? 0f : 1f;
-        float tyBot = topEdge ? 1f : 0f;
-        GL11.glBegin(GL11.GL_QUADS);            // front-facing TL->BL->BR->TR
-        GL11.glTexCoord2f(0f, tyTop); GL11.glVertex2f(x0, y0);
-        GL11.glTexCoord2f(0f, tyBot); GL11.glVertex2f(x0, y1);
-        GL11.glTexCoord2f(1f, tyBot); GL11.glVertex2f(x1, y1);
-        GL11.glTexCoord2f(1f, tyTop); GL11.glVertex2f(x1, y0);
-        GL11.glEnd();
-        GlassProgram.unbind();
-        GL11.glDepthMask(true);
-        GL11.glPopAttrib();
-        GlStateManager.bindTexture(0);
-        resetColorCache();
-    }
-
-    public static void beginScissor(float x0, float y0, float x1, float y1) {
-        Window win = mc().window;
-        double sf = win.getScaleFactor();
-        int x = (int) Math.round(x0 * sf);
-        int w = (int) Math.round((x1 - x0) * sf);
-        int h = (int) Math.round((y1 - y0) * sf);
-        int y = win.getFramebufferHeight() - (int) Math.round(y1 * sf);
-        GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        GL11.glScissor(x, y, Math.max(0, w), Math.max(0, h));
-    }
-
-    public static void endScissor() {
-        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+    /** Flat axis-aligned fill (older name of {@link #fill}). */
+    public static void drawRect(float x0, float y0, float x1, float y1, int argb) {
+        fill(x0, y0, x1, y1, argb);
     }
 }

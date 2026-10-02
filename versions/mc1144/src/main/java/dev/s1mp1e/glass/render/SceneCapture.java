@@ -30,48 +30,49 @@ public final class SceneCapture {
 
     public static int texture() { return texture; }
 
+    /** Bumped on every real copy — lets a surface that re-lays itself later in the frame (the Statistics header /
+     *  footer bands) verify the backdrop texture still holds the snapshot it was first drawn from. */
+    private static int generation = 0;
+    public static int generation() { return generation; }
+
     /** True once a backdrop has been captured this frame. */
     public static boolean hasBackdrop() { return texture != 0; }
 
+    /** Base grab: capture the current framebuffer, time-deduplicated. */
+    public static void grab() { grab(false); }
+
+    /** Forced grab (bypasses the 3 ms dedup) — the name the ported client layer calls
+     *  when a top-layer glass surface must snapshot the GUI already drawn beneath it. */
+    public static void grabNow() { grab(true); }
+
+    /** 1.14.4 line's older name for {@link #grabNow()} (kept for its existing callers). */
+    public static void forceGrab() { grab(true); }
+
     /**
-     * Copy the current framebuffer into the backdrop texture, DE-DUPLICATED.
+     * Copy the current framebuffer into the backdrop texture. Cheap enough to
+     * call once a frame; reallocates only when the window resizes.
      *
-     * <p>Several call sites each want a fresh backdrop — the container panel,
-     * the tooltip, the item-name popup — and with a tooltip up in the inventory
-     * that was THREE full-screen copies in one frame. A 3 ms guard collapses
-     * duplicates so a secondary site reuses whatever the primary panel just
-     * grabbed instead of re-copying. Frame-primary sites that must own a
-     * deterministic backdrop every frame (the config screen, HudGlass, the knob
-     * lens) call {@link #grabNow()} instead.
+     * <p><b>{@code force} — the nested-glass fix.</b> A liquid-glass element must
+     * refract everything drawn BENEATH it this frame. The base layers (HUD hotbar,
+     * the container/creative panel) grab the world/dimmed-world backdrop ONCE via the
+     * time-deduplicated {@link #grab()} — the 3 ms guard collapses their repeat calls
+     * so the base panel and its own lattice/hover share one world grab (and never
+     * refract each other).
+     *
+     * <p>But a glass element that sits ON TOP of already-drawn GUI — the recipe book
+     * over the open inventory, a tooltip over a container — must capture that GUI as
+     * its backdrop, not the stale world grab the base layer left behind. The time
+     * dedup would fold such a top-layer grab into the base one (they happen microseconds
+     * apart), so the top layer would wrongly refract the world instead of the inventory
+     * behind it. Those call sites pass {@code force = true} to bypass the dedup and
+     * snapshot the framebuffer AS IT IS right now — world + container + slots + items —
+     * so the top glass shows the inventory through it. No self-ghosting: the grab runs
+     * BEFORE the top element draws itself, so the snapshot never contains it.
      */
-    public static void grab() {
+    public static void grab(boolean force) {
         long now = System.nanoTime();
-        if (now - lastGrabNanos < MIN_GRAB_GAP_NS) return;
-        doGrab();
-    }
-
-    /**
-     * Force a fresh framebuffer copy NOW, bypassing the {@link #grab()} time
-     * guard. For frame-primary backdrops that must be deterministic every frame
-     * regardless of frame rate — the config screen, HudGlass and the switch/knob
-     * lens (un-deduplicated copy, matching mc1211). Also refreshes the guard
-     * timestamp so a following secondary {@link #grab()} within 3 ms still folds
-     * onto this copy.
-     */
-    public static void grabNow() {
-        doGrab();
-    }
-
-    /**
-     * Back-compat alias for the mc189-derived call shape: an unconditional grab.
-     * Same as {@link #grabNow()}.
-     */
-    public static void forceGrab() {
-        doGrab();
-    }
-
-    private static void doGrab() {
-        lastGrabNanos = System.nanoTime();
+        if (!force && now - lastGrabNanos < MIN_GRAB_GAP_NS) return;
+        lastGrabNanos = now;
 
         MinecraftClient mc = MinecraftClient.getInstance();
         int w = mc.window.getFramebufferWidth(), h = mc.window.getFramebufferHeight();
@@ -86,8 +87,7 @@ public final class SceneCapture {
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             // CLAMP_TO_EDGE: refraction near the frame border must not wrap, and
-            // GL_CLAMP with LINEAR would bleed the black border colour into the
-            // edge (checklist B-2). GL_CLAMP_TO_EDGE is what this always meant.
+            // GL_CLAMP with LINEAR would bleed the border colour into the edge.
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
             GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB, w, h, 0,
@@ -98,10 +98,11 @@ public final class SceneCapture {
         }
 
         GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
-        // The raw binds above bypass GlStateManager's texture-unit cache. Restore
-        // through GlStateManager so its cache matches actual GL again — bind 0
-        // first to defeat its no-op-on-equal-cache short circuit, else MC keeps
-        // sampling our backdrop texture and the whole screen goes white.
+        generation++;
+        // 1.14.4: the raw binds above bypass GlStateManager's texture-unit cache.
+        // Restore through GlStateManager so its cache matches actual GL again —
+        // bind 0 first to defeat its no-op-on-equal-cache short circuit, else
+        // MC keeps sampling our backdrop texture and the whole screen goes white.
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
         GlStateManager.bindTexture(0);
         GlStateManager.bindTexture(prevTex);

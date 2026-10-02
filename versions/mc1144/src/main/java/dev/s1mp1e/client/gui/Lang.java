@@ -32,6 +32,8 @@ public final class Lang {
         MODULE.put("HandPosition", "手部位置");
         MODULE.put("SteadyFOV", "固定視野");
         MODULE.put("Zoom", "視野縮放");
+        MODULE.put("BlockOutline", "方塊外框");
+        MODULE.put("ChromaHud", "彩虹 HUD");
         MODULE.put("Fullbright", "全亮");
         MODULE.put("XpFlow", "經驗條流動");
         MODULE.put("LowFire", "火焰畫面降低");
@@ -110,6 +112,13 @@ public final class Lang {
         SETTING.put("Ready width", "蓄滿粗細 (0=同環粗細)");
         SETTING.put("Chroma", "彩虹色");
         SETTING.put("Chroma speed", "彩虹速度");
+        SETTING.put("Line width", "線寬");
+        SETTING.put("Fill", "填充");
+        SETTING.put("Fill colour", "填充顏色");
+        SETTING.put("Speed", "速度");
+        SETTING.put("Saturation", "飽和度");
+        SETTING.put("Wave", "字元波動");
+        SETTING.put("Accents", "套用至高光點綴");
 
         MODE.put("Cross", "十字");
         MODE.put("Dot", "圓點");
