@@ -132,8 +132,15 @@ public final class MenuBackdrop {
      * resync so MC does not keep sampling this texture (white screen); blend is never left disabled.
      */
     public static void drawTexture(int tex, float radius, float dim, float y0, float y1) {
+        drawTexture(tex, radius, dim, 0f, y0, MinecraftClient.getInstance().getWindow().getScaledWidth(), y1);
+    }
+
+    /**
+     * The same blit confined to the rectangle {@code [x0, x1) x [y0, y1)} (a list that does not span the screen).
+     * With {@code radius 0, dim 0} it is a 1:1 copy of that region of {@code tex}.
+     */
+    public static void drawTexture(int tex, float radius, float dim, float x0, float y0, float x1, float y1) {
         if (tex == 0) return;
-        float w = MinecraftClient.getInstance().getWindow().getScaledWidth();
 
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
                         | GL11.GL_CURRENT_BIT | GL11.GL_TEXTURE_BIT);
@@ -153,10 +160,10 @@ public final class MenuBackdrop {
         // derives its UV from gl_FragCoord, so the texcoords are cosmetic — only the quad's screen
         // extent matters.
         GL11.glBegin(GL11.GL_QUADS);
-        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, y0);   // TL
-        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, y1);   // BL
-        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(w,  y1);   // BR
-        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(w,  y0);   // TR
+        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(x0, y0);   // TL
+        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(x0, y1);   // BL
+        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(x1, y1);   // BR
+        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(x1, y0);   // TR
         GL11.glEnd();
 
         GlassProgram.unbind();

@@ -466,7 +466,7 @@ public final class DevShot {
             goPhase(P_TITLE_PAGE);
             return;
         }
-        if (mode.contains("settings")) {          // the settings shell over the title background
+        if (mode.contains("settings") || mode.contains("packs")) {   // the settings shell over the title background
             open(client, new net.minecraft.client.gui.screen.option.OptionsScreen(new TitleScreen(), client.options),
                     "open options (over title)");
             titlePageShot = "st-title.png";
@@ -495,6 +495,15 @@ public final class DevShot {
             open(client, new net.minecraft.client.gui.screen.option.OptionsScreen(new TitleScreen(), client.options),
                     "open options (over title)");
             titlePageShot = "st-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        if ("st-title.png".equals(titlePageShot)) {   // the resource pack screen (two lists) over the title
+            close(client);
+            open(client, new net.minecraft.client.gui.screen.pack.PackScreen(new TitleScreen(),
+                    client.getResourcePackManager(), m -> { }, client.getResourcePackDir(),
+                    new net.minecraft.text.TranslatableText("resourcePack.title")), "open resource packs (over title)");
+            titlePageShot = "st-title-packs.png";
             goPhase(P_TITLE_PAGE);
             return;
         }

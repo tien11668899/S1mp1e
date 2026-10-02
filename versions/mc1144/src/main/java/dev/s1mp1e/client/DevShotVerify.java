@@ -87,7 +87,7 @@ final class DevShotVerify {
             // 1.14.4: lists / tooltips / effects / flicker are ALSO old modes of this line (DevShot / DevShotLegacy,
             // kept as the regression baseline) -> those four need the "v:" prefix here.
             if (t.equals("vcombat") || t.equals("newmenu") || t.equals("newanim")
-                    || t.equals("settings") || t.equals("trans") || t.equals("gap")) return true;
+                    || t.equals("settings") || t.equals("trans") || t.equals("gap") || t.equals("packs")) return true;
         }
         return false;
     }
@@ -176,6 +176,7 @@ final class DevShotVerify {
             case "newmenu":  buildNewMenu();  break;
             case "newanim":  buildNewAnim();  break;
             case "settings": buildSettings(); break;
+            case "packs":    packScenes();    break;
             case "trans":    buildTrans();    break;
             case "gap":      buildGap();      break;
             default: say("unknown mode " + mode);
@@ -1577,6 +1578,7 @@ final class DevShotVerify {
         add(shot("st-access-tooltip", null, 1600, c -> hoverSliderRow(c, shellRowY(10))));
         // (1.14.4: Accessibility has 13 rows and no switch with a tooltip - see st-chat-tooltip for the switch case)
         // (1.14.4 has no Online Options page - it arrived in 1.18.)
+        packScenes();
         add(action(c -> open(c, new net.minecraft.client.gui.screen.SettingsScreen(
                 new net.minecraft.client.gui.screen.GameMenuScreen(true), c.options))));
         add(waitMs(700));
@@ -1592,6 +1594,24 @@ final class DevShotVerify {
         add(drag("st-plain-drag", 300, 380, 110, 10));
         add(action(c -> { close(c); hx = hy = -1; }));
         add(waitMs(400));
+    }
+
+    /**
+     * The resource pack screen, reached from the settings shell's sidebar (entry 7). It is not a shell page: it stays
+     * the vanilla two-list screen, and its lists are narrower than the screen (EntryListGlassMixin, "narrow"): both
+     * columns must show their header and rows, and rows scrolled past the top / bottom edge must be masked.
+     * Also the mode {@code packs} on its own.
+     */
+    private static void packScenes() {
+        add(action(c -> open(c, new net.minecraft.client.gui.screen.SettingsScreen(
+                new net.minecraft.client.gui.screen.GameMenuScreen(true), c.options))));
+        add(waitMs(700));
+        add(shot("st-packs", c -> shellTab(c, 7), 1200));
+        // the left ("Available") list scrolled by 3 notches: needs more packs than fit (run\resourcepacks)
+        add(shot("st-packs-scrolled", c -> { hx = c.window.getScaledWidth() / 2.0 - 104; hy = 150;
+            if (c.currentScreen != null) c.currentScreen.mouseScrolled(hx, hy, -3); hx = 60; hy = 186; }, 900));
+        add(action(c -> { close(c); hx = hy = -1; }));
+        add(waitMs(300));
     }
 
     /** A bare screen (no settings shell) with two vanilla sliders, the second one stepped. */

@@ -452,7 +452,7 @@ public final class DevShot {
             if (!afterMain(client, "config")) return;
         }
         close(client);
-        if (mode.contains("settings")) {          // the settings shell over the title background
+        if (mode.contains("settings") || mode.contains("packs")) {   // the settings shell over the title background
             open(client, new net.minecraft.client.gui.screen.SettingsScreen(new TitleScreen(), client.options),
                     "open options (over title)");
             titlePageShot = "st-title.png";
@@ -481,6 +481,14 @@ public final class DevShot {
             open(client, new net.minecraft.client.gui.screen.SettingsScreen(new TitleScreen(), client.options),
                     "open options (over title)");
             titlePageShot = "st-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        if ("st-title.png".equals(titlePageShot)) {   // the resource pack screen (two lists) over the title
+            close(client);
+            open(client, new net.minecraft.client.gui.screen.resourcepack.ResourcePackOptionsScreen(new TitleScreen()),
+                    "open resource packs (over title)");
+            titlePageShot = "st-title-packs.png";
             goPhase(P_TITLE_PAGE);
             return;
         }

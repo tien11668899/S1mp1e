@@ -31,6 +31,11 @@ import org.spongepowered.asm.mixin.injection.At;
  * So the three steps are wrapped: when the backdrop was drawn, the already built dirt / shadow quads are dropped
  * ({@code BufferBuilder.end()} without a draw; the next {@code begin} clears the buffer) and the holes are painted
  * from the same backdrop. If the backdrop is not available the list stays exactly vanilla.
+ *
+ * <p><b>Lists that do not span the screen.</b> The resource pack screen has two lists side by side (and draws its
+ * own background first). A full-screen backdrop per list let the second list wipe the first, so a list narrower than
+ * the screen keeps the screen's background: its body is only dimmed, and the two masks are a 1:1 copy (blur radius 0)
+ * of what was behind the list before its rows were drawn, confined to the list's columns.
  */
 @Mixin(EntryListWidget.class)
 public abstract class EntryListGlassMixin {
@@ -45,6 +50,11 @@ public abstract class EntryListGlassMixin {
     @Unique private boolean s1mp1e$listActive;
     /** This is the statistics list on its glass plate this frame. */
     @Unique private boolean s1mp1e$statsActive;
+    /**
+     * The list does not span the screen (the two lists of the resource pack screen): the screen drew its own
+     * background, so the list must not lay a full-screen backdrop (the second list's would wipe the first list).
+     */
+    @Unique private boolean s1mp1e$narrow;
 
     @Unique
     private static void s1mp1e$drop(Tessellator tessellator) {
@@ -64,9 +74,19 @@ public abstract class EntryListGlassMixin {
         }
         boolean ours = false;
         int tex = 0;
+        this.s1mp1e$narrow = false;
         try {
             MinecraftClient mc = MinecraftClient.getInstance();
-            if (mc.world == null) {
+            if (this.left > 0 || this.right < mc.window.getScaledWidth()) {
+                // keep the screen's own background: remember what is behind the list now (before its rows), for the
+                // header / footer masks, and only dim the list body
+                if (GlassProgram.ensureReady() && GlassProgram.blurUsable()) {
+                    SceneCapture.grabNow();
+                    tex = SceneCapture.texture();
+                    ours = tex != 0;
+                    this.s1mp1e$narrow = ours;
+                }
+            } else if (mc.world == null) {
                 // raw immediate-mode quad: independent of the tessellator buffer that is still open here
                 ours = MenuBackdrop.draw();
                 tex = MenuBackdrop.panoramaTex();
@@ -95,6 +115,13 @@ public abstract class EntryListGlassMixin {
             if (this.s1mp1e$statsActive) {
                 // both bands at once, on the first of the two calls (statsStrips consumes the plate state)
                 if (y1 <= this.top) GlassScreens.statsStrips(this.left, this.right, this.top, this.bottom);
+                return;
+            }
+            if (this.s1mp1e$listActive && this.s1mp1e$listTex != 0 && this.s1mp1e$narrow) {
+                // 1:1 copy of the screen background over the rows that scrolled past the edge, in the list's columns
+                MenuBackdrop.drawTexture(this.s1mp1e$listTex, 0f, 0f, this.left, y0, this.right, y1);
+                if (y1 <= this.top) DrawableHelper.fill(this.left, this.top - 1, this.right, this.top, 0x33FFFFFF);
+                else DrawableHelper.fill(this.left, this.bottom, this.right, this.bottom + 1, 0x33FFFFFF);
                 return;
             }
             if (this.s1mp1e$listActive && this.s1mp1e$listTex != 0) {

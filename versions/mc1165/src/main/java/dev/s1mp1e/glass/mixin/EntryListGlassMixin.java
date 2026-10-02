@@ -35,6 +35,12 @@ import org.spongepowered.asm.mixin.injection.At;
  * When the blur is unusable, or the list's render was overridden by another mod (ModMenu, malilib) so the
  * fields are not read, both hooks return the original value and vanilla draws its dirt. Everything is in
  * try/catch so a failure falls back to vanilla dirt rather than crashing.
+ *
+ * <p><b>Lists that do not span the screen.</b> The pack screen (resource packs, data packs) has two lists side by
+ * side, both with their background on, and draws its own background first. A full-screen backdrop per list let the
+ * second list wipe the first, so a list narrower than the screen keeps the screen's background: its body is only
+ * dimmed, and the two strips are a 1:1 copy (blur radius 0) of what was behind the list before its rows were drawn,
+ * confined to the list's columns.
  */
 @Mixin(EntryListWidget.class)
 public abstract class EntryListGlassMixin {
@@ -49,6 +55,11 @@ public abstract class EntryListGlassMixin {
     /** The backdrop texture drawn for the current list frame, remembered so the strip hook re-blits it. */
     @Unique private int s1mp1e$listTex;
     @Unique private boolean s1mp1e$listActive;
+    /**
+     * The list does not span the screen (the two lists of the pack screen): the screen drew its own background, so
+     * the list must not lay a full-screen backdrop (the second list's would wipe the first list).
+     */
+    @Unique private boolean s1mp1e$narrow;
 
     @ModifyExpressionValue(method = "render",
             at = @At(value = "FIELD",
@@ -56,6 +67,7 @@ public abstract class EntryListGlassMixin {
                      opcode = Opcodes.GETFIELD))
     private boolean s1mp1e$listInterior(boolean original, @Local(argsOnly = true) MatrixStack matrices) {
         this.s1mp1e$listActive = false;
+        this.s1mp1e$narrow = false;
         // Statistics (feature A): the full-screen glass plate + scrim was laid by the list's renderBackground
         // (StatsListGlassMixin) — no dirt and no extra body slab on top of it.
         if (original && GlassScreens.isStatsList(this)) return false;
@@ -68,7 +80,14 @@ public abstract class EntryListGlassMixin {
         try {
             MinecraftClient mc = MinecraftClient.getInstance();
             int tex;
-            if (mc.world == null) {
+            if (this.left > 0 || this.right < mc.getWindow().getScaledWidth()) {
+                // keep the screen's own background: remember what is behind the list now (before its rows), for the
+                // header / footer strips, and only dim the list body
+                if (!GlassProgram.ensureReady() || !GlassProgram.blurUsable()) return original;
+                SceneCapture.grabNow();
+                tex = SceneCapture.texture();
+                this.s1mp1e$narrow = tex != 0;
+            } else if (mc.world == null) {
                 // draw() re-renders the live panorama (V-5) before blurring where enabled, so it must be
                 // attempted before any readiness test.
                 if (!MenuBackdrop.draw()) return original;
@@ -101,6 +120,14 @@ public abstract class EntryListGlassMixin {
                 return false;
             }
             if (!this.s1mp1e$listActive || this.s1mp1e$listTex == 0) return original;
+            if (this.s1mp1e$narrow) {
+                // 1:1 copy of the screen background over the rows that scrolled past the edge, in the list's columns
+                MenuBackdrop.drawTexture(this.s1mp1e$listTex, 0f, 0f, this.left, 0f, this.right, this.top);
+                MenuBackdrop.drawTexture(this.s1mp1e$listTex, 0f, 0f, this.left, this.bottom, this.right, this.height);
+                DrawableHelper.fill(matrices, this.left, this.top - 1, this.right, this.top, 0x33FFFFFF);
+                DrawableHelper.fill(matrices, this.left, this.bottom, this.right, this.bottom + 1, 0x33FFFFFF);
+                return false;
+            }
             // re-blit the same backdrop only under the header/footer strips
             MenuBackdrop.drawTexture(this.s1mp1e$listTex, MenuBackdrop.RADIUS, MenuBackdrop.DIM, 0f, this.top);
             MenuBackdrop.drawTexture(this.s1mp1e$listTex, MenuBackdrop.RADIUS, MenuBackdrop.DIM, this.bottom, this.height);
