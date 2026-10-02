@@ -16,6 +16,12 @@ import org.spongepowered.asm.mixin.Shadow;
 public abstract class SodiumSliderControlMixin implements SodiumGlass.SliderInfo {
     @Shadow @Final private int min;
     @Shadow @Final private int max;
+    @Shadow @Final private int interval;
+
+    @Override
+    public int s1mp1e$interval() {
+        return this.interval;
+    }
     @Shadow @Final private ControlValueFormatter mode;
 
     @Override
