@@ -9,6 +9,7 @@ pub mod paths;
 pub mod meta;
 pub mod download;
 pub mod install;
+pub mod default_mods;
 pub mod launch;
 pub mod config;
 pub mod auth;

@@ -3,6 +3,7 @@
 //!   itest login   <clientId>                    Microsoft device-code sign-in.
 //!   itest play    <mc> <loader> <mcPath> <name> Launch (online if signed in).
 //!   itest install fabric <mc> [mcPath]          Install a Fabric profile.
+//!   itest default-mods <mc> [mcPath]            Install the default Fabric mods for <mc>.
 //!
 //! `login` prints `CODE <user_code>\t<verification_uri>` the instant it has a device
 //! code (the UI shows/opens it), then `DONE <name>\t<uuid>` and SAVES the account to
@@ -11,7 +12,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, download, install, launch, meta, paths};
+use s1mp1e::{auth, config, default_mods, download, install, launch, meta, paths};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ async fn main() {
         "login" => cmd_login(rest.first().cloned().unwrap_or_default()).await,
         "play" => cmd_play(rest).await,
         "install" => cmd_install(rest).await,
+        "default-mods" => cmd_default_mods(rest).await,
         "list-versions" => cmd_list_versions().await,
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
@@ -32,7 +34,7 @@ async fn main() {
             if ai.user_type == "msa" { 0 } else { 1 }
         }
         _ => {
-            eprintln!("usage: itest <login|play|install|list-versions|whoami> ...");
+            eprintln!("usage: itest <login|play|install|default-mods|list-versions|whoami> ...");
             2
         }
     };
@@ -173,6 +175,32 @@ fn silent_emit() -> install::Emit {
     })
 }
 
+fn is_fabric_loader(loader: &str) -> bool {
+    !loader.eq_ignore_ascii_case("forge")
+}
+
+/// itest default-mods <mc> [mcPath] — install the default Fabric mods for one version now
+/// (what `play` does on a Fabric launch). Prints `DONE <mc>`.
+async fn cmd_default_mods(a: &[String]) -> i32 {
+    let mc = a.first().cloned().unwrap_or_default();
+    let mc_path = a.get(1).filter(|s| !s.is_empty()).cloned();
+    if mc.is_empty() {
+        eprintln!("default-mods 需要 <mc>");
+        return 2;
+    }
+    let root = paths::mc_root(mc_path.as_deref());
+    match default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await {
+        Ok(()) => {
+            println!("DONE {mc}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e:#}");
+            1
+        }
+    }
+}
+
 /// itest play <mc> <loader> <mcPath> <name>
 async fn cmd_play(a: &[String]) -> i32 {
     let mc = a.first().cloned().unwrap_or_default();
@@ -223,6 +251,11 @@ async fn cmd_play(a: &[String]) -> i32 {
     if settings.glass {
         let _ = install::ensure_glass(&root, &mc, &silent_emit()).await;
     }
+    // Fabric profiles get the default mod set (Fabric API, Sodium, MaLiLib, Item Scroller,
+    // Entity Culling) once per version — also on installs an earlier launcher made.
+    if settings.default_mods && is_fabric_loader(&loader) {
+        let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
+    }
     let plan = match launch::plan_launch(&root, &id, &auth_info, &settings) {
         Ok(p) => p,
         Err(e) => {
@@ -271,7 +304,13 @@ async fn cmd_install(a: &[String]) -> i32 {
     }
     let root = paths::mc_root(mc_path.as_deref());
     let res = match kind {
-        "fabric" => install::install_fabric(root, mc, silent_emit()).await.map(|id| id),
+        "fabric" => {
+            let res = install::install_fabric(root.clone(), mc.clone(), silent_emit()).await;
+            if res.is_ok() && config::load().settings.default_mods {
+                let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
+            }
+            res
+        }
         "forge" => install::install_forge(root, mc, silent_emit()).await,
         "vanilla" => install::install_version(root, mc.clone(), silent_emit()).await.map(|_| mc.clone()),
         other => {
