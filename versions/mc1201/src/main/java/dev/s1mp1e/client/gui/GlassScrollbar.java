@@ -3,23 +3,23 @@ package dev.s1mp1e.client.gui;
 import net.minecraft.client.gui.DrawContext;
 
 /**
- * Shared VERTICAL liquid-glass scrollbar — the config screen's {@code SliderWidget} look and feel stood on its side, so
- * every vanilla container scrollbar (creative item grid, stonecutter / loom recipe lists, villager trades) reads like the
- * S1mp1e menu instead of a flat sprite. The 1.20.1 (DrawContext, immediate-mode) port of 26.2's
- * {@code dev.s1mp1e.client.gui.GlassScrollbar} — the motion is byte-for-byte the same; only the draw sink changes from the
- * retained {@code GuiGraphicsExtractor} to {@link DrawContext}.
+ * Feature C — shared VERTICAL liquid-glass scrollbar. The config screen's {@code SliderWidget} look and feel stood on
+ * its side, so every vanilla container scrollbar (creative item grid, stonecutter / loom recipe lists, villager trades)
+ * reads like the S1mp1e menu instead of a flat sprite. 1.20.1 / 1.21.1 (DrawContext) port of 26.2's {@code GlassScrollbar}.
  *
- * <p>One instance lives per screen (a {@code @Unique} field on that screen's glass mixin). Every frame the screen calls
- * {@link #run} with the vanilla thumb-track geometry and the logical scroll ratio; that folds the vanilla drag flag into
- * press/drag/release, eases the thumb toward the logical ratio (the config-menu τ = 90 ms glide) and paints:
- * <ul>
- *   <li>a faint groove + a 15 px white capsule thumb that morphs into a refracting glass lens when held
- *       ({@link Motion#MORPH_IN_S}/{@link Motion#MORPH_OUT_S}), stretching with drag speed on the vertical axis;</li>
- *   <li>1:1 sub-pixel drag with the UIScrollView rubber-band ({@link Motion#rubberBand}) past the ends.</li>
- * </ul>
- * It never samples itself (the lens refracts the pre-GUI backdrop like the config slider). {@link #pos()} is the eased
- * drawn ratio feature D reads to move the content by the SAME value; {@link #snapToTarget()} ends a glide immediately for
- * a mid-glide click.
+ * <p>One instance lives per screen ({@code @Unique} field on that screen's glass mixin); the screen sets the vanilla
+ * thumb-track geometry every frame with {@link #geometryTravel} and the logical scroll position with {@link #setTarget},
+ * then paints. {@link #run} is the single entry point a redirect calls: it folds the vanilla drag flag into
+ * press/drag/release (1:1 grab-at-offset drag with a rubber-band past the ends and a held glass lens), points the thumb
+ * at the logical scroll ratio, and paints. Screens that don't wire input still get the silky wheel glide because
+ * {@link #draw} eases {@code pos} toward {@code target}.
+ *
+ * <p><b>No copy-paste.</b> The motion and paint are the exact primitives the config {@code SliderWidget} uses:
+ * the non-drag glide is {@link GlassWidgets#approach} on the config menu's exponential time constant (τ = 90 ms); the
+ * thumb is {@link GlassWidgets#knobLens} (white capsule → refracting glass lens when held, stretching with drag speed,
+ * here rotated to the vertical axis); dragging is 1:1 sub-pixel with the same UIScrollView {@link Motion#rubberBand}.
+ * Everything is float / sub-pixel and it never samples itself (the lens refracts the pre-GUI backdrop, like the config
+ * slider). {@link #pos} feeds feature D so the content and the glass thumb move as one.
  */
 public final class GlassScrollbar {
 
@@ -46,7 +46,7 @@ public final class GlassScrollbar {
     private long pressNano, holdUntilNano;
     private float lastThumbPx = Float.NaN, speed;
 
-    /** As {@link #geometry} but with the thumb-top travel distance given directly. */
+    /** Vanilla thumb-track geometry with the thumb-top travel distance given directly. */
     public void geometryTravel(float cx, float trackTop, float travelPx, float thumbLen) {
         this.cx = cx;
         this.trackTop = trackTop;
@@ -60,12 +60,23 @@ public final class GlassScrollbar {
      */
     public static void run(GlassScrollbar bar, DrawContext ctx, float cx, float trackTop, float travelPx,
                            float thumbLen, float ratio, boolean active, boolean dragging, double mouseY, float alpha) {
+        step(bar, cx, trackTop, travelPx, thumbLen, ratio, dragging, mouseY);
+        bar.paint(ctx, active, alpha);
+    }
+
+    /**
+     * The motion half of {@link #run} without painting: geometry, drag fold-in, target and one motion step. For a screen
+     * that must know the eased value ({@link #pos}) BEFORE the frame's content is drawn but paints the thumb later in
+     * the frame (the merchant: its trade buttons draw before its scroller) — call this early, then {@link #paint}.
+     */
+    public static void step(GlassScrollbar bar, float cx, float trackTop, float travelPx, float thumbLen,
+                            float ratio, boolean dragging, double mouseY) {
         bar.geometryTravel(cx, trackTop, travelPx, thumbLen);
         if (dragging && !bar.dragging) bar.press(mouseY);
         if (dragging) bar.drag(mouseY);
         else if (bar.dragging) bar.release();
         bar.setTarget(ratio);
-        bar.draw(ctx, active, alpha);
+        bar.update();
     }
 
     /** Logical scroll position 0..1 (0 = top). The drawn thumb eases toward this when not dragging. */
@@ -76,7 +87,11 @@ public final class GlassScrollbar {
 
     public boolean dragging() { return dragging; }
 
-    /** Finish any glide immediately: snap the drawn position onto the logical target (mid-glide click correctness). */
+    /**
+     * Finish any glide immediately: snap the drawn position onto the logical target. Called from a screen's
+     * {@code mouseClicked} when the content is mid-glide, so the frame the click acts on shows the target row (the row
+     * vanilla will hit-test) — "snap to the target row, then let vanilla handle the click".
+     */
     public void snapToTarget() { pos = target; }
 
     /** True when the eased drawn position has not yet reached the logical target within {@code epsRatio}. */
@@ -84,12 +99,21 @@ public final class GlassScrollbar {
         return !Float.isNaN(pos) && Math.abs(pos - target) > epsRatio;
     }
 
-    /** The eased drawn scroll ratio 0..1 this frame (thumb-top). Content reads this to move as one with the thumb. */
+    /**
+     * The eased drawn scroll ratio 0..1 this frame (thumb-top position). A screen reads this AFTER {@link #run} to slide
+     * its list content by the SAME eased value the thumb uses, so the content and the glass thumb move as one.
+     */
     public float pos() { return Float.isNaN(pos) ? target : Motion.clamp01(pos); }
 
     private float thumbTopFor(float r01) { return trackTop + r01 * travel; }
 
     public void draw(DrawContext ctx, boolean active, float alpha) {
+        update();
+        paint(ctx, active, alpha);
+    }
+
+    /** Advance the thumb motion one frame (position glide / drag + rubber, lens morph, speed stretch). */
+    public void update() {
         float dt = clock.tick();
         long now = System.nanoTime();
 
@@ -112,7 +136,6 @@ public final class GlassScrollbar {
         }
         lift.update(dt);
         lift.settle(0.002f);
-        float L = Motion.clamp01(lift.x);
         if (!Float.isNaN(lastThumbPx) && dt > 0f) {
             float inst = Math.abs(cy - lastThumbPx) / dt;
             speed += (inst - speed) * Motion.ema(dt, Motion.SPEED_TAU_S);
@@ -120,16 +143,21 @@ public final class GlassScrollbar {
         lastThumbPx = cy;
         stretch.retarget(Motion.stretchTarget(speed, thumbLen)).update(dt);
         Motion.lensShape(stretch.x, lens);   // [wideFactor, tallFactor, corner] for a HORIZONTAL slider
+    }
 
-        // ---- paint ----
+    /** Paint the groove + thumb at the current (already updated) motion state. */
+    public void paint(DrawContext ctx, boolean active, float alpha) {
+        float cy = thumbTopFor(Float.isNaN(pos) ? target : pos) + thumbLen / 2f;
+        float L = Motion.clamp01(lift.x);
         int a = Math.round(alpha * 255f);
         float grooveA = active ? 0.30f : 0.16f;
         float gtop = trackTop, gbot = trackTop + travel + thumbLen;   // full groove length
         GlassWidgets.fillRound(ctx, cx - TRACK_HALF_W, gtop, cx + TRACK_HALF_W, gbot,
                 ((int) (a * grooveA) << 24) | 0xFFFFFF, TRACK_HALF_W);
 
-        // vertical knob: the config slider's knobLens with a degenerate (skipped) horizontal band, stretch axes swapped
-        // (width uses the /lambda factor, height the *lambda factor) so a fast vertical drag makes the lens taller/narrower.
+        // vertical knob: reuse the config slider's knobLens with a degenerate (skipped) horizontal band, and the
+        // stretch axes swapped (width uses the ÷λ factor, height the ×λ factor) so a fast vertical drag makes the lens
+        // taller and narrower — the mirror of the horizontal slider.
         float hw = Math.max(2.5f, thumbLen * 0.40f);
         float hh = thumbLen / 2f;
         GlassWidgets.knobLens(ctx, cx, cy, hw, hh, L, lens[1], lens[0], lens[2],
@@ -138,8 +166,8 @@ public final class GlassScrollbar {
 
     // ---- input (optional; screens that skip these still get the wheel glide) ----
 
-    /** Press at pointer y. The thumb recenters on the pointer (vanilla's grab) so the glass thumb tracks the clamped
-     *  scroll value and there is no jump on release. */
+    /** Press at pointer y. The thumb recenters on the pointer so the glass thumb tracks vanilla's clamped scroll value
+     *  exactly during the drag and there is no jump on release. */
     public void press(double mouseY) {
         dragging = true;
         lifted = true;

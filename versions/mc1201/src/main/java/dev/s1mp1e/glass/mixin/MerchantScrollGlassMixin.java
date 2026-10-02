@@ -42,12 +42,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  *
  * <p>The 1.20.1 trade helpers ({@code renderFirstBuyItem}, {@code renderArrow}, {@code drawItemWithoutEntity}) all draw
  * through {@code context.getMatrices()}, so — unlike the loom's own-matrix banner — the merchant glide is TRUE sub-pixel
- * via a context-matrix translate. The trade-button widgets are NOT glassed (ButtonGlassMixin deliberately skips
- * HandledScreen widgets) and are vanilla click regions, so there is no glass capsule to slide (26.2's
- * MerchantButtonGlideMixin has no counterpart here); only the item content glides, re-aligning at rest.
+ * via a context-matrix translate. The 7 trade buttons are faint glass capsules ({@code ButtonGlassMixin}, as on 26.2 /
+ * 1.21.1) and slide with the items mid-glide through {@link dev.s1mp1e.client.gui.MerchantGlide} (26.2's
+ * MerchantButtonGlideMixin): the buttons draw inside {@code super.render} BEFORE the scroller, so the glass thumb's
+ * motion is stepped at {@code render} HEAD (the eased value is then known before anything draws) and only painted
+ * where the vanilla thumb was.
  */
 @Mixin(MerchantScreen.class)
-public abstract class MerchantScrollGlassMixin {
+public abstract class MerchantScrollGlassMixin implements dev.s1mp1e.client.gui.GlideProbe, dev.s1mp1e.client.gui.ScrollDragOwner {
 
     @Unique private static final int LG_VIS = 7, LG_ROW_Y0 = 19, LG_ROW_H = 20;
     @Unique private static final int LG_COSTA_X = 10, LG_COSTB_X = 40, LG_RESULT_X = 73;
@@ -60,6 +62,7 @@ public abstract class MerchantScrollGlassMixin {
     @Shadow protected abstract void renderArrow(DrawContext context, TradeOffer tradeOffer, int leftPos, int y);
 
     @Unique private GlassScrollbar s1mp1e$scrollbar;
+    @Unique private boolean s1mp1e$barStepped;
     @Unique private boolean s1mp1e$sliding;
     @Unique private int s1mp1e$glideBase;
     @Unique private float s1mp1e$glideFracPx;
@@ -70,33 +73,75 @@ public abstract class MerchantScrollGlassMixin {
         return ((MerchantScreenHandler) ((HandledScreen<?>) (Object) this).getScreenHandler()).getRecipes();
     }
 
-    /** Scroller sprite → glass slider + the per-frame glide-state computation (runs before the trade loop in render). */
+    /** Step the glass thumb and decide the glide BEFORE anything draws (the trade buttons draw inside super.render). */
+    @Inject(method = "render", at = @At("HEAD"))
+    private void s1mp1e$stepGlide(DrawContext ctx, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        s1mp1e$sliding = false;
+        s1mp1e$barStepped = false;
+        dev.s1mp1e.client.gui.MerchantGlide.end();
+        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return;
+        TradeOfferList offers = s1mp1e$offers();
+        int size = offers.size();
+        if (size <= LG_VIS) return;
+        if (s1mp1e$scrollbar == null) s1mp1e$scrollbar = new GlassScrollbar();
+        int px = s1mp1e$px(), py = s1mp1e$py();
+        int maxRows = size - LG_VIS;
+        float ratio = MathHelper.clamp((float) indexStartOffset / maxRows, 0f, 1f);
+        // merchant track: 15 px thumb, top at topPos+18, thumb-top travel 124 (139 area - 15 thumb).
+        GlassScrollbar.step(s1mp1e$scrollbar, px + 94 + 3f, py + 18f, 124f, 15f, ratio, scrolling, mouseY);
+        s1mp1e$barStepped = true;
+        float easedTrades = s1mp1e$scrollbar.pos() * maxRows;
+        if (Math.abs(easedTrades - indexStartOffset) <= 0.02f) return;
+        s1mp1e$sliding = true;
+        s1mp1e$glideBase = MathHelper.clamp((int) Math.floor(easedTrades), 0, maxRows);
+        s1mp1e$glideFracPx = (easedTrades - s1mp1e$glideBase) * LG_ROW_H;
+
+        // Trade-button frames glide with the items: the 7 WidgetButtonPage buttons (88x20 at x+5).
+        java.util.List<net.minecraft.client.gui.widget.ClickableWidget> btns = new java.util.ArrayList<>();
+        net.minecraft.client.gui.widget.ClickableWidget bottom = null;
+        for (net.minecraft.client.gui.Element e : ((net.minecraft.client.gui.screen.Screen) (Object) this).children()) {
+            if (e instanceof net.minecraft.client.gui.widget.ButtonWidget b
+                    && b.getWidth() == 88 && b.getHeight() == 20 && b.getX() == px + 5) {
+                btns.add(b);
+                if (bottom == null || b.getY() > bottom.getY()) bottom = b;
+            }
+        }
+        boolean extra = s1mp1e$glideBase + LG_VIS < size;
+        dev.s1mp1e.client.gui.MerchantGlide.begin(btns, bottom, s1mp1e$glideFracPx,
+                px + 4, py + 18, px + 94, py + 18 + LG_VIS * LG_ROW_H, extra);
+    }
+
+    @Inject(method = "render", at = @At("TAIL"))
+    private void s1mp1e$endGlide(DrawContext ctx, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        dev.s1mp1e.client.gui.MerchantGlide.end();
+    }
+
+    @Override
+    public boolean s1mp1e$probeGliding() { return s1mp1e$sliding; }
+
+    @Override
+    public float s1mp1e$probeOffsetPx() {
+        return s1mp1e$scrollbar == null ? 0f
+                : s1mp1e$scrollbar.pos() * Math.max(0, s1mp1e$offers().size() - LG_VIS) * LG_ROW_H;
+    }
+
+    /** Vanilla only clears {@code scrolling} on the NEXT click; the glass thumb reads it as "held" (see ScrollDragOwner). */
+    @Override
+    public void s1mp1e$endScrollDrag() { scrolling = false; }
+
+    /** Scroller sprite → the glass slider, painted at the motion stepped at render HEAD. */
     @Redirect(method = "render",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/ingame/MerchantScreen;"
                             + "renderScrollbar(Lnet/minecraft/client/gui/DrawContext;IILnet/minecraft/village/TradeOfferList;)V"))
     private void s1mp1e$scroller(MerchantScreen self, DrawContext ctx, int i, int j, TradeOfferList offers,
                                  DrawContext ctxEnc, int mouseX, int mouseY, float delta) {
-        s1mp1e$sliding = false;
-        int size = offers.size();
-        if (!GlassProgram.ensureReady() || !GlassProgram.usable() || size <= LG_VIS) {
-            this.renderScrollbar(ctx, i, j, offers);   // self == this; shadow
+        if (!s1mp1e$barStepped || s1mp1e$scrollbar == null) {
+            this.renderScrollbar(ctx, i, j, offers);   // self == this; shadow (glass off, or nothing to scroll)
             return;
         }
-        if (s1mp1e$scrollbar == null) s1mp1e$scrollbar = new GlassScrollbar();
-        int maxRows = size - LG_VIS;
-        float ratio = maxRows <= 0 ? 0f : MathHelper.clamp((float) indexStartOffset / maxRows, 0f, 1f);
-        // merchant track: 15 px thumb, top at topPos+18, thumb-top travel 124 (139 area - 15 thumb).
-        GlassScrollbar.run(s1mp1e$scrollbar, ctxEnc, i + 94 + 3f, j + 18f, 124f, 15f,
-                ratio, true, scrolling, mouseY, 1.0f);
-        if (maxRows > 0) {
-            float easedTrades = s1mp1e$scrollbar.pos() * maxRows;
-            if (Math.abs(easedTrades - indexStartOffset) > 0.02f) {
-                s1mp1e$sliding = true;
-                s1mp1e$glideBase = MathHelper.clamp((int) Math.floor(easedTrades), 0, maxRows);
-                s1mp1e$glideFracPx = (easedTrades - s1mp1e$glideBase) * LG_ROW_H;
-            }
-        }
+        ctxEnc.draw();
+        s1mp1e$scrollbar.paint(ctxEnc, true, 1.0f);
     }
 
     // ---- suppress the vanilla trade content during a glide (redrawn by the overlay) ----
@@ -181,6 +226,7 @@ public abstract class MerchantScrollGlassMixin {
         if (s1mp1e$sliding && s1mp1e$scrollbar != null) {
             s1mp1e$scrollbar.snapToTarget();
             s1mp1e$sliding = false;
+            dev.s1mp1e.client.gui.MerchantGlide.end();
         }
     }
 }

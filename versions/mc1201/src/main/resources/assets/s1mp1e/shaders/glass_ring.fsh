@@ -17,6 +17,9 @@
 uniform sampler2D Sampler0;        // grabbed scene backdrop
 uniform vec2      ScreenSize;      // physical framebuffer px
 uniform vec4      ColorModulator;  // global tint/alpha (usually 1,1,1,1)
+uniform float     ShadowScale;     // 1 = normal drop shadow, 0 = suppressed
+                                   // (hotbar sets 0 while a screen darkens the
+                                   // background, so its halo is not a black ring)
 
 in vec2 vLocal;
 in vec4 vColor;
@@ -116,7 +119,7 @@ void main() {
     // drop shadow: SDF shifted by the offset, exp falloff, drawn outside the glass
     vec2  ps = p - SHADOW_OFFSET;
     float ds = abs(sdgShape(ps, shape, ringRc, ratio, gap).x) - ringT * 0.5;
-    float shadow = exp(-abs(ds) / SHADOW_EXPAND) * 0.6 * SHADOW_FACTOR;
+    float shadow = exp(-abs(ds) / SHADOW_EXPAND) * 0.6 * SHADOW_FACTOR * ShadowScale;
 
     if (cov <= 0.001 && shadow <= 0.004) discard;
 

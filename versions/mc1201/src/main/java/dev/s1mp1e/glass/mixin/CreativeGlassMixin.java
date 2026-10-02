@@ -46,13 +46,24 @@ import java.util.List;
  * </ul>
  */
 @Mixin(CreativeInventoryScreen.class)
-public abstract class CreativeGlassMixin implements GlassGlideHost {
+public abstract class CreativeGlassMixin implements GlassGlideHost, dev.s1mp1e.client.gui.GlideProbe {
 
     @Shadow private static ItemGroup selectedTab;
     @Shadow private float scrollPosition;
     @Shadow private boolean scrolling;
     @Shadow private boolean hasScrollbar() { return false; }
     @Shadow protected abstract void renderTabIcon(DrawContext context, ItemGroup group);
+
+    /**
+     * Switching the creative category swaps the whole item grid in one frame: snapshot the outgoing frame and
+     * cross-dissolve it over the new category (the fused tab sheet overlaps, so only the grid visibly fades). HEAD,
+     * before the static {@code selectedTab} flips, so the snapshot holds the old tab. Skips the re-select vanilla does
+     * in {@code init}.
+     */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "setSelectedTab", at = @org.spongepowered.asm.mixin.injection.At("HEAD"))
+    private void s1mp1e$dissolveTab(ItemGroup group, org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (selectedTab != group) dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+    }
 
     // Panel geometry is inherited from HandledScreen; read it via the accessor (no inherited-@Shadow warning).
     @Unique private int s1mp1e$px() { return ((HandledScreenAccessor) (Object) this).s1mp1e$x(); }
@@ -278,6 +289,15 @@ public abstract class CreativeGlassMixin implements GlassGlideHost {
 
     @Override
     public boolean s1mp1e$gliding() { return s1mp1e$sliding; }
+
+    // ---- GlideProbe (dev capture harness only) ----
+    @Override
+    public boolean s1mp1e$probeGliding() { return s1mp1e$sliding; }
+
+    @Override
+    public float s1mp1e$probeOffsetPx() {
+        return s1mp1e$scrollbar == null ? 0f : s1mp1e$scrollbar.pos() * s1mp1e$rowCount() * LG_PITCH;
+    }
 
     @Override
     public boolean s1mp1e$isGlideSlot(Slot slot) {

@@ -5,6 +5,7 @@ import dev.s1mp1e.glass.anim.Spring;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.PanelGhost;
+import dev.s1mp1e.glass.render.RecipeBookSlide;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.recipebook.RecipeBookWidget;
@@ -13,7 +14,9 @@ import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
 
@@ -67,6 +70,92 @@ public abstract class RecipeBookGlassMixin {
     private Spring s1mp1e$py1, s1mp1e$py2;
     private long   s1mp1e$lastNanos;
     private int    s1mp1e$lastTabY = Integer.MIN_VALUE;
+
+    /**
+     * Arm the inventory glide ({@link RecipeBookInvGlideMixin} / {@link RecipeBookSlide}) the instant the book toggles,
+     * so the cascade timing ({@link RecipeBookSlide#cascadeBase}) knows an opening is in progress BEFORE
+     * {@code refreshResultButtons} schedules it, and re-trigger the book's own open fade so it fades in on every open
+     * (not only the first). At HEAD {@code isOpen()} still reports the pre-toggle state, so {@code opening = !isOpen()}.
+     */
+    @Inject(method = "toggleOpen", at = @At("HEAD"))
+    private void s1mp1e$armSlide(CallbackInfo ci) {
+        boolean opening = !((RecipeBookWidget) (Object) this).isOpen();
+        RecipeBookSlide.arm(this, opening);
+        if (opening && s1mp1e$openFade != null) {
+            s1mp1e$openFade.snap(0f);
+            s1mp1e$openFade.to(1f);
+        }
+    }
+
+    // ---- slide out from behind the inventory (RecipeBookSlide) -----------------------------------------------------
+
+    @Shadow private int parentWidth;
+    @Shadow private int leftOffset;
+    @org.spongepowered.asm.mixin.Unique private boolean s1mp1e$slideOpen;
+
+    /** While sliding shut, keep drawing although vanilla already marked the book hidden. */
+    @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/recipebook/RecipeBookWidget;isOpen()Z"))
+    private boolean s1mp1e$drawWhileClosing(RecipeBookWidget self,
+            com.llamalad7.mixinextras.injector.wrapoperation.Operation<Boolean> op) {
+        return op.call(self) || RecipeBookSlide.closing(this);
+    }
+
+    /**
+     * Bracket the whole book render: shift it by {@link RecipeBookSlide#bookShift} through the RenderSystem model-view
+     * (every draw of the book honours it at flush time — immediate glass, textures, text / items) and clip it at
+     * the inventory's animated left edge, so it reads as sliding out from underneath. Both ends flush, so nothing
+     * queued before leaks into the clip and nothing of the book is drawn after it is lifted. (1.20.1: the model-view
+     * stack is a Mojang {@code MatrixStack}.)
+     */
+    @Inject(method = "render", at = @At("HEAD"))
+    private void s1mp1e$slideBegin(DrawContext ctx, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        s1mp1e$slideOpen = false;
+        // 1.20.1 draws the book BEFORE the inventory, so the toggle has to be noticed here already (see observe()).
+        net.minecraft.client.gui.screen.Screen s1mp1e$screen = net.minecraft.client.MinecraftClient.getInstance().currentScreen;
+        if (s1mp1e$screen instanceof net.minecraft.client.gui.screen.recipebook.RecipeBookProvider
+                && s1mp1e$screen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen<?>) {
+            RecipeBookSlide.observe(s1mp1e$screen, ((HandledScreenAccessor) s1mp1e$screen).s1mp1e$x());
+        }
+        if (!RecipeBookSlide.slides(this)) return;
+        int bookOpenX = (this.parentWidth - 147) / 2 - this.leftOffset;
+        float shift = RecipeBookSlide.bookShift(bookOpenX);
+        net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+        ctx.draw();
+        ctx.enableScissor(0, 0, Math.max(0, RecipeBookSlide.animatedX() + 1), mc.getWindow().getScaledHeight());
+        net.minecraft.client.util.math.MatrixStack mv = com.mojang.blaze3d.systems.RenderSystem.getModelViewStack();
+        mv.push();
+        mv.translate(shift, 0f, 0f);
+        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix();
+        dev.s1mp1e.client.gui.GuiAlpha.push(ctx, RecipeBookSlide.bookFade());
+        s1mp1e$slideOpen = true;
+    }
+
+    @Inject(method = "render", at = @At("RETURN"))
+    private void s1mp1e$slideEnd(DrawContext ctx, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        if (!s1mp1e$slideOpen) return;
+        s1mp1e$slideOpen = false;
+        dev.s1mp1e.client.gui.GuiAlpha.pop(ctx);   // flushes the book's deferred draws while shifted + clipped
+        com.mojang.blaze3d.systems.RenderSystem.getModelViewStack().pop();
+        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix();
+        ctx.disableScissor();
+    }
+
+    /** The search field: its opaque black vanilla frame becomes a frosted glass scrim (see EditBoxTypingMixin, part 5). */
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/widget/TextFieldWidget;"
+                            + "render(Lnet/minecraft/client/gui/DrawContext;IIF)V"))
+    private void s1mp1e$glassSearch(net.minecraft.client.gui.widget.TextFieldWidget box, DrawContext ctx,
+                                    int mouseX, int mouseY, float delta) {
+        dev.s1mp1e.glass.render.EditBoxGlass.frame = true;
+        try {
+            box.render(ctx, mouseX, mouseY, delta);
+        } finally {
+            dev.s1mp1e.glass.render.EditBoxGlass.frame = false;
+        }
+    }
 
     @Redirect(method = "render",
             at = @At(value = "INVOKE",

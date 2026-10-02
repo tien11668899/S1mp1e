@@ -33,7 +33,7 @@ import java.util.List;
  * click snaps to the target row first (click correctness).
  */
 @Mixin(StonecutterScreen.class)
-public abstract class StonecutterScrollGlassMixin {
+public abstract class StonecutterScrollGlassMixin implements dev.s1mp1e.client.gui.GlideProbe, dev.s1mp1e.client.gui.ScrollDragOwner {
 
     @Unique private static final Identifier S1MP1E_TEX = new Identifier("textures/gui/container/stonecutter.png");
 
@@ -47,8 +47,7 @@ public abstract class StonecutterScrollGlassMixin {
     @Unique private boolean s1mp1e$sliding;
     @Unique private int s1mp1e$glideBase;
     @Unique private float s1mp1e$glideFracPx;
-    @Unique private Fade s1mp1e$openFade;
-    @Unique private boolean s1mp1e$opened;
+    @Unique private final dev.s1mp1e.glass.render.ContainerGlass.State s1mp1e$glass = new dev.s1mp1e.glass.render.ContainerGlass.State();
 
     @Unique private int s1mp1e$px() { return ((HandledScreenAccessor) (Object) this).s1mp1e$x(); }
     @Unique private int s1mp1e$py() { return ((HandledScreenAccessor) (Object) this).s1mp1e$y(); }
@@ -61,23 +60,16 @@ public abstract class StonecutterScrollGlassMixin {
     @Redirect(method = "drawBackground",
             at = @At(value = "INVOKE", ordinal = 0,
                      target = "Lnet/minecraft/client/gui/DrawContext;drawTexture(Lnet/minecraft/util/Identifier;IIIIII)V"))
-    private void s1mp1e$body(DrawContext self, Identifier tex, int x, int y, int u, int v, int w, int h) {
+    private void s1mp1e$body(DrawContext self, Identifier tex, int x, int y, int u, int v, int w, int h,
+                             DrawContext ctxEnc, float delta, int mouseX, int mouseY) {
         if (!GlassProgram.ensureReady() || !GlassProgram.usable()) {
             self.drawTexture(tex, x, y, u, v, w, h);
             return;
         }
-        if (s1mp1e$openFade == null) s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
-        SceneCapture.grabNow();
-        if (!s1mp1e$opened) {
-            s1mp1e$opened = true;
-            s1mp1e$openFade.snap(0f);
-            s1mp1e$openFade.to(1f);
-            PanelGhost.cancel();
-        }
-        float fade = s1mp1e$openFade.value();
-        PanelGhost.beginFrame();
-        PanelGhost.remember(x, y, w, h);
-        GlassRenderer.panel(x, y, x + w, y + h, fade);
+        // panel + slot lattice + quick-craft highlight + hover pill (the 1.21.1 line's shared container glass)
+        HandledScreenAccessor a = (HandledScreenAccessor) (Object) this;
+        dev.s1mp1e.glass.render.ContainerGlass.draw(s1mp1e$glass, self, x, y, w, h,
+                a.s1mp1e$handler().slots, a.s1mp1e$cursorDragSlots(), a.s1mp1e$cursorDragging(), mouseX, mouseY);
     }
 
     /** Scroller sprite → the shared vertical glass slider, plus the per-frame glide-state computation. */
@@ -98,7 +90,7 @@ public abstract class StonecutterScrollGlassMixin {
         float targetRatio = rc <= 0 ? 0f : (float) row / rc;
         // stonecutter track: thumb 12x15, top at topPos+15, thumb-top travel 41 (vanilla sprite: y = j+15+(int)(41*amount))
         GlassScrollbar.run(s1mp1e$scrollbar, ctxEnc, sx + w / 2f, s1mp1e$py() + 15f, 41f, 15f,
-                targetRatio, active, mouseClicked && active, mouseY, 1.0f);
+                targetRatio, active, mouseClicked && active, mouseY, s1mp1e$glass.fade());
         if (active && rc > 0) {
             float easedRows = s1mp1e$scrollbar.pos() * rc;
             if (Math.abs(easedRows - row) > 0.02f) {
@@ -158,6 +150,18 @@ public abstract class StonecutterScrollGlassMixin {
         ctx.getMatrices().pop();
         ctx.disableScissor();
     }
+
+    @Override
+    public boolean s1mp1e$probeGliding() { return s1mp1e$sliding; }
+
+    @Override
+    public float s1mp1e$probeOffsetPx() {
+        return s1mp1e$scrollbar == null ? 0f : s1mp1e$scrollbar.pos() * Math.max(0, getMaxScroll()) * 18f;
+    }
+
+    /** Vanilla only clears its scrollbar-drag flag on the NEXT click; the glass thumb reads it as "held" (see ScrollDragOwner). */
+    @Override
+    public void s1mp1e$endScrollDrag() { mouseClicked = false; }
 
     /** A click while the list is mid-glide snaps to the target row first (acts on the recipe drawn under the cursor). */
     @Inject(method = "mouseClicked", at = @At("HEAD"))

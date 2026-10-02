@@ -6,7 +6,8 @@
 //     which cannot make the near-capsule pill the reference lens actually is);
 //   * the refraction band is scaled to the element (min(half)·0.9, capped at 13.15px) so a tiny thumb
 //     keeps a clear magnifying centre with the bending concentrated at its rim.
-// Pass lift = 0 (G = 255) to keep the Fresnel rim subtle.
+// There is no ShadowScale uniform here (the LENS program never suppresses its shadow), so the lens keeps
+// its own faint drop shadow. Pass lift = 0 (G = 255) to keep the Fresnel rim subtle.
 
 uniform sampler2D Sampler0;        // grabbed scene backdrop
 uniform vec2      ScreenSize;      // physical framebuffer px

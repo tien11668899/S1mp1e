@@ -4,6 +4,7 @@ import java.util.WeakHashMap;
 
 import dev.s1mp1e.client.gui.ScreenOpenFade;
 import dev.s1mp1e.glass.anim.Fade;
+import dev.s1mp1e.glass.anim.PressPulse;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import net.minecraft.client.MinecraftClient;
@@ -11,6 +12,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -90,13 +92,69 @@ public abstract class ButtonGlassMixin {
     // fallback, which virtual-dispatches to the subclass impl.
     @Shadow protected abstract void renderButton(DrawContext context, int mouseX, int mouseY, float delta);
 
+    /** A villager trade button: the MerchantScreen's label-less 88x20 ButtonWidgets (WidgetButtonPage). */
+    private static boolean s1mp1e$isTradeButton(ClickableWidget w) {
+        return w instanceof net.minecraft.client.gui.widget.ButtonWidget
+                && w.getWidth() == 88 && w.getHeight() == 20
+                && MinecraftClient.getInstance().currentScreen instanceof net.minecraft.client.gui.screen.ingame.MerchantScreen;
+    }
+
     @Redirect(method = "render",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/widget/ClickableWidget;"
                             + "renderButton(Lnet/minecraft/client/gui/DrawContext;IIF)V"))
     private void s1mp1e$glassButton(ClickableWidget self, DrawContext context,
                                     int mouseX, int mouseY, float delta) {
+        if (dev.s1mp1e.client.gui.SettingsShell.suppresses(self)) return;   // a settings-page row stands in for it
+        // Villager trade buttons (the 88x20 label-less ButtonWidgets of the MerchantScreen): 26.2 draws them as faint
+        // glass capsules (even inside a container screen) and slides them with the trade list mid-glide (MerchantGlide,
+        // armed by MerchantScrollGlassMixin only while the list glides).
+        if (s1mp1e$isTradeButton(self)) {
+            final boolean glass = GlassProgram.ensureReady() && GlassProgram.btnUsable();
+            final int bx = self.getX(), by = self.getY(), bw = this.width, bh = this.height;
+            dev.s1mp1e.client.gui.MerchantGlide.Painter painter;
+            if (glass) {
+                boolean over = this.hovered || self.isFocused();
+                Fade fade = s1mp1e$hoverFades.get(self);
+                if (fade == null) {
+                    fade = new Fade(over ? 1f : 0f, HOVER_FADE_MS);
+                    s1mp1e$hoverFades.put(self, fade);
+                }
+                fade.to(over ? 1f : 0f);
+                final float lift = LIFT_ON * fade.value();
+                final float opacity = this.alpha * ScreenOpenFade.value(MinecraftClient.getInstance().currentScreen);
+                final boolean act = this.active;
+                context.draw();   // land the panel batch first; the capsule is immediate GL (absolute coords)
+                painter = dy -> GlassRenderer.button(bx, by + dy, bx + bw, by + bh + dy, 1.0f, lift, opacity, act);
+            } else {
+                painter = dy -> {
+                    context.getMatrices().push();
+                    context.getMatrices().translate(0f, dy, 0f);
+                    this.renderButton(context, mouseX, mouseY, delta);
+                    context.getMatrices().pop();
+                };
+            }
+            if (dev.s1mp1e.client.gui.MerchantGlide.handles(self)) {
+                dev.s1mp1e.client.gui.MerchantGlide.render(self, context, painter);
+            } else {
+                painter.paint(0f);
+            }
+            return;
+        }
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable()) {
+            this.renderButton(context, mouseX, mouseY, delta);
+            return;
+        }
+        // Icon buttons that paint their OWN texture instead of the default button background: 26.2 / 1.21.1 only glass
+        // the default background, so these stay vanilla rather than becoming an empty capsule that shows the
+        // narration text. In 1.20.1 that is the book page-turn arrows (swapped for chevrons by SfIconMixin), every
+        // TexturedButtonWidget (the title screen's language / accessibility buttons, the recipe-book button — their
+        // texture IS the whole button, there is no separate icon to put on a capsule), the checkbox (its texture is
+        // swapped for the iOS circle by SfIconMixin) and the difficulty lock.
+        if (self instanceof net.minecraft.client.gui.widget.PageTurnWidget
+                || self instanceof net.minecraft.client.gui.widget.TexturedButtonWidget
+                || self instanceof net.minecraft.client.gui.widget.CheckboxWidget
+                || self instanceof net.minecraft.client.gui.widget.LockButtonWidget) {
             this.renderButton(context, mouseX, mouseY, delta);
             return;
         }
@@ -137,12 +195,69 @@ public abstract class ButtonGlassMixin {
         // at the widget's own alpha, exactly the Forge port.
         float opacity = this.alpha * ScreenOpenFade.value(mc.currentScreen);
 
-        GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
+        // Tap-feedback pulse (26.2's ButtonPressPulseMixin): on activation the whole button — glass capsule AND label —
+        // dips to ~95% around its centre and springs back over ~0.25 s. ButtonPressMixin stamps the press time; here the
+        // scale is 1.0 (no-op) unless recently pressed. The capsule is raw-GL absolute coords (scaled by hand about the
+        // centre); the label follows the same scale via the DrawContext matrix so the two stay locked together.
+        float s = PressPulse.scale(self);
+        float cx = x + w / 2f, cy = y + h / 2f;
+        if (s != 1f) {
+            float bx0 = cx + (x - cx) * s, by0 = cy + (y - cy) * s;
+            float bx1 = cx + (x + w - cx) * s, by1 = cy + (y + h - cy) * s;
+            GlassRenderer.button(bx0, by0, bx1, by1, 1.0f, lift, opacity, this.active);
+        } else {
+            GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
+        }
 
-        // label on top, vanilla colouring
+        // label on top, vanilla colouring (scaled with the capsule during a press dip)
         int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
         int a = Math.round(this.alpha * 255f) << 24;
-        context.drawCenteredTextWithShadow(mc.textRenderer, self.getMessage(),
-                x + w / 2, y + (h - 8) / 2, textColor | a);
+        if (s != 1f) {
+            context.getMatrices().push();
+            context.getMatrices().translate(cx, cy, 0f);
+            context.getMatrices().scale(s, s, 1f);
+            context.getMatrices().translate(-cx, -cy, 0f);
+        }
+        if (!s1mp1e$rollLabel(context, mc, self, x, y, w, h, textColor | a)) {
+            context.drawCenteredTextWithShadow(mc.textRenderer, self.getMessage(),
+                    x + w / 2, y + (h - 8) / 2, textColor | a);
+        }
+        if (s != 1f) context.getMatrices().pop();
+    }
+
+    // ---- cycle buttons roll their value (26.2's CycleButtonRollMixin) ---------------------------------------------
+
+    /** One label animator per cycle button (weak: dies with the widget). */
+    @Unique
+    private static final java.util.WeakHashMap<ClickableWidget, dev.s1mp1e.glass.render.TypingAnim> s1mp1e$rollers =
+            new java.util.WeakHashMap<>();
+
+    /**
+     * Cycle buttons ("Difficulty: Normal", "Clouds: Fancy", on/off toggles …) roll their value like an odometer when
+     * it changes instead of swapping the label in one frame: the unchanged "Name: " stays put, the old value floats up
+     * and fades, the new one rises in glyph by glyph, and the label re-centres by gliding. Drawn at exactly the
+     * position/colour/shadow of the plain centred draw above; a label too wide for the button, an invisible button or
+     * any failure falls back to it (returns false).
+     */
+    @Unique
+    private static boolean s1mp1e$rollLabel(DrawContext context, MinecraftClient mc, ClickableWidget self,
+                                            int x, int y, int w, int h, int color) {
+        if (!(self instanceof net.minecraft.client.gui.widget.CyclingButtonWidget<?>)) return false;
+        if ((color >>> 24) <= 1) return false;
+        dev.s1mp1e.glass.render.TypingAnim label = s1mp1e$rollers.get(self);
+        if (label == null) { label = new dev.s1mp1e.glass.render.TypingAnim(); s1mp1e$rollers.put(self, label); }
+        if (label.broken) return false;
+        net.minecraft.text.Text msg = self.getMessage();
+        net.minecraft.text.OrderedText seq = msg.asOrderedText();
+        int x0 = x + 2, x1 = x + w - 2;
+        if (mc.textRenderer.getWidth(seq) > x1 - x0) return false;
+        try {
+            label.extractLabel(context, mc.textRenderer, msg.getString(), seq, x + w / 2, y + (h - 8) / 2, x0, x1, color, true);
+            return true;
+        } catch (Throwable t) {
+            label.broken = true;
+            System.out.println("[S1mp1e] cycle-button roll disabled: " + t);
+            return false;
+        }
     }
 }

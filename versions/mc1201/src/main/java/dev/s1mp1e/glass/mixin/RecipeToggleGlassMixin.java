@@ -51,6 +51,14 @@ public abstract class RecipeToggleGlassMixin {
                             + "drawTexture(Lnet/minecraft/util/Identifier;IIIIII)V"))
     private void s1mp1e$glassToggle(DrawContext self, Identifier texture,
                                     int x, int y, int u, int v, int w, int h) {
+        // SF Symbols first (26.2 / 1.21.1 parity): the recipe-book page arrows become bare chevrons and the "craftable
+        // only" filter a glass pill with the filter glyph. This redirect replaces the atlas blit, so SfIconMixin's
+        // drawTexture hook never sees it — ask SfIcons directly (1.20.1: the glyph is an atlas region, mapped to the
+        // sprite name it has from 1.20.2 on).
+        if ("minecraft".equals(texture.getNamespace())) {
+            String sprite = dev.s1mp1e.glass.render.SfIcons.atlasSprite(texture.getPath(), u, v, w, h, 256);
+            if (sprite != null && dev.s1mp1e.glass.render.SfIcons.draw(self, sprite, x, y, w, h)) return;
+        }
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable()) {
             self.drawTexture(texture, x, y, u, v, w, h);
             return;

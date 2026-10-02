@@ -1,6 +1,12 @@
 package dev.s1mp1e.glass.mixin;
 
 import dev.s1mp1e.client.module.HudGlass;
+import dev.s1mp1e.glass.render.BossGhost;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.UUID;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 import dev.s1mp1e.glass.render.GlassProgram;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.hud.BossBarHud;
@@ -52,14 +58,70 @@ public abstract class BossBarGlassMixin {
     private void s1mp1e$glassBar(DrawContext ctx, int x, int y, BossBar bossBar, int width, int height,
                                  CallbackInfo ci) {
         if (!GlassProgram.ensureReady()) return;   // pipeline down -> vanilla boss bar
-        if (height == 0) {
+        ci.cancel();
+        boolean background = height == 0;
+        float f = lg$bossFade(bossBar);
+        lg$curFade = f;
+        // Feed the removal fade-out (BossGhost): mark drawn (cancels any pending ghost) + cache this boss's last draw params.
+        UUID id = bossBar.getUuid();
+        BossGhost.markDrawn(id);
+        if (background) BossGhost.cacheBackground(id, x, y, width, BAR_H, bossBar.getName());
+        else BossGhost.cacheFill(id, width, y, BAR_H);
+        if (f <= 0.004F) return;
+        if (background) {
             // Background row (full 182 px width) -> the glass capsule under-layer.
             HudGlass.capsuleCtx(ctx, x - MARGIN, y - MARGIN, x + width + MARGIN, y + BAR_H + MARGIN,
-                                GLASS_OPACITY, GLASS_FROST);
+                                GLASS_OPACITY * f, GLASS_FROST);
         } else if (width > 0) {
             // Progress row (health width) -> the blue capsule fill with round ends, on top.
-            HudGlass.roundFillCtx(ctx, x, y, x + width, y + BAR_H, BAR_H * 0.5f, FILL_ARGB);
+            int fill = (Math.round(0xFF * f) & 0xFF) << 24 | FILL_ARGB & 0xFFFFFF;
+            HudGlass.roundFillCtx(ctx, x, y, x + width, y + BAR_H, BAR_H * 0.5f, fill);
         }
-        ci.cancel();
+    }
+
+    // ---- appear fade (26.2 / 1.21.1): each boss fades in over 150 ms from the first frame its bar is drawn ------------
+
+    /** Appear fade length, matching the glass screen-open fade. */
+    @Unique private static final float LG_FADE_S = 0.15F;
+    /** Per boss: {first seen, last seen} (nanos). A gap longer than {@link #LG_GONE_NS} counts as a fresh appearance. */
+    @Unique private static final HashMap<UUID, long[]> lg$seen = new HashMap<>();
+    @Unique private static final long LG_GONE_NS = 250_000_000L;
+    /** Fade of the boss whose bar was drawn last; vanilla draws each boss's name right after its bar. */
+    @Unique private static float lg$curFade = 1F;
+
+    @Unique
+    private static float lg$bossFade(BossBar bar) {
+        long now = System.nanoTime();
+        UUID id = bar.getUuid();
+        long[] s = lg$seen.get(id);
+        if (s == null || now - s[1] > LG_GONE_NS) {
+            s = new long[]{now, now};
+            lg$seen.put(id, s);
+        }
+        s[1] = now;
+        if (lg$seen.size() > 32) {
+            Iterator<long[]> it = lg$seen.values().iterator();
+            while (it.hasNext()) {
+                if (now - it.next()[1] > 5_000_000_000L) it.remove();
+            }
+        }
+        float t = (now - s[0]) / 1.0e9F / LG_FADE_S;
+        return t <= 0F ? 0F : (t >= 1F ? 1F : t);
+    }
+
+    /** The boss name, drawn right after its bar in {@code render}: same fade (1.20.1 passes 0xFFFFFF, i.e. no alpha byte). */
+    @ModifyArg(
+        method = "render(Lnet/minecraft/client/gui/DrawContext;)V",
+        at = @At(value = "INVOKE",
+                 target = "Lnet/minecraft/client/gui/DrawContext;drawTextWithShadow(Lnet/minecraft/client/font/TextRenderer;Lnet/minecraft/text/Text;III)I"),
+        index = 4
+    )
+    private int s1mp1e$fadeName(int color) {
+        float f = lg$curFade;
+        if (f >= 1F) return color;
+        int base = color >>> 24 & 0xFF;
+        if (base < 4) base = 0xFF;
+        int a = Math.max(4, Math.round(base * f)) & 0xFF;
+        return a << 24 | color & 0xFFFFFF;
     }
 }

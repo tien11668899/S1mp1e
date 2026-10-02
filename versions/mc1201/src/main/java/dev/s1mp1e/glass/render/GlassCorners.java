@@ -37,6 +37,23 @@ public final class GlassCorners {
         return k < 1f ? k : 1f;
     }
 
+    /** {@link #cornerScale} under the name the 1.21.1 / 26.2 lines use (shared code is written against that name). */
+    public static float hotbarCornerFrac(float w, float h) {
+        return cornerFrac(w, h, HOTBAR_RADIUS);
+    }
+
+    /** Corner SCALE that gives a {@code w x h} glass rect the absolute {@code radiusPx} radius (clamped 0..1). */
+    public static float cornerFrac(float w, float h, float radiusPx) {
+        float m = Math.max(1.0f, Math.min(w, h));
+        float f = 4.0f * radiusPx / m;   // invert radius = (m/2) * 0.5 * f  ->  f = 4*radius/m
+        return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+    }
+
+    /** {@link #radiusPx} under the 1.21.1 / 26.2 name. */
+    public static float hotbarRadiusPx(float w, float h) {
+        return Math.min(HOTBAR_RADIUS, Math.min(w, h) / 2.0f);
+    }
+
     /** The same corner expressed as an absolute GUI-px radius clamped to the rect's half-size (for the ROUND primitive). */
     public static float radiusPx(float w, float h) {
         float half = Math.min(w, h) * 0.5f;

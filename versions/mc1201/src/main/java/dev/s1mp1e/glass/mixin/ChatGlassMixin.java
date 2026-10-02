@@ -90,8 +90,13 @@ public abstract class ChatGlassMixin {
         // own scale + translate(4,0): screen = scale * (local + (4,0)).
         float ax0 = (float) (scale * (-4 + 4));
         float ax1 = (float) (scale * ((textW + TEXT_RIGHT_PAD) + 4));
-        float ay0 = (float) (scale * y0);
-        float ay1 = (float) (scale * y1);
+        // New lines rise in / older lines glide up: ChatArrivalMixin shifts the whole line column down by this much in
+        // chat space and lets it ease back. The panel takes the same shift (as on 1.21.1, where it is enqueued inside
+        // the shifted chat pose), so it stays glued to the lines it backs.
+        dev.s1mp1e.glass.render.ChatArrival.track(this.visibleMessages, this.scrolledLines);
+        float slide = dev.s1mp1e.glass.render.ChatArrival.offset(lineHeight);
+        float ay0 = (float) (scale * (y0 + slide));
+        float ay1 = (float) (scale * (y1 + slide));
 
         HudGlass.glassBoxCtx(ctx, ax0, ay0, ax1, ay1, PANEL_ALPHA * fade);
         int sa = Math.round((PANEL_SCRIM >>> 24 & 0xFF) * fade) & 0xFF;

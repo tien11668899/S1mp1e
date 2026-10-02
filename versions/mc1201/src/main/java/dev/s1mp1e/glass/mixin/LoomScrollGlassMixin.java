@@ -50,7 +50,7 @@ import java.util.List;
  * than truly sub-pixel — the glass thumb itself still eases sub-pixel. This is the honest 1.20.1 seam for this feature.
  */
 @Mixin(LoomScreen.class)
-public abstract class LoomScrollGlassMixin {
+public abstract class LoomScrollGlassMixin implements dev.s1mp1e.client.gui.GlideProbe, dev.s1mp1e.client.gui.ScrollDragOwner {
 
     @Unique private static final Identifier S1MP1E_LOOM_TEX = new Identifier("textures/gui/container/loom.png");
     @Unique private static final int LG_PX0 = 60, LG_PY0 = 13, LG_COLS = 4, LG_VIS = 4, LG_CELL = 14;
@@ -63,8 +63,7 @@ public abstract class LoomScrollGlassMixin {
     @Shadow private void drawBanner(DrawContext context, RegistryEntry<BannerPattern> pattern, int x, int y) { throw new AssertionError(); }
 
     @Unique private GlassScrollbar s1mp1e$scrollbar;
-    @Unique private Fade s1mp1e$openFade;
-    @Unique private boolean s1mp1e$opened;
+    @Unique private final dev.s1mp1e.glass.render.ContainerGlass.State s1mp1e$glass = new dev.s1mp1e.glass.render.ContainerGlass.State();
     @Unique private boolean s1mp1e$sliding;
     @Unique private int s1mp1e$glideBase;
     @Unique private float s1mp1e$glideFracPx;
@@ -87,18 +86,10 @@ public abstract class LoomScrollGlassMixin {
         if (glass) {
             int px = s1mp1e$px(), py = s1mp1e$py();
             if (x == px && y == py && u == 0 && v == 0) {         // body PNG -> glass panel
-                if (s1mp1e$openFade == null) s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
-                SceneCapture.grabNow();
-                if (!s1mp1e$opened) {
-                    s1mp1e$opened = true;
-                    s1mp1e$openFade.snap(0f);
-                    s1mp1e$openFade.to(1f);
-                    PanelGhost.cancel();
-                }
-                float fade = s1mp1e$openFade.value();
-                PanelGhost.beginFrame();
-                PanelGhost.remember(x, y, w, h);
-                GlassRenderer.panel(x, y, x + w, y + h, fade);
+                // panel + slot lattice + quick-craft highlight + hover pill (the 1.21.1 line's shared container glass)
+                HandledScreenAccessor a = (HandledScreenAccessor) (Object) this;
+                dev.s1mp1e.glass.render.ContainerGlass.draw(s1mp1e$glass, self, x, y, w, h,
+                        a.s1mp1e$handler().slots, a.s1mp1e$cursorDragSlots(), a.s1mp1e$cursorDragging(), mouseX, mouseY);
                 return;
             }
             if (w == 12 && h == 15) {                             // the scroller sprite -> glass slider + glide state
@@ -183,5 +174,17 @@ public abstract class LoomScrollGlassMixin {
         }
     }
 
-    @Unique private float s1mp1e$fade() { return s1mp1e$openFade == null ? 1f : s1mp1e$openFade.value(); }
+    @Unique private float s1mp1e$fade() { return s1mp1e$glass.fade(); }
+
+    @Override
+    public boolean s1mp1e$probeGliding() { return s1mp1e$sliding; }
+
+    @Override
+    public float s1mp1e$probeOffsetPx() {
+        return s1mp1e$scrollbar == null ? 0f : s1mp1e$scrollbar.pos() * Math.max(0, getRows() - LG_VIS) * LG_CELL;
+    }
+
+    /** Vanilla only clears its scrollbar-drag flag on the NEXT click; the glass thumb reads it as "held" (see ScrollDragOwner). */
+    @Override
+    public void s1mp1e$endScrollDrag() { scrollbarClicked = false; }
 }
