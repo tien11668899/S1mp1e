@@ -10,7 +10,7 @@ import net.minecraft.screen.slot.Slot;
 
 /**
  * Items flying between inventory slots (one instance per container screen, owned by {@code ItemFlightMixin}). A flight
- * carries a copy of the moved stack from where it left (a slot, or the mouse for a placed carried stack) to the slot it
+ * carries a copy of the moved stack from where it left (a slot) to the slot it
  * landed in, on an ease-out path with a slight upward arc and a small mid-flight lift in scale, drawn sub-pixel in the
  * container's local space. The landing slot can be kept empty until the item arrives, so the item never appears in two
  * places. Render thread only.

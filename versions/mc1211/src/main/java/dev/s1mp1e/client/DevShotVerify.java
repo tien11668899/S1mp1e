@@ -1416,7 +1416,11 @@ final class DevShotVerify {
             if (c.currentScreen instanceof HandledScreen<?> s) c.player.currentScreenHandler = s.getScreenHandler(); }));
         add(waitMs(600));
         add(still("gp-flight-pre"));
+        add(action(c -> dev.s1mp1e.glass.render.ItemFlights.debugLog = true));
         add(burst("gp-flight", 10, DevShotVerify::quickMoveFirstSlot, null));
+        // a stack picked up and put down with the mouse must NOT fly (no "[ItemFlights] spawn" line between the marks)
+        add(burst("gp-noflight", 6, DevShotVerify::pickUpAndPlace, null));
+        add(action(c -> dev.s1mp1e.glass.render.ItemFlights.debugLog = false));
         add(action(c -> close(c)));
         add(waitMs(500));
 
@@ -1495,6 +1499,27 @@ final class DevShotVerify {
             m.invoke(s, slot, slot.id, 0, net.minecraft.screen.slot.SlotActionType.QUICK_MOVE);
             say("quick move slot 13");
         } catch (Throwable t) { skip("quick move", t); }
+    }
+
+    /** PICKUP the first filled container slot, then PICKUP an empty player slot — a hand-carried move. */
+    private static void pickUpAndPlace(MinecraftClient c) {
+        try {
+            if (!(c.currentScreen instanceof HandledScreen<?> s)) return;
+            Method m = HandledScreen.class.getDeclaredMethod("onMouseClick", net.minecraft.screen.slot.Slot.class,
+                    int.class, int.class, net.minecraft.screen.slot.SlotActionType.class);
+            m.setAccessible(true);
+            net.minecraft.screen.slot.Slot from = null, to = null;
+            for (net.minecraft.screen.slot.Slot sl : s.getScreenHandler().slots) {
+                if (from == null && sl.hasStack() && !(sl.inventory instanceof net.minecraft.entity.player.PlayerInventory)) from = sl;
+                if (to == null && !sl.hasStack() && sl.inventory instanceof net.minecraft.entity.player.PlayerInventory) to = sl;
+            }
+            if (from == null || to == null) { say("noflight: no slots"); return; }
+            say("noflight begin: pick slot " + from.id + " place slot " + to.id);
+            m.invoke(s, from, from.id, 0, net.minecraft.screen.slot.SlotActionType.PICKUP);
+            say("noflight carried=" + s.getScreenHandler().getCursorStack());
+            m.invoke(s, to, to.id, 0, net.minecraft.screen.slot.SlotActionType.PICKUP);
+            say("noflight end: target has " + to.getStack() + " carried=" + s.getScreenHandler().getCursorStack());
+        } catch (Throwable t) { skip("pick up and place", t); }
     }
 
     /** Every sprite SfIcons maps: top row drawn as vanilla (devBypass), bottom row replaced; plus two real checkboxes. */

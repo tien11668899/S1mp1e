@@ -19,14 +19,15 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Items fly between slots instead of teleporting (shift-click quick-move, placing the carried stack, number-key swaps,
- * double-click collect …). 1.16.5 port of 26.2's {@code ItemFlightMixin}: container clicks are predicted client-side, so
- * the slot contents right after {@code onMouseClick} already show the move; they are diffed against a snapshot taken
- * right before it. Every slot that gained an item is paired with where that item came from — the clicked slot, another
- * slot that lost the same item, or the carried stack (then the flight starts at the mouse) — and a flight is spawned
- * ({@link ItemFlights}). A landing slot that was empty (or held something else) keeps its item hidden until the flight
- * arrives. Anything that can't be paired (a crafted result appearing, …) just appears as in vanilla. The creative
- * inventory, which has its own grid glide, is left alone.
+ * Items fly between slots instead of teleporting — only for moves that never ride the cursor: shift-click quick-move
+ * and number-key / off-hand swaps. A stack picked up and put down with the mouse (click, drag-distribute, double-click
+ * collect) appears as in vanilla — the hand carried it there already. 1.16.5 port of 26.2's {@code ItemFlightMixin}:
+ * container clicks are predicted client-side, so the slot contents right after {@code onMouseClick} already show the
+ * move; they are diffed against a snapshot taken right before it. Every slot that gained an item is paired with where
+ * that item came from — the clicked slot, or another slot that lost the same item — and a flight is spawned ({@link
+ * ItemFlights}). A landing slot that was empty (or held something else) keeps its item hidden until the flight arrives.
+ * Anything that can't be paired (a crafted result appearing, …) just appears as in vanilla. The creative inventory,
+ * which has its own grid glide, is left alone.
  *
  * <h3>Seam map (javap-verified on the 1.16.5 {@code HandledScreen})</h3>
  * <ul>
@@ -39,42 +40,30 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *       in on 1.16.5.</li>
  * </ul>
  * {@code ItemStack.isSameItemSameComponents} → 1.16.5's {@code ScreenHandler.canStacksCombine} (same item, same
- * NBT; {@code ItemStack.canCombine} is 1.17's); the carried stack lives on the {@code PlayerInventory}
- * ({@code getCursorStack}), not on the handler;
- * {@code copyWithCount} does not exist yet ({@code copy} + {@code setCount}).
+ * NBT; {@code ItemStack.canCombine} is 1.17's); {@code copyWithCount} does not exist yet ({@code copy} + {@code setCount}).
  */
 @Mixin(HandledScreen.class)
 public abstract class ItemFlightMixin {
 
-    @Shadow protected int x;
-    @Shadow protected int y;
     @Shadow @Final protected ScreenHandler handler;
-    @Shadow @Final protected net.minecraft.entity.player.PlayerInventory playerInventory;
 
     @Unique private final ItemFlights s1mp1e$flights = new ItemFlights();
     @Unique private ItemStack[] s1mp1e$before;
-    @Unique private ItemStack s1mp1e$carriedBefore = ItemStack.EMPTY;
-    @Unique private int s1mp1e$mouseX, s1mp1e$mouseY;
 
     @Unique
     private boolean s1mp1e$enabled() {
         return !((Object) this instanceof CreativeInventoryScreen);
     }
 
-    @Inject(method = "render", at = @At("HEAD"))
-    private void s1mp1e$trackMouse(MatrixStack matrices, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        s1mp1e$mouseX = mouseX;
-        s1mp1e$mouseY = mouseY;
-    }
-
     @Inject(method = "onMouseClick(Lnet/minecraft/screen/slot/Slot;IILnet/minecraft/screen/slot/SlotActionType;)V",
             at = @At("HEAD"))
     private void s1mp1e$snapshot(Slot slot, int slotId, int button, SlotActionType actionType, CallbackInfo ci) {
         if (!s1mp1e$enabled()) return;
+        // only moves that never ride the cursor: a stack picked up and put down by hand was carried there already
+        if (actionType != SlotActionType.QUICK_MOVE && actionType != SlotActionType.SWAP) return;
         List<Slot> slots = this.handler.slots;
         s1mp1e$before = new ItemStack[slots.size()];
         for (int i = 0; i < slots.size(); i++) s1mp1e$before[i] = slots.get(i).getStack().copy();
-        s1mp1e$carriedBefore = this.playerInventory.getCursorStack().copy();
     }
 
     @Inject(method = "onMouseClick(Lnet/minecraft/screen/slot/Slot;IILnet/minecraft/screen/slot/SlotActionType;)V",
@@ -92,12 +81,6 @@ public abstract class ItemFlightMixin {
             if (a.isEmpty() || !ScreenHandler.canStacksCombine(a, b)) lost[i] = b.getCount();
             else if (a.getCount() < b.getCount()) lost[i] = b.getCount() - a.getCount();
         }
-        ItemStack carriedAfter = this.playerInventory.getCursorStack();
-        int carriedLost = 0;
-        if (!s1mp1e$carriedBefore.isEmpty()) {
-            if (carriedAfter.isEmpty() || !ScreenHandler.canStacksCombine(carriedAfter, s1mp1e$carriedBefore)) carriedLost = s1mp1e$carriedBefore.getCount();
-            else if (carriedAfter.getCount() < s1mp1e$carriedBefore.getCount()) carriedLost = s1mp1e$carriedBefore.getCount() - carriedAfter.getCount();
-        }
         int clickedIdx = clicked == null ? -1 : slots.indexOf(clicked);
 
         for (int j = 0; j < n; j++) {
@@ -107,7 +90,7 @@ public abstract class ItemFlightMixin {
             boolean fresh = b.isEmpty() || !ScreenHandler.canStacksCombine(a, b);
             int gain = fresh ? a.getCount() : a.getCount() - b.getCount();
             if (gain <= 0) continue;
-            // where did it come from? the clicked slot, another slot that lost it, or the carried stack
+            // where did it come from? the clicked slot, or another slot that lost it
             int src = -1;
             if (clickedIdx >= 0 && clickedIdx != j && lost[clickedIdx] > 0 && ScreenHandler.canStacksCombine(before[clickedIdx], a)) src = clickedIdx;
             for (int i = 0; src < 0 && i < n; i++) {
@@ -119,13 +102,8 @@ public abstract class ItemFlightMixin {
                 Slot from = slots.get(src);
                 lost[src] = Math.max(0, lost[src] - gain);
                 s1mp1e$flights.spawn(flying, from.x, from.y, target.x, target.y, target, fresh);
-            } else if (carriedLost > 0 && ScreenHandler.canStacksCombine(s1mp1e$carriedBefore, a)) {
-                carriedLost = Math.max(0, carriedLost - gain);
-                float mx = s1mp1e$mouseX - this.x - 8, my = s1mp1e$mouseY - this.y - 8;
-                s1mp1e$flights.spawn(flying, mx, my, target.x, target.y, target, fresh);
             }
         }
-        s1mp1e$carriedBefore = ItemStack.EMPTY;
     }
 
     /** A slot whose item is still in flight toward it stays empty until it lands. */
