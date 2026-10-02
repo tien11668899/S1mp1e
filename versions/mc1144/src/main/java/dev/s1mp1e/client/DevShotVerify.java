@@ -1157,8 +1157,14 @@ final class DevShotVerify {
         add(still("gp-flight-pre"));
         add(action(c -> dev.s1mp1e.glass.render.ItemFlights.debugLog = true));
         add(burst("gp-flight", 10, DevShotVerify::quickMoveFirstSlot, null));
-        // a stack picked up and put down with the mouse must NOT fly (no "[ItemFlights] spawn" line between the marks)
-        add(burst("gp-noflight", 6, DevShotVerify::pickUpAndPlace, null));
+        // a move made for the player (pick up and put down in one go, the way Item Scroller does it): flies
+        add(burst("gp-autoflight", 6, c -> pickUpAndPlace(c, 0), null));
+        add(waitMs(400));
+        // by hand: picked up in one frame, put down in a later one — must NOT fly (no "[ItemFlights] spawn" line
+        // between the marks, and the item sits in the slot on the first frame)
+        add(action(c -> pickUpAndPlace(c, 1)));
+        add(waitMs(300));
+        add(burst("gp-noflight", 6, c -> pickUpAndPlace(c, 2), null));
         add(action(c -> dev.s1mp1e.glass.render.ItemFlights.debugLog = false));
         add(action(c -> close(c)));
         add(waitMs(500));
@@ -1246,7 +1252,7 @@ final class DevShotVerify {
     }
 
     /** PICKUP a filled container slot, then PICKUP an empty player slot: a move that rides the cursor (no flight). */
-    private static void pickUpAndPlace(MinecraftClient c) {
+    private static void pickUpAndPlace(MinecraftClient c, int phase) {
         try {
             if (!(c.currentScreen instanceof ContainerScreen<?>)) return;
             ContainerScreen<?> s = (ContainerScreen<?>) c.currentScreen;
@@ -1255,15 +1261,15 @@ final class DevShotVerify {
             m.setAccessible(true);
             net.minecraft.container.Slot from = null, to = null;
             for (net.minecraft.container.Slot sl : s.getContainer().slots) {
-                if (from == null && sl.hasStack() && !(sl.inventory instanceof net.minecraft.entity.player.PlayerInventory)) from = sl;
+                if (from == null && sl.hasStack() && phase != 2 && !(sl.inventory instanceof net.minecraft.entity.player.PlayerInventory)) from = sl;
                 if (to == null && !sl.hasStack() && sl.inventory instanceof net.minecraft.entity.player.PlayerInventory) to = sl;
             }
-            if (from == null || to == null) { say("noflight: no slots"); return; }
-            say("noflight begin: pick slot " + from.id + " place slot " + to.id);
-            m.invoke(s, from, from.id, 0, net.minecraft.container.SlotActionType.PICKUP);
-            say("noflight carried=" + c.player.inventory.getCursorStack());
-            m.invoke(s, to, to.id, 0, net.minecraft.container.SlotActionType.PICKUP);
-            say("noflight end: target has " + to.getStack() + " carried=" + c.player.inventory.getCursorStack());
+            if ((from == null && phase != 2) || to == null) { say("flight probe: no slots"); return; }
+            say("flight probe phase " + phase + ": pick slot " + (from == null ? -1 : from.id) + " place slot " + to.id);
+            if (phase != 2) m.invoke(s, from, from.id, 0, net.minecraft.container.SlotActionType.PICKUP);
+            say("flight probe carried=" + c.player.inventory.getCursorStack());
+            if (phase != 1) m.invoke(s, to, to.id, 0, net.minecraft.container.SlotActionType.PICKUP);
+            say("flight probe end: target has " + to.getStack() + " carried=" + c.player.inventory.getCursorStack());
         } catch (Throwable t) { skip("pick up and place", t); }
     }
 

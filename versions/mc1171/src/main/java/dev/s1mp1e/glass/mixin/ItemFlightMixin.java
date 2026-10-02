@@ -9,7 +9,6 @@ import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.item.ItemStack;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
-import net.minecraft.screen.slot.SlotActionType;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -19,19 +18,20 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Items fly between slots instead of teleporting — only for moves that never ride the cursor: shift-click quick-move
- * and number-key / off-hand swaps. A stack picked up and put down with the mouse (click, drag-distribute, double-click
- * collect) appears as in vanilla — the hand carried it there already. 1.17.1 port of 26.2's {@code ItemFlightMixin}:
- * container clicks are predicted client-side, so the slot contents right after {@code onMouseClick} already show the
- * move; they are diffed against a snapshot taken right before it. Every slot that gained an item is paired with where
- * that item came from — the clicked slot, or another slot that lost the same item — and a flight is spawned ({@link
- * ItemFlights}). A landing slot that was empty (or held something else) keeps its item hidden until the flight arrives.
- * Anything that can't be paired (a crafted result appearing, …) just appears as in vanilla. The creative inventory,
- * which has its own grid glide, is left alone.
+ * Items fly between slots instead of teleporting — whenever a stack moves from one slot to another without riding the
+ * cursor: shift-click quick-move, number-key / off-hand swaps, and moves made for the player (Item Scroller's drag and
+ * scroll moves, the recipe book filling the grid, a trade being laid out, a result shift-crafted into the inventory). A
+ * stack picked up and put down by hand appears as in vanilla — the hand carried it there already. 1.17.1 port of 26.2's
+ * {@code ItemFlightMixin}. Once a frame, before the slots are drawn, the slot contents are compared with the previous
+ * frame's: every slot that gained an item is paired with another slot that lost the same item in that frame, and a
+ * flight is spawned ({@link ItemFlights}). Picking a stack up only takes from a slot and putting it down only adds to
+ * one, so a hand-carried move never forms a pair. A landing slot that was empty (or held something else) keeps its item
+ * hidden until the flight arrives. Anything that can't be paired (a crafted result appearing, …) just appears as in
+ * vanilla. The creative inventory, which has its own grid glide, is left alone.
  *
  * <h3>Seam map (javap-verified on the 1.17.1 {@code HandledScreen})</h3>
  * <ul>
- *   <li>{@code onMouseClick(Slot, int, int, SlotActionType)} — snapshot at HEAD, spawn at RETURN.</li>
+ *   <li>{@code render} HEAD — compare the slots with the previous frame.</li>
  *   <li>{@code drawSlot(MatrixStack, Slot)} HEAD, cancellable — hide a landing slot (private here; an inject does not
  *       mind).</li>
  *   <li>BEFORE the {@code drawForeground(MatrixStack, II)} INVOKE in {@code render} — the flights. That point is
@@ -48,32 +48,39 @@ public abstract class ItemFlightMixin {
     @Shadow @Final protected ScreenHandler handler;
 
     @Unique private final ItemFlights s1mp1e$flights = new ItemFlights();
-    @Unique private ItemStack[] s1mp1e$before;
+    @Unique private ItemStack[] s1mp1e$prev;
 
     @Unique
     private boolean s1mp1e$enabled() {
         return !((Object) this instanceof CreativeInventoryScreen);
     }
 
-    @Inject(method = "onMouseClick(Lnet/minecraft/screen/slot/Slot;IILnet/minecraft/screen/slot/SlotActionType;)V",
-            at = @At("HEAD"))
-    private void s1mp1e$snapshot(Slot slot, int slotId, int button, SlotActionType actionType, CallbackInfo ci) {
-        if (!s1mp1e$enabled()) return;
-        // only moves that never ride the cursor: a stack picked up and put down by hand was carried there already
-        if (actionType != SlotActionType.QUICK_MOVE && actionType != SlotActionType.SWAP) return;
-        List<Slot> slots = this.handler.slots;
-        s1mp1e$before = new ItemStack[slots.size()];
-        for (int i = 0; i < slots.size(); i++) s1mp1e$before[i] = slots.get(i).getStack().copy();
+    @Unique
+    private static boolean s1mp1e$same(ItemStack a, ItemStack b) {
+        if (a.isEmpty() || b.isEmpty()) return a.isEmpty() && b.isEmpty();
+        return a.getCount() == b.getCount() && ItemStack.canCombine(a, b);
     }
 
-    @Inject(method = "onMouseClick(Lnet/minecraft/screen/slot/Slot;IILnet/minecraft/screen/slot/SlotActionType;)V",
-            at = @At("RETURN"))
-    private void s1mp1e$spawnFlights(Slot clicked, int slotId, int button, SlotActionType actionType, CallbackInfo ci) {
-        ItemStack[] before = s1mp1e$before;
-        s1mp1e$before = null;
-        if (!s1mp1e$enabled() || before == null) return;
+    /**
+     * Once a frame, before the slots are drawn: whatever moved from one slot to another since the last frame flies.
+     * A stack going onto the cursor, or coming off it, has no other slot on the far side in that frame, so a move
+     * carried by hand pairs with nothing.
+     */
+    @Inject(method = "render", at = @At("HEAD"))
+    private void s1mp1e$observe(MatrixStack matrices, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        if (!s1mp1e$enabled()) return;
         List<Slot> slots = this.handler.slots;
-        int n = Math.min(before.length, slots.size());
+        int n = slots.size();
+        ItemStack[] before = s1mp1e$prev;
+        if (before != null && before.length == n) {
+            boolean changed = false;
+            for (int i = 0; i < n && !changed; i++) changed = !s1mp1e$same(before[i], slots.get(i).getStack());
+            if (!changed) return;
+        }
+        ItemStack[] now = new ItemStack[n];
+        for (int i = 0; i < n; i++) now[i] = slots.get(i).getStack().copy();
+        s1mp1e$prev = now;
+        if (before == null || before.length != n) return;   // first frame, or another slot set: nothing to compare with
         int[] lost = new int[n];
         for (int i = 0; i < n; i++) {
             ItemStack b = before[i], a = slots.get(i).getStack();
@@ -81,7 +88,6 @@ public abstract class ItemFlightMixin {
             if (a.isEmpty() || !ItemStack.canCombine(a, b)) lost[i] = b.getCount();
             else if (a.getCount() < b.getCount()) lost[i] = b.getCount() - a.getCount();
         }
-        int clickedIdx = clicked == null ? -1 : slots.indexOf(clicked);
 
         for (int j = 0; j < n; j++) {
             Slot target = slots.get(j);
@@ -90,9 +96,8 @@ public abstract class ItemFlightMixin {
             boolean fresh = b.isEmpty() || !ItemStack.canCombine(a, b);
             int gain = fresh ? a.getCount() : a.getCount() - b.getCount();
             if (gain <= 0) continue;
-            // where did it come from? the clicked slot, or another slot that lost it
+            // where did it come from? another slot that lost the same item this frame
             int src = -1;
-            if (clickedIdx >= 0 && clickedIdx != j && lost[clickedIdx] > 0 && ItemStack.canCombine(before[clickedIdx], a)) src = clickedIdx;
             for (int i = 0; src < 0 && i < n; i++) {
                 if (i != j && lost[i] > 0 && ItemStack.canCombine(before[i], a)) src = i;
             }
