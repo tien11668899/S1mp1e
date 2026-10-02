@@ -72,7 +72,12 @@ public final class S1mp1eConfigScreen extends Screen {
 
     public S1mp1eConfigScreen() { super(new LiteralText("S1mp1e")); }
 
-    @Override protected void init() { openFade.snap(0f); openFade.to(1f); rebuildTab(); }
+    @Override protected void init() {
+        // A cross-dissolve is covering the switch: be complete underneath from the first frame (else the world dims,
+        // the HUD vanishes and only then the settings fade in — a skeleton). Without one, run our own open fade.
+        if (ScreenOpenFade.held()) { openFade.snap(1f); } else { openFade.snap(0f); openFade.to(1f); }
+        rebuildTab();
+    }
     @Override public boolean isPauseScreen() { return true; }
 
     private void rebuildTab() {
@@ -376,6 +381,13 @@ public final class S1mp1eConfigScreen extends Screen {
     // openFade reaches 0 (the close animation).
     @Override public void onClose() {
         if (closing) return;
+        // With the cross-dissolve available, switch immediately and let it carry the close (fading ourselves out first
+        // would drop to the bare dimmed world and then snap back to the sharp game). Otherwise the old self fade-out.
+        if (dev.s1mp1e.glass.render.ScreenDissolve.canDissolve()) {
+            S1mp1eConfig.save();
+            super.onClose();
+            return;
+        }
         closing = true;
         openFade.to(0f);
         S1mp1eConfig.save();

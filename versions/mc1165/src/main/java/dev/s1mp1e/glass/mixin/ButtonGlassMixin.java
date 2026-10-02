@@ -2,8 +2,11 @@ package dev.s1mp1e.glass.mixin;
 
 import java.util.WeakHashMap;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.s1mp1e.client.gui.MerchantGlide;
 import dev.s1mp1e.client.gui.ScreenOpenFade;
+import dev.s1mp1e.client.gui.SettingsShell;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
@@ -86,6 +89,22 @@ public abstract class ButtonGlassMixin {
                 && mc.currentScreen instanceof net.minecraft.client.gui.screen.ingame.MerchantScreen;
     }
 
+    /**
+     * A settings-page row stands in for this widget ({@link SettingsShell}): its {@code render} still runs (hover
+     * state, visibility) but paints nothing. Wrapping the {@code renderButton} call inside {@code render} — rather
+     * than checking at {@code renderButton} HEAD below — also silences the widgets that override {@code renderButton}
+     * outright (the difficulty lock draws its padlock sprite without calling super).
+     */
+    @WrapOperation(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/widget/ClickableWidget;"
+                            + "renderButton(Lnet/minecraft/client/util/math/MatrixStack;IIF)V"))
+    private void s1mp1e$shellRow(ClickableWidget self, MatrixStack matrices, int mouseX, int mouseY, float delta,
+                                 Operation<Void> original) {
+        if (SettingsShell.suppresses(self)) return;
+        original.call(self, matrices, mouseX, mouseY, delta);
+    }
+
     @Inject(method = "renderButton", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$glassButton(MatrixStack matrices, int mouseX, int mouseY,
                                     float delta, CallbackInfo ci) {
@@ -158,13 +177,76 @@ public abstract class ButtonGlassMixin {
         // button's opacity at the widget's own alpha, exactly the Forge port.
         float opacity = this.alpha * ScreenOpenFade.value(mc.currentScreen);
 
-        GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
+        // Tap-feedback pulse (26.2's ButtonPressPulseMixin): on activation the whole button — glass capsule AND label —
+        // dips to ~95% around its centre and springs back over ~0.25 s. ButtonPressMixin stamps the press time; here the
+        // scale is 1.0 (no-op) unless recently pressed. The capsule is raw-GL absolute coords (scaled by hand about the
+        // centre); the label follows the same scale via the MatrixStack so the two stay locked together.
+        float s = dev.s1mp1e.glass.anim.PressPulse.scale(self);
+        float cx = x + w / 2f, cy = y + h / 2f;
+        if (s != 1f) {
+            float bx0 = cx + (x - cx) * s, by0 = cy + (y - cy) * s;
+            float bx1 = cx + (x + w - cx) * s, by1 = cy + (y + h - cy) * s;
+            GlassRenderer.button(bx0, by0, bx1, by1, 1.0f, lift, opacity, this.active);
+        } else {
+            GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
+        }
 
-        // label on top, vanilla colouring
+        // label on top, vanilla colouring (scaled with the capsule during a press dip)
         int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
         int a = Math.round(this.alpha * 255f) << 24;
-        DrawableHelper.drawCenteredText(matrices, mc.textRenderer, self.getMessage(),
-                x + w / 2, y + (h - 8) / 2, textColor | a);
+        if (s != 1f) {
+            matrices.push();
+            matrices.translate(cx, cy, 0f);
+            matrices.scale(s, s, 1f);
+            matrices.translate(-cx, -cy, 0f);
+        }
+        if (!s1mp1e$rollLabel(matrices, mc, self, x, y, w, h, textColor | a)) {
+            DrawableHelper.drawCenteredText(matrices, mc.textRenderer, self.getMessage(),
+                    x + w / 2, y + (h - 8) / 2, textColor | a);
+        }
+        if (s != 1f) matrices.pop();
         ci.cancel();
+    }
+
+    // ---- cycle buttons roll their value (26.2's CycleButtonRollMixin) ---------------------------------------------
+
+    /** One label animator per cycle button (weak: dies with the widget). */
+    @org.spongepowered.asm.mixin.Unique
+    private static final java.util.WeakHashMap<ClickableWidget, dev.s1mp1e.glass.render.TypingAnim> s1mp1e$rollers =
+            new java.util.WeakHashMap<ClickableWidget, dev.s1mp1e.glass.render.TypingAnim>();
+
+    /**
+     * Cycle buttons ("Difficulty: Normal", "Clouds: Fancy", on/off toggles …) roll their value like an odometer when
+     * it changes instead of swapping the label in one frame: the unchanged "Name: " stays put, the old value floats up
+     * and fades, the new one rises in glyph by glyph, and the label re-centres by gliding. Drawn at exactly the
+     * position/colour of the plain centred draw above; a label too wide for the button, an invisible button or any
+     * failure falls back to it (returns false).
+     */
+    @org.spongepowered.asm.mixin.Unique
+    private static boolean s1mp1e$rollLabel(MatrixStack matrices, MinecraftClient mc, ClickableWidget self,
+                                            int x, int y, int w, int h, int color) {
+        // 1.16.5 has no CyclingButtonWidget: a cycle button is an OptionButtonWidget, or a plain button whose message
+        // reads "Name: Value" (the skin parts, the difficulty) — the same text test the settings shell uses.
+        if (!(self instanceof net.minecraft.client.gui.widget.ButtonWidget)) return false;
+        if (!(self instanceof net.minecraft.client.gui.widget.OptionButtonWidget)) {
+            String s1mp1e$m = self.getMessage().getString();
+            if (s1mp1e$m.indexOf(':') < 0 && s1mp1e$m.indexOf('：') < 0) return false;
+        }
+        if ((color >>> 24) <= 1) return false;
+        dev.s1mp1e.glass.render.TypingAnim label = s1mp1e$rollers.get(self);
+        if (label == null) { label = new dev.s1mp1e.glass.render.TypingAnim(); s1mp1e$rollers.put(self, label); }
+        if (label.broken) return false;
+        net.minecraft.text.Text msg = self.getMessage();
+        net.minecraft.text.OrderedText seq = msg.asOrderedText();
+        int x0 = x + 2, x1 = x + w - 2;
+        if (mc.textRenderer.getWidth(seq) > x1 - x0) return false;
+        try {
+            label.extractLabel(matrices, mc.textRenderer, msg.getString(), seq, x + w / 2, y + (h - 8) / 2, x0, x1, color, true);
+            return true;
+        } catch (Throwable t) {
+            label.broken = true;
+            System.out.println("[S1mp1e] cycle-button roll disabled: " + t);
+            return false;
+        }
     }
 }

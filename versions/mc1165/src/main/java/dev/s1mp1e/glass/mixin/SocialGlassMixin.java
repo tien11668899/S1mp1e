@@ -32,6 +32,9 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(SocialInteractionsScreen.class)
 public abstract class SocialGlassMixin {
 
+    @org.spongepowered.asm.mixin.Shadow @org.spongepowered.asm.mixin.Final
+    protected static net.minecraft.util.Identifier SOCIAL_INTERACTIONS_TEXTURE;
+
     @Redirect(method = "renderBackground",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/multiplayer/SocialInteractionsScreen;"
@@ -53,6 +56,10 @@ public abstract class SocialGlassMixin {
             GlassRenderer.glass(x0, y0, x1, y1, GlassRenderer.PAD_PANEL, corner, 0f, 1f, GlassRenderer.FROST_PANEL);
             if (GlassProgram.roundUsable())
                 GlassRenderer.roundRect(x0 + 3, y0 + 3, x1 - 3, y1 - 3, GlassCorners.HOTBAR_RADIUS, 0x99101018);
+            // 1.16.5 blits whatever texture is BOUND, and the glass draw left its backdrop bound: the search icon
+            // that vanilla blits next (u = 243) came out as a dark square. Put the screen's texture back.
+            net.minecraft.client.MinecraftClient.getInstance().getTextureManager().bindTexture(SOCIAL_INTERACTIONS_TEXTURE);
+            com.mojang.blaze3d.systems.RenderSystem.color4f(1f, 1f, 1f, 1f);
         }
         // v==1 / v==10 panel pieces: nothing to draw — the v==27 plate already covers them.
     }

@@ -65,6 +65,17 @@ public abstract class CreativeGlassMixin implements GlassGlideHost {
     @Unique private static final float LG_TRAVEL = 97f, LG_THUMB = 15f;
 
     @Shadow private static int selectedTab;
+
+    /**
+     * Switching the creative category swaps the whole item grid in one frame: snapshot the outgoing frame and
+     * cross-dissolve it over the new category (the fused tab sheet overlaps, so only the grid visibly fades). HEAD,
+     * before the static {@code selectedTab} flips, so the snapshot holds the old tab. Skips the re-select vanilla does
+     * in {@code init}. (1.16.5: {@code selectedTab} is the group's index.)
+     */
+    @Inject(method = "setSelectedTab", at = @At("HEAD"))
+    private void s1mp1e$dissolveTab(ItemGroup group, CallbackInfo ci) {
+        if (group != null && selectedTab != group.getIndex()) dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+    }
     @Shadow private float scrollPosition;
     @Shadow private boolean scrolling;
     @Shadow private boolean hasScrollbar() { throw new AssertionError(); }

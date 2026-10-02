@@ -48,6 +48,23 @@ public final class GlassCorners {
         return hotbarCorner(w, h);
     }
 
+    /** {@link #knob} under the name the 1.21.1 / 26.2 lines use (shared code is written against that name). */
+    public static float hotbarCornerFrac(float w, float h) {
+        return cornerFrac(w, h, HOTBAR_RADIUS);
+    }
+
+    /** Corner knob that gives a {@code w x h} glass rect the absolute {@code radiusPx} radius (clamped 0..1). */
+    public static float cornerFrac(float w, float h, float radiusPx) {
+        float m = Math.max(1.0f, Math.min(w, h));
+        float f = 4.0f * radiusPx / m;   // invert radius = (m/2) * 0.5 * f  ->  f = 4*radius/m
+        return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+    }
+
+    /** {@link #radiusPx} under the 1.21.1 / 26.2 name. */
+    public static float hotbarRadiusPx(float w, float h) {
+        return Math.min(HOTBAR_RADIUS, Math.min(w, h) / 2.0f);
+    }
+
     /**
      * The ABSOLUTE hotbar corner radius in GUI px a {@code w x h} rect ends up with — the hotbar radius,
      * clamped to a full capsule ({@code min(w,h)/4}) when the rect is too small to reach it. Used by the

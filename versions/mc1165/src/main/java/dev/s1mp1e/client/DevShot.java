@@ -142,7 +142,35 @@ public final class DevShot {
                              // Verifier round: clicks (D), tab motion (B), held lens (C), tooltip overlaps (E),
                              // advancements / stats / book / lectern / death / anvil (A).
                              P_CLICKS = 60, P_TABS = 61, P_LENS = 62, P_TIP_SCROLL = 63, P_TIP_STRIP = 64,
-                             P_SCREENS = 65;
+                             P_SCREENS = 65,
+                             // VERIFY sweeps of the 2026-10 port round (DevShotVerify, the neighbour lines' scene
+                             // framework: settings / sodium / trans / gap / newmenu / newanim / vcombat, or any of its
+                             // sweeps behind a "v:" prefix).
+                             P_VERIFY2 = 120,
+                             // settings / sodium modes: the page over the TITLE background before the world exists
+                             P_TITLE_PAGE = 121,
+                             // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title -> world-entry
+                             // loop preview -> real world entry loop -> after-world. Inert otherwise.
+                             P_LOOPPREV = 130;
+
+    /** S1MP1E_SHOT_MODE, lower-cased ("" = this line's own full pipeline). */
+    private static String mode = "";
+
+    // ---- intro mode state (S1MP1E_SHOT_MODE=intro) ----
+    private static boolean introMode;     // boot brand-intro capture path active
+    private static int     introCount;    // boot overlay frame index
+    private static long    introLastMs;   // last boot-overlay capture time (ms spacing)
+    private static boolean introSeen;     // the boot SplashScreen was seen at least once
+    private static boolean introWorld;    // after boot capture: continue title -> loop -> world -> after-world
+    private static int     wlCount;       // world-entry loop (real LevelLoadingScreen) frame index
+    private static long    wlLastMs;
+    private static long    lpLastMs;      // loop-preview frame spacing
+    private static int     lpCount;       // loop-preview frame index
+    /** The framebuffer size currently forced (dev sweeps shrink it for the small-window shots, then restore). */
+    private static int curW = SHOT_W, curH = SHOT_H;
+
+    /** Change the forced framebuffer size (dev sweeps only). */
+    static void setTarget(int w, int h) { curW = w; curH = h; }
 
     private static boolean resolved;
     private static File    outDir;
@@ -201,6 +229,13 @@ public final class DevShot {
             } catch (Throwable t) {
                 burstN = 0;
             }
+            try {
+                String m = System.getenv("S1MP1E_SHOT_MODE");
+                mode = m == null ? "" : m.trim().toLowerCase(java.util.Locale.ROOT);
+                introMode = outDir != null && "intro".equals(mode);
+            } catch (Throwable t) {
+                mode = "";
+            }
         }
 
         if (auditPending) {
@@ -210,13 +245,30 @@ public final class DevShot {
 
         if (outDir == null || client == null) return;
 
+        // Intro mode runs before the normal state machine: it shoots the boot SplashScreen (brand intro) frame by
+        // frame, then hands off (introWorld) to the title -> loop-preview -> world-entry path below.
+        if (introMode) {
+            if (busy) return;
+            busy = true;
+            try {
+                stepIntro(client);
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e][DevShot] intro capture error: " + t);
+                introMode = false; introWorld = true; goPhase(P_INIT);
+            } finally {
+                busy = false;
+            }
+            return;
+        }
+
         // Frame-timing ring — updated every frame BEFORE the busy guard.
         long fnow = System.nanoTime();
         if (lastFrameNanos != 0L) { dtRing[dtCount % DT_RING] = fnow - lastFrameNanos; dtCount++; }
         lastFrameNanos = fnow;
 
-        if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > WATCHDOG_MS) {
-            System.out.println("[S1mp1e][DevShot] watchdog fired (" + (WATCHDOG_MS / 1000)
+        long watchdog = DevShotVerify.handles(mode) ? 1_800_000L : WATCHDOG_MS;   // the verify sweeps run long
+        if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
+            System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
             try { client.scheduleStop(); } catch (Throwable ignored) {}
             phase = P_DONE;
@@ -293,6 +345,9 @@ public final class DevShot {
                 case P_TIP_SCROLL:      stepTipScroll(client);                  break;
                 case P_TIP_STRIP:       stepTipStrip(client);                   break;
                 case P_SCREENS:         stepScreens(client);                    break;
+                case P_VERIFY2:         if (DevShotVerify.step(client)) goPhase(P_STOP); break;
+                case P_TITLE_PAGE:      stepTitlePage(client);                  break;
+                case P_LOOPPREV:        stepLoopPreview(client);                break;
                 case P_STOP:            stepStop(client);                        break;
                 default:                break;
             }
@@ -313,15 +368,15 @@ public final class DevShot {
     private static void forceFramebuffer(MinecraftClient client) {
         try {
             net.minecraft.client.util.Window win = client.getWindow();
-            if (win.getFramebufferWidth() == SHOT_W && win.getFramebufferHeight() == SHOT_H) return;
+            if (win.getFramebufferWidth() == curW && win.getFramebufferHeight() == curH) return;
             java.lang.reflect.Field fw = net.minecraft.client.util.Window.class.getDeclaredField("framebufferWidth");
             java.lang.reflect.Field fh = net.minecraft.client.util.Window.class.getDeclaredField("framebufferHeight");
             fw.setAccessible(true); fh.setAccessible(true);
-            fw.setInt(win, SHOT_W); fh.setInt(win, SHOT_H);
+            fw.setInt(win, curW); fh.setInt(win, curH);
             client.onResolutionChanged();
-            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + SHOT_W + "x" + SHOT_H);
+            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + curW + "x" + curH);
         } catch (Throwable t) {
-            skip("force framebuffer " + SHOT_W + "x" + SHOT_H, t);
+            skip("force framebuffer " + curW + "x" + curH, t);
         }
     }
 
@@ -334,6 +389,14 @@ public final class DevShot {
             GLFW.glfwSetWindowSize(handle, 1280, 720);
             client.options.guiScale = 2;
             client.options.pauseOnLostFocus = false;
+            // Harness only: swap without vsync. With the display asleep (unattended night runs) a vsynced swap is
+            // throttled to ~4 frames a second, which turns every motion burst into a slide show and every frame-counted
+            // wait into minutes. Only the window's swap interval is changed - the enableVsync OPTION is left alone, so
+            // nothing is written to options.txt; the frame limiter (maxFps) still paces the loop.
+            try { client.getWindow().setVsync(false); } catch (Throwable ignored) {}
+            // No tutorial hints over the shots (a fresh dev world starts the movement tutorial and its toast sits on
+            // top of every screen). Dev run directory only.
+            try { client.getTutorialManager().setStep(net.minecraft.client.tutorial.TutorialStep.NONE); } catch (Throwable ignored) {}
             LanguageDefinition cur = client.getLanguageManager().getLanguage();
             if (cur == null || !"zh_tw".equals(cur.getCode())) {
                 LanguageDefinition def = client.getLanguageManager().getLanguage("zh_tw");
@@ -360,6 +423,16 @@ public final class DevShot {
     }
 
     private static void stepTitle(MinecraftClient client) {
+        if (introWorld) {
+            if (!settled(SETTLE_MS)) return;
+            // Glass buttons must still render after the boot intro ran during the first resource reload.
+            capture(client, "after-title.png");
+            // A dev world can load too fast to see a whole loop cycle: preview the world-entry loop on its own
+            // screen first, then do the real world entry (its LevelLoadingScreen carries the same loop).
+            open(client, new LoopPreview(), "open world-entry loop preview");
+            lpLastMs = 0L; lpCount = 0; goPhase(P_LOOPPREV);
+            return;
+        }
         if (burstRunning) { if (!afterMain(client, "title")) return; }
         else {
             if (!settled(SETTLE_MS)) return;
@@ -387,6 +460,25 @@ public final class DevShot {
             if (!afterMain(client, "config")) return;
         }
         close(client);
+        if (mode.contains("sodium")) {            // Sodium's settings screen over the title background (no world to refract)
+            DevShotVerify.openSodiumOptions(client);
+            titlePageShot = "sd-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        if (mode.contains("settings")) {          // the settings shell over the title background
+            open(client, new net.minecraft.client.gui.screen.option.OptionsScreen(new TitleScreen(), client.options),
+                    "open options (over title)");
+            titlePageShot = "st-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        startWorld(client);
+    }
+
+    private static String titlePageShot;
+
+    private static void startWorld(MinecraftClient client) {
         if (createWorld(client)) {
             goPhase(P_WAIT_WORLD);
         } else {
@@ -395,9 +487,82 @@ public final class DevShot {
         }
     }
 
+    private static void stepTitlePage(MinecraftClient client) {
+        if (!settled(1500L)) return;
+        capture(client, titlePageShot);
+        if ("sd-title.png".equals(titlePageShot) && mode.contains("settings")) {   // both asked for: the shell page too
+            close(client);
+            open(client, new net.minecraft.client.gui.screen.option.OptionsScreen(new TitleScreen(), client.options),
+                    "open options (over title)");
+            titlePageShot = "st-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        close(client);
+        startWorld(client);
+    }
+
+    /** Dev-only screen that plays the world-entry loop ({@code BrandIntro.MODE_LOOP}) on pure black, exactly as
+     *  {@code LevelLoadingScreen} does under the glass mixin, for as long as it is open. */
+    private static final class LoopPreview extends Screen {
+        private final long t0 = System.nanoTime();
+        LoopPreview() { super(new LiteralText("loop preview")); }
+        @Override public void render(net.minecraft.client.util.math.MatrixStack matrices, int mx, int my, float d) {
+            net.minecraft.client.gui.DrawableHelper.fill(matrices, 0, 0, this.width, this.height, 0xFF000000);
+            DevShotVerify.loopPreview(matrices, (System.nanoTime() - t0) / 1.0E9F);
+        }
+    }
+
+    /** Loop preview: ~8 s at 10 fps into {@code lp_NNN.png}, then on into the real world entry. */
+    private static void stepLoopPreview(MinecraftClient client) {
+        if (!(client.currentScreen instanceof LoopPreview)) {
+            if (++frames > WAIT_SCREEN_CAP) { skip("loop preview", new IllegalStateException("never opened")); lpCount = 80; }
+            else return;
+        }
+        long ms = System.currentTimeMillis();
+        if (lpCount < 80) {
+            if (ms - lpLastMs >= 100) { lpLastMs = ms; capture(client, String.format("lp_%03d.png", lpCount++)); }
+            return;
+        }
+        close(client);
+        startWorld(client);
+    }
+
+    /**
+     * Boot brand-intro capture: while the {@code SplashScreen} is up, shoot the framebuffer ~33 fps into
+     * {@code intro_NNN.png}; once it is gone (or it never appeared within 20 s) continue through the title (glass must
+     * still be intact after the intro ran during the reload) into the world-entry loop, shooting on the way.
+     */
+    private static void stepIntro(MinecraftClient client) {
+        forceFramebuffer(client);
+        Object ov = client.getOverlay();
+        long now = System.currentTimeMillis();
+        if (ov instanceof net.minecraft.client.gui.screen.SplashScreen) {
+            introSeen = true;
+            if (now - introLastMs >= 30 && introCount < 220) {
+                introLastMs = now;
+                capture(client, String.format("intro_%03d.png", introCount++));
+            }
+            return;
+        }
+        // Overlay gone (or never showed within 20 s): boot part done. Hand off to the title -> loop -> world path.
+        if (introSeen || now - startMs > 20000) {
+            System.out.println("[S1mp1e][DevShot] intro capture done: " + introCount + " frames");
+            introMode = false;
+            introWorld = true;
+            goPhase(P_INIT);
+        }
+    }
+
     // ---- world -------------------------------------------------------------
 
     private static void stepWaitWorld(MinecraftClient client) {
+        // Intro mode: while the real world-entry LevelLoadingScreen is up (it carries the MODE_LOOP loop under the
+        // glass mixin), grab a ~20 fps strip so the seamless loop can be judged frame by frame.
+        if (introWorld && client.currentScreen instanceof net.minecraft.client.gui.screen.LevelLoadingScreen) {
+            long ms = System.currentTimeMillis();
+            if (ms - wlLastMs >= 50 && wlCount < 400) { wlLastMs = ms; capture(client, String.format("wl_%03d.png", wlCount++)); }
+        }
         if (client.world != null && client.player != null && client.getServer() != null
                 && client.currentScreen == null) {
             goPhase(P_WORLD_SETTLE);
@@ -410,11 +575,31 @@ public final class DevShot {
     private static void stepWorldSettle(MinecraftClient client) {
         if (!settled(WORLD_SETTLE_MS)) return;
         applyWorldSetup(client);
-        if ("combat".equalsIgnoreCase(System.getenv("S1MP1E_SHOT_MODE"))) { goPhase(P_COMBAT); return; }   // 26.2 combat trio
+        if (introWorld) {                   // glass HUD must be intact in game too after the intro; then finish
+            System.out.println("[S1mp1e][DevShot] world-entry loop frames: " + wlCount);
+            introWorld = false;
+            introAfterWorld = true;
+            goPhase(P_WORLD);
+            return;
+        }
+        if ("combat".equals(mode)) { goPhase(P_COMBAT); return; }   // 26.2 combat trio
+        if (DevShotVerify.handles(mode)) {  // the 1.21.1 feature-set sweeps (2026-10 port round)
+            DevShotVerify.init(outDir, mode);
+            goPhase(P_VERIFY2);
+            return;
+        }
         goPhase(P_WORLD);
     }
 
+    private static boolean introAfterWorld;
+
     private static void stepWorld(MinecraftClient client) {
+        if (introAfterWorld) {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "after-world.png");
+            goPhase(P_STOP);
+            return;
+        }
         try { client.getToastManager().clear(); } catch (Throwable ignored) {}
         try {
             ChatHud chat = client.inGameHud.getChatHud();
@@ -2096,6 +2281,21 @@ public final class DevShot {
         Registry<DimensionType> dimTypes = reg.get(Registry.DIMENSION_TYPE_KEY);
         Registry<Biome> biomes = reg.get(Registry.BIOME_KEY);
         Registry<ChunkGeneratorSettings> chunkGenSettings = reg.get(Registry.NOISE_SETTINGS_WORLDGEN);
+        if (introMode || introWorld || DevShotVerify.handles(mode)) {
+            // 2026-10 port round: the new sweeps run on a SUPERFLAT overworld (what the create-world screen's
+            // "Superflat" type builds on 1.16.5, javap-read): a bright, level, deterministic backdrop for the glass,
+            // like the newer lines' harness. This line's old modes keep the seeded default world below.
+            try {
+                net.minecraft.world.gen.chunk.FlatChunkGeneratorConfig cfg =
+                        net.minecraft.world.gen.chunk.FlatChunkGeneratorConfig.getDefaultConfig(biomes);
+                ChunkGenerator flat = new net.minecraft.world.gen.chunk.FlatChunkGenerator(cfg);
+                SimpleRegistry<DimensionOptions> dims = GeneratorOptions.method_28608(dimTypes,
+                        DimensionType.createDefaultDimensionOptions(dimTypes, biomes, chunkGenSettings, seed), flat);
+                return new GeneratorOptions(seed, false /* structures */, false /* bonus chest */, dims);
+            } catch (Throwable t) {
+                skip("superflat worldgen (trying the seeded default)", t);
+            }
+        }
         try {
             SimpleRegistry<DimensionOptions> base =
                     DimensionType.createDefaultDimensionOptions(dimTypes, biomes, chunkGenSettings, seed);

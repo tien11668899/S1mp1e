@@ -35,12 +35,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * pressing the knob doesn't nudge the value. {@code onClick} / {@code onRelease} are only observed, to know when the
  * slider is held. Without the glass programs it paints (and maps) nothing, so vanilla draws.
  *
+ * <p>On a settings page the row paints the slider instead ({@link #s1mp1e$paintRow}: the config-menu slider on the
+ * row's own track); while that row form is the one last painted, a press keeps the grab offset and the pointer maps
+ * onto that track ({@code VanillaSliderSkin.rowPress / rowValueAt}).
+ *
  * <p>Extends {@link ClickableWidget} (the target's superclass) so the inherited {@code active}/{@code alpha}/
  * {@code hovered}/{@code width}/{@code height}/{@code x}/{@code y}/{@code isFocused()}/{@code getMessage()} members
  * resolve; the constructor never runs.
  */
 @Mixin(SliderWidget.class)
-public abstract class SliderGlassMixin extends ClickableWidget implements GlassSliderPainter {
+public abstract class SliderGlassMixin extends ClickableWidget
+        implements GlassSliderPainter, dev.s1mp1e.client.gui.SettingsShell.SliderAccess {
 
     @Shadow protected double value;
     @Shadow private void setValue(double value) {}
@@ -48,13 +53,44 @@ public abstract class SliderGlassMixin extends ClickableWidget implements GlassS
     @Unique private VanillaSliderSkin s1mp1e$skin;
     @Unique private boolean s1mp1e$held;
     @Unique private boolean s1mp1e$skinned;
+    @Unique private boolean s1mp1e$rowMode;
     @Unique private static boolean s1mp1e$errorLogged;
 
     private SliderGlassMixin() { super(0, 0, 0, 0, LiteralText.EMPTY); }
 
+    @Override
+    public double s1mp1e$value() {
+        return this.value;
+    }
+
+    @Override
+    public boolean s1mp1e$held() {
+        if (!this.s1mp1e$held) return false;
+        long window = MinecraftClient.getInstance().getWindow().getHandle();
+        if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS
+                && !VanillaSliderSkin.devMouseDown) this.s1mp1e$held = false;
+        return this.s1mp1e$held;
+    }
+
+    /** A settings-page row paints this slider as the config-menu slider on the given track. */
+    @Override
+    public void s1mp1e$paintRow(MatrixStack matrices, float tx0, float tx1, float cy, float alpha) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (this.s1mp1e$skin == null) this.s1mp1e$skin = new VanillaSliderSkin();
+        long window = mc.getWindow().getHandle();
+        boolean buttonDown = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS
+                || VanillaSliderSkin.devMouseDown;
+        if (!buttonDown || (!this.s1mp1e$rowMode && this.s1mp1e$skin.paintGap())) this.s1mp1e$held = false;
+        double pointerX = mc.mouse.getX() * mc.getWindow().getScaledWidth() / Math.max(1, mc.getWindow().getWidth());
+        this.s1mp1e$skin.paintRow(matrices, tx0, tx1, cy, this.value, this.s1mp1e$held, pointerX, this.active, alpha);
+        this.s1mp1e$skinned = false;
+        this.s1mp1e$rowMode = true;
+    }
+
     @Inject(method = "onClick", at = @At("HEAD"))
     private void s1mp1e$press(double mouseX, double mouseY, CallbackInfo ci) {
         this.s1mp1e$held = this.active;
+        if (this.s1mp1e$rowMode && this.s1mp1e$skin != null) this.s1mp1e$skin.rowPress(mouseX);
     }
 
     @Inject(method = "onRelease", at = @At("HEAD"))
@@ -65,7 +101,10 @@ public abstract class SliderGlassMixin extends ClickableWidget implements GlassS
     /** Mouse → value on the skin's knob travel (vanilla maps onto its own 8 px handle travel). */
     @Inject(method = "setValueFromMouse", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$mapToSkin(double mouseX, CallbackInfo ci) {
-        if (this.s1mp1e$skinned) {
+        if (this.s1mp1e$rowMode && this.s1mp1e$skin != null) {     // a settings-page row: its own track and grab offset
+            this.setValue(this.s1mp1e$skin.rowValueAt(mouseX));
+            ci.cancel();
+        } else if (this.s1mp1e$skinned) {
             this.setValue(VanillaSliderSkin.valueAt(mouseX, this.x, this.width));
             ci.cancel();
         }
@@ -74,6 +113,7 @@ public abstract class SliderGlassMixin extends ClickableWidget implements GlassS
     @Override
     public boolean s1mp1e$paintGlass(MatrixStack matrices, int mouseX, int mouseY, float delta) {
         this.s1mp1e$skinned = false;
+        this.s1mp1e$rowMode = false;                 // the normal skin paints (a row's own painting never gets here)
         int x = this.x, y = this.y, w = this.width, h = this.height;
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable() || !VanillaSliderSkin.fits(w, h)) return false;
         try {

@@ -72,6 +72,92 @@ public abstract class RecipeBookGlassMixin {
     private long   s1mp1e$lastNanos;
     private int    s1mp1e$lastTabY = Integer.MIN_VALUE;
 
+    /**
+     * Arm the inventory glide ({@link RecipeBookInvGlideMixin} / {@link dev.s1mp1e.glass.render.RecipeBookSlide}) the
+     * instant the book toggles, so the cascade timing knows an opening is in progress BEFORE
+     * {@code refreshResultButtons} schedules it, and re-trigger the book's own open fade so it fades in on every open
+     * (not only the first). At HEAD {@code isOpen()} still reports the pre-toggle state, so
+     * {@code opening = !isOpen()}.
+     */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "toggleOpen", at = @At("HEAD"))
+    private void s1mp1e$armSlide(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        boolean opening = !((RecipeBookWidget) (Object) this).isOpen();
+        dev.s1mp1e.glass.render.RecipeBookSlide.arm(this, opening);
+        if (opening && s1mp1e$openFade != null) {
+            s1mp1e$openFade.snap(0f);
+            s1mp1e$openFade.to(1f);
+        }
+    }
+
+    // ---- slide out from behind the inventory (RecipeBookSlide) -----------------------------------------------------
+
+    @Shadow private int parentWidth;
+    @Shadow private int leftOffset;
+    @org.spongepowered.asm.mixin.Unique private boolean s1mp1e$slideOpen;
+
+    /** While sliding shut, keep drawing although vanilla already marked the book hidden. */
+    @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/recipebook/RecipeBookWidget;isOpen()Z"))
+    private boolean s1mp1e$drawWhileClosing(RecipeBookWidget self,
+            com.llamalad7.mixinextras.injector.wrapoperation.Operation<Boolean> op) {
+        return op.call(self) || dev.s1mp1e.glass.render.RecipeBookSlide.closing(this);
+    }
+
+    /**
+     * Bracket the whole book render: shift it by {@code RecipeBookSlide.bookShift} through the RenderSystem model-view
+     * (every draw of the book honours it — immediate glass, textures, text, item models) and clip it at the
+     * inventory's animated left edge, so it reads as sliding out from underneath. 1.16.5 GUI draws are immediate, so
+     * nothing queued before leaks into the clip and nothing of the book is drawn after it is lifted.
+     */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "render", at = @At("HEAD"))
+    private void s1mp1e$slideBegin(MatrixStack matrices, int mouseX, int mouseY, float delta,
+                                   org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        s1mp1e$slideOpen = false;
+        // 1.16.5 draws the book BEFORE the inventory, so the toggle has to be noticed here already (see observe()).
+        net.minecraft.client.gui.screen.Screen s1mp1e$screen = net.minecraft.client.MinecraftClient.getInstance().currentScreen;
+        if (s1mp1e$screen instanceof net.minecraft.client.gui.screen.recipebook.RecipeBookProvider
+                && s1mp1e$screen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen<?>) {
+            dev.s1mp1e.glass.render.RecipeBookSlide.observe(s1mp1e$screen, ((HandledScreenAccessor) s1mp1e$screen).s1mp1e$x());
+        }
+        if (!dev.s1mp1e.glass.render.RecipeBookSlide.slides(this)) return;
+        int bookOpenX = (this.parentWidth - 147) / 2 - this.leftOffset;
+        float shift = dev.s1mp1e.glass.render.RecipeBookSlide.bookShift(bookOpenX);
+        net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+        dev.s1mp1e.glass.render.GuiFlush.flush();
+        dev.s1mp1e.client.gui.GuiScissor.enable(0, 0,
+                Math.max(0, dev.s1mp1e.glass.render.RecipeBookSlide.animatedX() + 1), mc.getWindow().getScaledHeight());
+        com.mojang.blaze3d.systems.RenderSystem.pushMatrix();          // 1.16.5: the fixed-function model-view
+        com.mojang.blaze3d.systems.RenderSystem.translatef(shift, 0f, 0f);
+        dev.s1mp1e.client.gui.GuiAlpha.push(matrices, dev.s1mp1e.glass.render.RecipeBookSlide.bookFade());
+        s1mp1e$slideOpen = true;
+    }
+
+    @org.spongepowered.asm.mixin.injection.Inject(method = "render", at = @At("RETURN"))
+    private void s1mp1e$slideEnd(MatrixStack matrices, int mouseX, int mouseY, float delta,
+                                 org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (!s1mp1e$slideOpen) return;
+        s1mp1e$slideOpen = false;
+        dev.s1mp1e.client.gui.GuiAlpha.pop(matrices);
+        com.mojang.blaze3d.systems.RenderSystem.popMatrix();
+        dev.s1mp1e.client.gui.GuiScissor.disable();
+    }
+
+    /** The search field: its opaque black vanilla frame becomes a frosted glass scrim (see EditBoxTypingMixin, part 5). */
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/widget/TextFieldWidget;"
+                            + "render(Lnet/minecraft/client/util/math/MatrixStack;IIF)V"))
+    private void s1mp1e$glassSearch(net.minecraft.client.gui.widget.TextFieldWidget box, MatrixStack matrices,
+                                    int mouseX, int mouseY, float delta) {
+        dev.s1mp1e.glass.render.EditBoxGlass.frame = true;
+        try {
+            box.render(matrices, mouseX, mouseY, delta);
+        } finally {
+            dev.s1mp1e.glass.render.EditBoxGlass.frame = false;
+        }
+    }
+
     @Redirect(method = "render",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/recipebook/RecipeBookWidget;"
