@@ -1,5 +1,5 @@
 //! The mods every Fabric profile gets by default: Fabric API (the glass client needs it),
-//! Sodium, MaLiLib, Item Scroller and Entity Culling.
+//! Sodium, MaLiLib, Item Scroller and Entity Culling (plus Reese's Sodium Options on 26.2).
 //!
 //! They are fetched from Modrinth into the per-version folder the launcher already loads
 //! (`.minecraft/s1mp1e-mods/<mc>/`, see `launch::pick_user_mods`), so they show up in the
@@ -19,6 +19,9 @@
 //!
 //! Sodium is pinned on the versions whose glass Video Settings page is written against a
 //! specific Sodium options screen; everything else takes the newest release for the version.
+//! On 26.2 that page is the glass restyle of Reese's Sodium Options, so 26.2 also gets that
+//! mod — with plain Sodium alone the Video Settings button would open Sodium's own unstyled
+//! screen.
 
 use crate::download::{client, download_file};
 use crate::install::{Emit, Progress};
@@ -34,20 +37,24 @@ struct DefaultMod {
     /// `fabric.mod.json` ids that count as "this mod is installed".
     ids: &'static [&'static str],
     name: &'static str,
+    /// Some(mc): only on that game version.
+    only: Option<&'static str>,
 }
 
-const MODS: [DefaultMod; 5] = [
-    DefaultMod { slug: "fabric-api", ids: &["fabric-api", "fabric"], name: "Fabric API" },
-    DefaultMod { slug: "sodium", ids: &["sodium"], name: "Sodium" },
-    DefaultMod { slug: "malilib", ids: &["malilib"], name: "MaLiLib" },
-    DefaultMod { slug: "item-scroller", ids: &["itemscroller"], name: "Item Scroller" },
-    DefaultMod { slug: "entityculling", ids: &["entityculling"], name: "Entity Culling" },
+const MODS: [DefaultMod; 6] = [
+    DefaultMod { slug: "fabric-api", ids: &["fabric-api", "fabric"], name: "Fabric API", only: None },
+    DefaultMod { slug: "sodium", ids: &["sodium"], name: "Sodium", only: None },
+    DefaultMod { slug: "reeses-sodium-options", ids: &["reeses-sodium-options"], name: "Reese's Sodium Options", only: Some("26.2") },
+    DefaultMod { slug: "malilib", ids: &["malilib"], name: "MaLiLib", only: None },
+    DefaultMod { slug: "item-scroller", ids: &["itemscroller"], name: "Item Scroller", only: None },
+    DefaultMod { slug: "entityculling", ids: &["entityculling"], name: "Entity Culling", only: None },
 ];
 
 /// (slug, mc, Modrinth version_number). The glass restyle of Sodium's settings screen on
 /// these versions targets this Sodium line's options GUI; newer Sodium replaced that GUI.
-const PINS: [(&str, &str, &str); 2] = [
+const PINS: [(&str, &str, &str); 3] = [
     ("sodium", "26.2", "mc26.2-0.9.1-fabric"),
+    ("reeses-sodium-options", "26.2", "mc26.2-2.2.3+fabric"),
     ("sodium", "1.21.1", "mc1.21.1-0.6.13-fabric"),
 ];
 
@@ -158,15 +165,17 @@ pub async fn ensure_default_mods(root: &PathBuf, mc: &str, emit: &Emit) -> Resul
     let dir = root.join("s1mp1e-mods").join(mc);
     let present = installed_ids(&dir);
     let mut offered = read_marker(&dir);
-    let wanted: Vec<&DefaultMod> = MODS
+    let set: Vec<&DefaultMod> = MODS.iter().filter(|m| m.only.map_or(true, |v| v == mc)).collect();
+    let wanted: Vec<&DefaultMod> = set
         .iter()
+        .copied()
         .filter(|m| !m.ids.iter().any(|id| present.contains(*id)))
         .filter(|m| m.slug == "fabric-api" || !offered.contains(m.slug))
         .collect();
     if wanted.is_empty() {
         // everything is here (or was declined): remember that the set was offered
-        if MODS.iter().any(|m| !offered.contains(m.slug)) && dir.exists() {
-            offered.extend(MODS.iter().map(|m| m.slug.to_owned()));
+        if set.iter().any(|m| !offered.contains(m.slug)) && dir.exists() {
+            offered.extend(set.iter().map(|m| m.slug.to_owned()));
             write_marker(&dir, &offered);
         }
         return Ok(());
@@ -186,7 +195,7 @@ pub async fn ensure_default_mods(root: &PathBuf, mc: &str, emit: &Emit) -> Resul
         }
     }
     // mods that were already present count as offered too, so deleting one later sticks
-    for m in MODS.iter() {
+    for m in set.iter() {
         if m.ids.iter().any(|id| present.contains(*id)) && offered.insert(m.slug.to_owned()) {
             dirty = true;
         }
@@ -274,7 +283,15 @@ mod tests {
         let apis = jars(&other).into_iter().filter(|n| fabric_mod_id(&other.join(n)).as_deref() == Some("fabric-api")).count();
         assert_eq!(apis, 1, "an existing Fabric API must not be duplicated");
 
-        // 5) a version Modrinth has nothing for is not an error
+        // 5) 26.2 also gets Reese's Sodium Options, next to the pinned Sodium
+        let d262 = root.join("s1mp1e-mods").join("26.2");
+        ensure_default_mods(&root, "26.2", &quiet()).await.unwrap();
+        let ids = installed_ids(&d262);
+        assert!(ids.contains("reeses-sodium-options") && ids.contains("sodium"), "{ids:?}");
+        assert!(jars(&d262).iter().any(|n| n.contains("sodium-fabric-0.9.1")), "{:?}", jars(&d262));
+        assert!(!jars(&d262).iter().any(|n| n.contains("-dev")), "the dev jar must not be taken");
+
+        // 6) a version Modrinth has nothing for is not an error
         ensure_default_mods(&root, "1.13.2", &quiet()).await.unwrap();
 
         let _ = std::fs::remove_dir_all(&root);
