@@ -173,14 +173,25 @@ public abstract class HandledScreenGlassMixin {
         s1mp1e$drawDrag(gl, gt);
         s1mp1e$drawHover(slots, gl, gt, mouseX, mouseY, now);
 
-        // The swallowed vanilla drawBackground also drew the player model in the
-        // survival inventory -> redraw it on top of the glass so it survives.
-        if ((Object) this instanceof net.minecraft.client.gui.screen.ingame.InventoryScreen) {
-            net.minecraft.client.gui.screen.ingame.InventoryScreen.drawEntity(
-                    gl + 51, gt + 75, 30,
-                    (float) (gl + 51) - mouseX, (float) (gt + 75 - 50) - mouseY,
-                    net.minecraft.client.MinecraftClient.getInstance().player);
+        // Now run the screen's OWN drawBackground on top of the glass with ONLY its body-texture blit(s) dropped
+        // (DrawableBodyBlitMixin, full-width strips of this panel) — 26.2's ContainerScreensGlassMixin keeps
+        // everything else vanilla: furnace flame + progress arrow, brewing bubbles / progress, the enchanting book +
+        // options, anvil / grindstone error X, mount saddle / armor slot art + preview, the villager's "out of stock"
+        // mark and experience bar, and the survival player model (which this path used to redraw by hand while the
+        // others were simply lost with the swallowed drawBackground).
+        dev.s1mp1e.glass.render.ContainerGlass.beginBodySuppress(gl, gt, xs, ys);
+        try {
+            this.drawBackground(matrices, delta, mouseX, mouseY);
+        } finally {
+            dev.s1mp1e.glass.render.ContainerGlass.endBodySuppress();
         }
+    }
+
+    /** (C) End a list screen's scrollbar drag on release (the glass thumb would otherwise stay "held"). */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "mouseReleased", at = @At("HEAD"))
+    private void s1mp1e$endListDrag(double mouseX, double mouseY, int button,
+                                    org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<Boolean> cir) {
+        if ((Object) this instanceof dev.s1mp1e.client.gui.ScrollDragOwner o) o.s1mp1e$endScrollDrag();
     }
 
     // Suppress vanilla's hovered-slot white highlight — the glass hover pill replaces

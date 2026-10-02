@@ -2,6 +2,7 @@ package dev.s1mp1e.glass.mixin;
 
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
+import dev.s1mp1e.glass.render.RecipeCascade;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.recipebook.AnimatedResultButton;
@@ -9,8 +10,11 @@ import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Recipe result grid cells — the 1.20.1 Fabric port of 26.2's
@@ -49,6 +53,37 @@ public abstract class RecipeButtonGlassMixin {
     /** 26.2's craftable/selected lift (G=0xD8 -> 1-0xD8/255). */
     private static final float LIFT_CRAFTABLE = 0.153f;
 
+    // ---- (E) cascade scale-in (RecipeCascade), folded here so the glass cell + the item icon grow as ONE ----------
+    // The item icon is drawn (deferred) under DrawContext.getMatrices(), scaled about the button centre at renderWidget
+    // HEAD; the glass cell is immediate GL (RS model-view, ignores that matrix), so it is scaled by pre-scaling its
+    // coordinates in the redirect below. Both pivot on the same centre → one uniform grow. s < 0 (not born yet) cancels
+    // the whole renderWidget so nothing draws until the button's turn.
+    @Unique private float s1mp1e$cascadeScale = 1f;
+    @Unique private boolean s1mp1e$cascadePosed;
+
+    @Inject(method = "renderWidget", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$cascadeBegin(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        s1mp1e$cascadePosed = false;
+        float s = RecipeCascade.scale(this);
+        s1mp1e$cascadeScale = s;
+        if (s < 0f) { ci.cancel(); return; }        // not born yet: draw nothing
+        if (s >= 1f) return;                         // settled: no pose, glass cell at full size
+        AnimatedResultButton self = (AnimatedResultButton) (Object) this;
+        float cx = self.getX() + self.getWidth() / 2f, cy = self.getY() + self.getHeight() / 2f;
+        context.getMatrices().push();
+        context.getMatrices().translate(cx, cy, 0f);
+        context.getMatrices().scale(s, s, 1f);
+        context.getMatrices().translate(-cx, -cy, 0f);
+        s1mp1e$cascadePosed = true;
+    }
+
+    @Inject(method = "renderWidget", at = @At("RETURN"))
+    private void s1mp1e$cascadeEnd(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        if (!s1mp1e$cascadePosed) return;
+        s1mp1e$cascadePosed = false;
+        context.getMatrices().pop();
+    }
+
     // 1.21: the slot background is a GUI SPRITE, so the old u==29 craftable test is
     // gone. renderWidget now picks one of four static sprite Identifiers by state and
     // blits it via drawGuiTexture. @Shadow the two CRAFTABLE sprites (own static fields
@@ -75,6 +110,10 @@ public abstract class RecipeButtonGlassMixin {
         boolean craftable = texture == SLOT_MANY_CRAFTABLE_TEXTURE
                          || texture == SLOT_CRAFTABLE_TEXTURE;
         float lift = craftable ? LIFT_CRAFTABLE : 0f;
-        GlassRenderer.glass(x, y, x + w, y + h, 6f, 1.0f, lift, 1.0f, GlassRenderer.FROST_NONE);
+        // Grow the glass cell with the cascade (immediate GL ignores the DrawContext scale pushed at HEAD, so scale its
+        // coordinates about the same centre the item icon pivots on). s == 1 when not cascading -> the full cell.
+        float s = s1mp1e$cascadePosed ? s1mp1e$cascadeScale : 1f;
+        float cx = x + w / 2f, cy = y + h / 2f, hw = (w / 2f) * s, hh = (h / 2f) * s;
+        GlassRenderer.glass(cx - hw, cy - hh, cx + hw, cy + hh, 6f, 1.0f, lift, 1.0f, GlassRenderer.FROST_NONE);
     }
 }

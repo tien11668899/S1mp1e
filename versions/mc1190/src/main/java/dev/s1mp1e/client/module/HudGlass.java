@@ -139,6 +139,59 @@ public final class HudGlass {
         RenderSystem.enableDepthTest();
     }
 
+    // ---- matrix-local variants (the names the 1.20.1 / 1.21.1 lines use: shared code is written against them) ----
+
+    /** Matrix-local rect -> absolute screen px {x0, y0, x1, y1} through the top position matrix (axis-aligned). */
+    public static float[] absRect(MatrixStack matrices, float lx0, float ly0, float lx1, float ly1) {
+        Matrix4f m = matrices.peek().getPositionMatrix();
+        Vector4f p0 = new Vector4f(lx0, ly0, 0f, 1f); p0.transform(m);
+        Vector4f p1 = new Vector4f(lx1, ly1, 0f, 1f); p1.transform(m);
+        return new float[] { Math.min(p0.getX(), p1.getX()), Math.min(p0.getY(), p1.getY()),
+                             Math.max(p0.getX(), p1.getX()), Math.max(p0.getY(), p1.getY()) };
+    }
+
+    /** Uniform scale baked into the matrix (for scaling a local px radius to screen px). */
+    public static float matrixScale(MatrixStack matrices) {
+        Matrix4f m = matrices.peek().getPositionMatrix();
+        Vector4f o = new Vector4f(0f, 0f, 0f, 1f); o.transform(m);
+        Vector4f u = new Vector4f(1f, 0f, 0f, 1f); u.transform(m);
+        return Math.abs(u.getX() - o.getX());
+    }
+
+    /**
+     * Solid/translucent COLOURED rounded rect (AA SDF, no backdrop -> never flickers) given in the CURRENT matrix's
+     * local space: the typing caret, the boss-bar fill, readability scrims. {@code radiusLocal} is in the caller's
+     * local px (scaled to screen px by the matrix scale). Drawn immediately, depth test off. Falls back to a rounded
+     * {@link DrawableHelper#fill}.
+     */
+    public static void roundFillCtx(MatrixStack matrices, float lx0, float ly0, float lx1, float ly1,
+                                    float radiusLocal, int argb) {
+        if (lx1 <= lx0 || ly1 <= ly0) return;
+        if (GlassProgram.ensureReady() && GlassProgram.roundUsable()) {
+            float[] r = absRect(matrices, lx0, ly0, lx1, ly1);
+            float rad = radiusLocal * matrixScale(matrices);
+            GuiFlush.flush();
+            RenderSystem.disableDepthTest();
+            GlassRenderer.roundRect(r[0], r[1], r[2], r[3], rad, argb);
+            RenderSystem.enableDepthTest();
+        } else {
+            roundFill(matrices, Math.round(lx0), Math.round(ly0), Math.round(lx1 - lx0), Math.round(ly1 - ly0),
+                      Math.round(radiusLocal), argb);
+        }
+    }
+
+    /** {@link #capsule} for a rect given in the current matrix's local space. */
+    public static void capsuleCtx(MatrixStack matrices, float lx0, float ly0, float lx1, float ly1,
+                                  float opacity, float frost) {
+        float[] r = absRect(matrices, lx0, ly0, lx1, ly1);
+        capsule(r[0], r[1], r[2], r[3], opacity, frost);
+    }
+
+    /** {@link #glassBoxLocalHotbar} under the name the newer lines use for a matrix-local glass panel. */
+    public static void glassBoxCtx(MatrixStack matrices, float lx0, float ly0, float lx1, float ly1, float alpha) {
+        glassBoxLocalHotbar(matrices, lx0, ly0, lx1, ly1, alpha);
+    }
+
     /** Rounded translucent pill from (x,y) size (w,h) in the current matrix space. */
     public static void pill(MatrixStack matrices, int x, int y, int w, int h, int argb) {
         if (w <= 0 || h <= 0) return;

@@ -4,6 +4,12 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "DevShotMixin",
+    "FilmFrameMixin",
+    "FilmHandMixin",
+    "FilmGuiScaleMixin",
+    "FilmGuiCamMixin",
+    "FilmScissorMixin",
+    "FilmSafetyMixin",
     "LowFireMixin",
     "AttackIndicatorHideMixin",
     "HitMarkerAttackMixin",
@@ -26,6 +32,10 @@
     "MouseZoomSensitivityMixin",
     "FontSmoothMixin",
     "FontTextureSmoothMixin",
+    "FontOversampleMixin",
+    "TextShadowMixin",
+    "ScreenShellMixin", "OptionsSubScreenShellMixin", "CycleButtonShellMixin", "KeyEntryShellMixin",
+    "KeyCategoryShellMixin", "OptionsHeaderShellMixin", "LanguageEntryShellMixin", "WidgetShellSuppressMixin", "MouseWheelShellMixin", "WorldOptionsShellMixin",
     "ForeignZoomKeyBlockMixin",
     "BlockOutlineMixin"
   ],

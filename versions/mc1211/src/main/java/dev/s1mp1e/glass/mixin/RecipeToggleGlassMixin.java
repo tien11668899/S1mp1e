@@ -55,6 +55,11 @@ public abstract class RecipeToggleGlassMixin {
                             + "drawGuiTexture(Lnet/minecraft/util/Identifier;IIII)V"))
     private void s1mp1e$glassToggle(DrawContext self, Identifier texture,
                                     int x, int y, int w, int h) {
+        // SF Symbols first (26.2 parity): the recipe-book page arrows become bare chevrons and the "craftable only"
+        // filter a glass pill with the filter glyph. This redirect replaces the sprite call, so SfIconMixin's
+        // drawGuiTexture hook never sees it — ask SfIcons directly.
+        if ("minecraft".equals(texture.getNamespace())
+                && dev.s1mp1e.glass.render.SfIcons.draw(self, texture.getPath(), x, y, w, h)) return;
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable()) {
             self.drawGuiTexture(texture, x, y, w, h);
             return;

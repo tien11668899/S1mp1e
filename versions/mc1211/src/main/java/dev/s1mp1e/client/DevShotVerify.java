@@ -76,7 +76,8 @@ final class DevShotVerify {
             String t = m.trim();
             if (t.equals("all") || t.equals("screens") || t.equals("tabs") || t.equals("lists") || t.equals("tooltips")
                     || t.equals("effects") || t.equals("hud") || t.equals("modules") || t.equals("flicker")
-                    || t.equals("combat")) return true;
+                    || t.equals("combat") || t.equals("newmenu") || t.equals("newanim") || t.equals("sodium") || t.equals("settings")
+                    || t.equals("trans") || t.equals("gap")) return true;
         }
         return false;
     }
@@ -160,6 +161,12 @@ final class DevShotVerify {
             case "modules":  buildModules();  break;
             case "flicker":  buildFlicker();  break;
             case "combat":   buildCombat();   break;
+            case "newmenu":  buildNewMenu();  break;
+            case "newanim":  buildNewAnim();  break;
+            case "sodium":   buildSodium();   break;
+            case "settings": buildSettings(); break;
+            case "trans":    buildTrans();    break;
+            case "gap":      buildGap();      break;
             default: say("unknown mode " + mode);
         }
         add(action(c -> { close(c); hx = hy = -1; }));
@@ -169,7 +176,7 @@ final class DevShotVerify {
     // ---- (A) screens -------------------------------------------------------------------------------------------
 
     private static void buildScreens() {
-        add(action(c -> { gamemode(c, GameMode.SURVIVAL); effectsGive(c); fillInventory(c); }));
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); effectsGive(c); fillInventory(c); cmd(c, "recipe give @a *"); }));
         add(waitMs(300));
         add(shot("scr-inventory", c -> open(c, new InventoryScreen(c.player)), 700));
         add(shot("scr-recipebook", c -> open(c, new InventoryScreen(c.player)), 900, DevShotVerify::openRecipeBook));
@@ -1079,6 +1086,16 @@ final class DevShotVerify {
         add(action(c -> { if (c.player != null) { c.player.resetLastAttackedTicks(); c.player.swingHand(net.minecraft.util.Hand.MAIN_HAND); } }));
         add(shot("combat-ring-a", null, 120));
         add(shot("combat-ring-b", null, 150));
+        // the sweep, frame by frame without capturing (a capture stalls the frame): the drawn progress must move
+        // EVERY frame; the per-tick value vanilla's indicator reads only moves 20 times a second
+        add(waitMs(900));
+        add((c, fr, ms) -> {
+            if (c.player == null) return true;
+            if (fr == 1) { c.player.resetLastAttackedTicks(); return false; }
+            say("ring f=" + fr + " t=" + fmt(ms) + "ms drawn=" + String.format("%.4f", dev.s1mp1e.client.module.AttackRingModule.lastProgress)
+                    + " tick=" + String.format("%.4f", c.player.getAttackCooldownProgress(0f)));
+            return fr >= 45 || c.player.getAttackCooldownProgress(0f) >= 1f;
+        });
         // ring stays full while aiming at a living target (sword: cooldown period 12.5 ticks > 5)
         add(action(c -> cmd(c, "execute as @p at @p rotated ~ 0 run summon minecraft:pig ^ ^ ^2.2 {NoAI:1b,Silent:1b,Health:100f,"
                 + "attributes:[{id:\"minecraft:generic.max_health\",base:100d}]}")));
@@ -1188,6 +1205,624 @@ final class DevShotVerify {
             if (((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")) != null) ((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")).shape.modeValue = "Circle";
         }));
         add(waitMs(300));
+    }
+
+    // ============================================================================================================
+    //  trans: the snapshot cross-dissolve (ScreenDissolve). Each transition = one "pre" still, then consecutive frames.
+    //  Offline measure: progress% = d(frame, pre) / d(last, pre); a hard cut reads 100 % on frame 00.
+    // ============================================================================================================
+
+    private static Scene still(final String name) {
+        return (c, fr, ms) -> { capture(c, name + ".png"); return true; };
+    }
+
+    private static void trans(String name, java.util.function.Consumer<MinecraftClient> kick) {
+        add(waitMs(650));
+        add(still(name + "-pre"));
+        add(burst(name, 9, kick, c -> "dissolve=" + dev.s1mp1e.glass.render.ScreenDissolve.active()));
+    }
+
+    private static void buildTrans() {
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); emptyHand(c); clearChat(c); clearToasts(c); }));
+        trans("tr0-game-pause", c -> c.setScreen(new net.minecraft.client.gui.screen.GameMenuScreen(true)));
+        trans("tr1-pause-options", c -> c.setScreen(
+                new net.minecraft.client.gui.screen.option.OptionsScreen(c.currentScreen, c.options)));
+        trans("tr2-options-video", c -> c.setScreen(
+                new net.minecraft.client.gui.screen.option.VideoOptionsScreen(c.currentScreen, c, c.options)));
+        trans("tr3-video-back", c -> { if (c.currentScreen != null) c.currentScreen.close(); });
+        trans("tr4-options-game", c -> c.setScreen(null));
+        trans("tr5-game-config", c -> c.setScreen(new S1mp1eConfigScreen()));
+        trans("tr6-config-game", c -> { if (c.currentScreen != null) c.currentScreen.close(); });
+        // in-screen content switches (onTabSwitch): creative category, advancement tab
+        add(action(DevShotVerify::openCreativeSearch));
+        trans("tr7-creative-tab", c -> selectTab(c, ItemGroups.getDefaultTab()));
+        add(action(c -> { close(c); gamemode(c, GameMode.SURVIVAL); cmd(c, "advancement grant @a everything"); }));
+        add(waitMs(900));
+        add(action(c -> { clearToasts(c); clearChat(c);
+            open(c, new net.minecraft.client.gui.screen.advancement.AdvancementsScreen(c.player.networkHandler.getAdvancementHandler())); }));
+        trans("tr8-advancement-tab", DevShotVerify::nextAdvancementTab);
+        add(action(c -> close(c)));
+        // create-world tabs (TabManager): the screen loads its data packs first
+        add(action(c -> { try { net.minecraft.client.gui.screen.world.CreateWorldScreen.create(c, null); }
+                          catch (Throwable t) { skip("create world screen", t); } }));
+        add(waitMs(5000));
+        trans("tr9-createworld-tab", c -> createWorldTab(c, 1));
+        trans("tr10-createworld-tab2", c -> createWorldTab(c, 2));
+        add(action(c -> close(c)));
+    }
+
+    /** Select a different advancement root tab than the current one (drives AdvancementsScreen.selectTab). */
+    private static void nextAdvancementTab(MinecraftClient c) {
+        try {
+            if (!(c.currentScreen instanceof net.minecraft.client.gui.screen.advancement.AdvancementsScreen s)) return;
+            Field tf = net.minecraft.client.gui.screen.advancement.AdvancementsScreen.class.getDeclaredField("tabs");
+            tf.setAccessible(true);
+            Field sf = net.minecraft.client.gui.screen.advancement.AdvancementsScreen.class.getDeclaredField("selectedTab");
+            sf.setAccessible(true);
+            java.util.Map<?, ?> tabs = (java.util.Map<?, ?>) tf.get(s);
+            Object cur = sf.get(s);
+            for (java.util.Map.Entry<?, ?> e : tabs.entrySet()) {
+                if (e.getValue() != cur) {
+                    c.player.networkHandler.getAdvancementHandler()
+                            .selectTab((net.minecraft.advancement.AdvancementEntry) e.getKey(), true);
+                    say("advancement tab -> " + e.getKey() + " of " + tabs.size());
+                    return;
+                }
+            }
+            say("advancement tabs: only " + tabs.size());
+        } catch (Throwable t) { skip("next advancement tab", t); }
+    }
+
+    /** Select tab {@code index} of the open CreateWorldScreen through its TabNavigationWidget. */
+    private static void createWorldTab(MinecraftClient c, int index) {
+        try {
+            if (c.currentScreen == null) return;
+            for (Field fd : c.currentScreen.getClass().getDeclaredFields()) {
+                if (net.minecraft.client.gui.widget.TabNavigationWidget.class.isAssignableFrom(fd.getType())) {
+                    fd.setAccessible(true);
+                    net.minecraft.client.gui.widget.TabNavigationWidget nav =
+                            (net.minecraft.client.gui.widget.TabNavigationWidget) fd.get(c.currentScreen);
+                    if (nav != null) nav.selectTab(index, false);
+                    say("create-world tab " + index + " on " + c.currentScreen.getClass().getSimpleName());
+                    return;
+                }
+            }
+            say("no TabNavigationWidget on " + c.currentScreen.getClass().getSimpleName());
+        } catch (Throwable t) { skip("create world tab", t); }
+    }
+
+    // ============================================================================================================
+    //  gap: the second-pass ports (filled in as each lands)
+    // ============================================================================================================
+
+    private static void buildGap() {
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); emptyHand(c); clearChat(c); clearToasts(c); lookDown(c, 20f); }));
+        add(waitMs(500));
+
+        // (1) cycle-button value roll + press pulse: a REAL click on the Options screen's difficulty button
+        add(action(c -> open(c, new net.minecraft.client.gui.screen.option.OptionsScreen(
+                new net.minecraft.client.gui.screen.GameMenuScreen(true), c.options))));
+        add(waitMs(800));
+        add(still("gp-cycle-pre"));
+        add(burst("gp-cycle", 9, DevShotVerify::clickCycleButton, null));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+
+        // (2) waiting screen (TaskScreen) glass card: dots -> liquid loader, then the result variant with a description
+        add(shot("gp-task-waiting", c -> open(c, net.minecraft.client.gui.screen.TaskScreen.createRunningScreen(
+                Text.literal("正在準備世界"), Text.literal("取消"), () -> { })), 900));
+        add(shot("gp-task-result", c -> open(c, net.minecraft.client.gui.screen.TaskScreen.createResultScreen(
+                Text.literal("備份完成"), Text.literal("世界已備份到 backups 資料夾，共 128 MB。"), Text.literal("完成"), () -> { })), 900));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+
+        // (3) SF Symbols: a gallery of every mapped sprite (top row vanilla, bottom row replaced) + real checkboxes
+        add(shot("gp-sf-gallery", c -> open(c, sfGallery()), 900));
+        add(shot("gp-sf-gallery-hover", null, 500, c -> { hx = 60 + 8; hy = 150 + 8; }));
+        add(action(c -> { close(c); hx = hy = -1; }));
+        add(waitMs(400));
+        // ...and in place: the recipe book (page arrows + filter)
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); cmd(c, "recipe give @a *"); fillInventory(c); }));
+        add(waitMs(500));
+        add(action(c -> open(c, new InventoryScreen(c.player))));
+        add(waitMs(500));
+        // the book slides out from behind the inventory, and back under it on close (RecipeBookSlide)
+        add(still("gp-rb-pre"));
+        add(burst("gp-rb-open", 12, DevShotVerify::openRecipeBook, null));
+        add(shot("gp-sf-recipebook", null, 700));
+        add(burst("gp-rb-close", 12, DevShotVerify::toggleRecipeBook, null));
+        add(waitMs(300));
+        add(action(c -> { closeRecipeBook(c); close(c); }));
+        add(waitMs(400));
+
+        // (4) command suggestions: fade/rise in, gliding highlight, fade out
+        add(action(c -> open(c, new net.minecraft.client.gui.screen.ChatScreen(""))));
+        add(waitMs(500));
+        add(still("gp-sugg-pre"));
+        add(burst("gp-sugg-in", 9, c -> { net.minecraft.client.gui.widget.TextFieldWidget tf = chatField(c); if (tf != null) tf.setText("/ga"); }, null));
+        add(waitMs(400));
+        add(burst("gp-sugg-move", 8, c -> { if (c.currentScreen != null) c.currentScreen.keyPressed(264, 0, 0); }, null));
+        add(waitMs(300));
+        add(burst("gp-sugg-out", 9, c -> { net.minecraft.client.gui.widget.TextFieldWidget tf = chatField(c); if (tf != null) tf.setText(""); }, null));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+
+        // (5) list entries arriving later cascade in: the world list loads its saves asynchronously
+        add(burst("gp-worldlist", 26, c -> open(c, new net.minecraft.client.gui.screen.world.SelectWorldScreen(
+                new net.minecraft.client.gui.screen.TitleScreen())), null));
+        add(shot("gp-worldlist-hover", null, 700, DevShotVerify::hoverWorldEntry));
+        add(action(c -> { close(c); hx = hy = -1; }));
+        add(waitMs(400));
+
+        // (6) server list: the ping result (here: unreachable) fades/rises in
+        add(action(c -> {
+            try {
+                net.minecraft.client.option.ServerList sl = new net.minecraft.client.option.ServerList(c);
+                sl.loadFile();
+                if (sl.size() == 0) {
+                    sl.add(new net.minecraft.client.network.ServerInfo("S1mp1e 測試伺服器", "127.0.0.1:1",
+                            net.minecraft.client.network.ServerInfo.ServerType.OTHER), false);
+                    sl.saveFile();
+                }
+            } catch (Throwable t) { skip("server list", t); }
+        }));
+        add(burst("gp-serverlist", 40, c -> open(c, new net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen(
+                new net.minecraft.client.gui.screen.TitleScreen())), c -> "t"));
+        add(shot("gp-serverlist-hover", null, 600, c -> { hx = c.getWindow().getScaledWidth() / 2.0 - 120; hy = 52; }));
+        add(action(c -> { close(c); hx = hy = -1; }));
+        add(waitMs(400));
+
+        // (7) connect screen card (constructed, never connects) — previously unverified
+        add(shot("gp-connect", c -> {
+            try {
+                java.lang.reflect.Constructor<net.minecraft.client.gui.screen.multiplayer.ConnectScreen> k =
+                        net.minecraft.client.gui.screen.multiplayer.ConnectScreen.class.getDeclaredConstructor(Screen.class, Text.class);
+                k.setAccessible(true);
+                open(c, k.newInstance(new net.minecraft.client.gui.screen.TitleScreen(), Text.literal("連線失敗")));
+            } catch (Throwable t) { skip("connect screen", t); }
+        }, 900));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+
+        // (8) sign typing — previously unverified
+        add(action(c -> {
+            try {
+                net.minecraft.block.entity.SignBlockEntity be = new net.minecraft.block.entity.SignBlockEntity(
+                        c.player.getBlockPos(), net.minecraft.block.Blocks.OAK_SIGN.getDefaultState());
+                be.setWorld(c.world);
+                open(c, new net.minecraft.client.gui.screen.ingame.SignEditScreen(be, true, false));
+            } catch (Throwable t) { skip("sign screen", t); }
+        }));
+        add(waitMs(600));
+        add(typeScreen("gp-sign", "S1mp1e 玻璃"));
+        add(shot("gp-sign-settled", null, 500));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+
+        // (8b) book & quill: per-glyph typing with word wrap (BookEditTypingMixin)
+        add(action(DevShotVerify::openBookEdit));
+        add(waitMs(700));
+        add(still("gp-book-pre"));
+        add(typeScreen("gp-book", "Liquid glass 液態玻璃 types like this, wrapping words"));
+        add(shot("gp-book-settled", null, 500));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+
+        // (9) item flight (shift-click in a chest) — previously unverified. Empty inventory (room to land in) and make
+        //     the locally built handler the player's current one, or clickSlot ignores the click (mismatching container).
+        add(action(c -> cmd(c, "clear @a")));
+        add(waitMs(500));
+        add(action(c -> { openChest(c);
+            if (c.currentScreen instanceof HandledScreen<?> s) c.player.currentScreenHandler = s.getScreenHandler(); }));
+        add(waitMs(600));
+        add(still("gp-flight-pre"));
+        add(burst("gp-flight", 10, DevShotVerify::quickMoveFirstSlot, null));
+        add(action(c -> close(c)));
+        add(waitMs(500));
+
+        // (10) health trail — previously unverified
+        add(action(c -> cmd(c, "effect give @a minecraft:instant_health 1 4 true")));
+        add(waitMs(600));
+        add(still("gp-health-pre"));
+        add(burst("gp-health", 22, c -> { try { sp(c).setHealth(13f); } catch (Throwable t) { skip("set health", t); } },
+                c -> "client hp=" + c.player.getHealth() + " server hp=" + (sp(c) == null ? -1f : sp(c).getHealth())
+                        + " paused=" + c.isPaused() + " gm=" + c.interactionManager.getCurrentGameMode()));
+        add(waitMs(600));
+        add(action(c -> cmd(c, "effect give @a minecraft:instant_health 1 9 true")));
+        add(waitMs(400));
+
+        // (11) tab list: fade in on press, fade OUT on release (was too fast to see)
+        add(still("gp-tablist-pre"));
+        add(burst("gp-tablist-in", 8, DevShotVerify::tablistShow, null));
+        add(waitMs(500));
+        // release the key only: removing the fake entries too would take a single-player list below vanilla's
+        // "more than one player" condition, and it would vanish in one frame for a reason unrelated to the fade
+        add(burst("gp-tablist-out", 10, c -> c.options.playerListKey.setPressed(false), null));
+        add(waitMs(400));
+        add(action(DevShotVerify::tablistHide));
+        add(waitMs(200));
+    }
+
+    /** Press the recipe-book button of the open inventory (toggles the book either way). */
+    private static void toggleRecipeBook(MinecraftClient c) {
+        try {
+            if (!(c.currentScreen instanceof InventoryScreen s)) return;
+            for (net.minecraft.client.gui.Element e : s.children()) {
+                if (e instanceof net.minecraft.client.gui.widget.TexturedButtonWidget b) { b.onPress(); break; }
+            }
+        } catch (Throwable t) { skip("toggle recipe book", t); }
+    }
+
+    /** A real left click on the first cycle button of the open screen (drives PressPulse + the value roll). */
+    private static void clickCycleButton(MinecraftClient c) {
+        try {
+            if (c.currentScreen == null) return;
+            for (net.minecraft.client.gui.Element e : c.currentScreen.children()) {
+                if (e instanceof net.minecraft.client.gui.widget.CyclingButtonWidget<?> b) {
+                    double mx = b.getX() + b.getWidth() / 2.0, my = b.getY() + b.getHeight() / 2.0;
+                    c.currentScreen.mouseClicked(mx, my, 0);
+                    c.currentScreen.mouseReleased(mx, my, 0);
+                    say("cycle click " + b.getMessage().getString());
+                    return;
+                }
+            }
+            say("no cycle button on " + c.currentScreen.getClass().getSimpleName());
+        } catch (Throwable t) { skip("cycle click", t); }
+    }
+
+    /** Type one char per frame into the open screen through charTyped, capturing each frame. */
+    private static Scene typeScreen(final String name, final String text) {
+        return (c, fr, ms) -> {
+            int idx = fr - 1;
+            if (c.currentScreen == null) return true;
+            if (idx >= 0 && idx < text.length()) {
+                try { c.currentScreen.charTyped(text.charAt(idx), 0); } catch (Throwable t) { skip("type " + name, t); }
+                capture(c, String.format("%s-%02d.png", name, idx));
+                return false;
+            }
+            return true;
+        };
+    }
+
+    /** Shift-click (QUICK_MOVE) the first container slot of the open handled screen. */
+    private static void quickMoveFirstSlot(MinecraftClient c) {
+        try {
+            if (!(c.currentScreen instanceof HandledScreen<?> s)) return;
+            Method m = HandledScreen.class.getDeclaredMethod("onMouseClick", net.minecraft.screen.slot.Slot.class,
+                    int.class, int.class, net.minecraft.screen.slot.SlotActionType.class);
+            m.setAccessible(true);
+            net.minecraft.screen.slot.Slot slot = s.getScreenHandler().getSlot(13);
+            m.invoke(s, slot, slot.id, 0, net.minecraft.screen.slot.SlotActionType.QUICK_MOVE);
+            say("quick move slot 13");
+        } catch (Throwable t) { skip("quick move", t); }
+    }
+
+    /** Every sprite SfIcons maps: top row drawn as vanilla (devBypass), bottom row replaced; plus two real checkboxes. */
+    private static Screen sfGallery() {
+        final String[][] items = {
+                {"recipe_book/page_backward", "12", "17"}, {"recipe_book/page_forward", "12", "17"},
+                {"recipe_book/filter_disabled", "26", "16"}, {"recipe_book/filter_enabled", "26", "16"},
+                {"widget/page_backward", "23", "13"}, {"widget/page_forward", "23", "13"},
+                {"container/beacon/confirm", "18", "18"}, {"container/beacon/cancel", "18", "18"},
+                {"icon/checkmark", "9", "8"},
+                {"server_list/join", "32", "32"}, {"world_list/join", "32", "32"}, {"world_list/marked_join", "32", "32"},
+                {"world_list/warning", "32", "32"}, {"world_list/error", "32", "32"},
+                {"server_list/move_up", "32", "32"}, {"server_list/move_down", "32", "32"},
+                {"transferable_list/move_up", "32", "32"}, {"transferable_list/move_down", "32", "32"},
+                {"statistics/sort_up", "18", "18"}, {"statistics/sort_down", "18", "18"},
+                {"spectator/scroll_left", "16", "16"}, {"spectator/scroll_right", "16", "16"}, {"spectator/close", "16", "16"},
+                {"widget/checkbox", "17", "17"}, {"widget/checkbox_selected", "17", "17"},
+                {"widget/cross_button", "14", "14"},
+        };
+        return new Screen(Text.literal("SF Symbols")) {
+            @Override protected void init() {
+                addDrawableChild(net.minecraft.client.gui.widget.CheckboxWidget.builder(Text.literal("未勾選"), this.textRenderer)
+                        .pos(60, 150).checked(false).build());
+                addDrawableChild(net.minecraft.client.gui.widget.CheckboxWidget.builder(Text.literal("已勾選"), this.textRenderer)
+                        .pos(160, 150).checked(true).build());
+            }
+            @Override public void render(net.minecraft.client.gui.DrawContext ctx, int mx, int my, float delta) {
+                super.render(ctx, mx, my, delta);
+                for (int row = 0; row < 2; row++) {
+                    dev.s1mp1e.glass.render.SfIcons.devBypass = row == 0;
+                    int x = 20, y = 40 + row * 50;
+                    for (String[] it : items) {
+                        int w = Integer.parseInt(it[1]), h = Integer.parseInt(it[2]);
+                        try { ctx.drawGuiTexture(net.minecraft.util.Identifier.ofVanilla(it[0]), x, y, w, h); }
+                        catch (Throwable t) { /* sprite missing in this version */ }
+                        x += w + 6;
+                    }
+                    ctx.draw();
+                }
+                dev.s1mp1e.glass.render.SfIcons.devBypass = false;
+            }
+        };
+    }
+
+    // ============================================================================================================
+    //  newmenu (Package B/C): loading-status glass cards + LiquidLoader, world-list dark scrim, smooth menu scroll
+    // ============================================================================================================
+
+    private static void buildNewMenu() {
+        // (B) ProgressScreen — determinate: title + task/percent line + LiquidLoader (fills to progress/100)
+        add(shot("nm-progress-determinate", c -> {
+            net.minecraft.client.gui.screen.ProgressScreen ps = new net.minecraft.client.gui.screen.ProgressScreen(false);
+            open(c, ps);
+            ps.setTitle(Text.literal("正在儲存世界"));
+            ps.setTask(Text.literal("寫入區塊 12,480 / 27,700"));
+            ps.progressStagePercentage(45);
+        }, 900));
+        // (B) ProgressScreen — indeterminate sweep: title only, no percent line -> LiquidLoader sweeps
+        add(action(c -> {
+            net.minecraft.client.gui.screen.ProgressScreen ps = new net.minecraft.client.gui.screen.ProgressScreen(false);
+            open(c, ps);
+            ps.setTitle(Text.literal("正在準備資源"));
+        }));
+        add(waitMs(500));
+        add(burst("nm-progress-indeterminate", 6, null, null));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+        // (C) world-list dark hover scrim (WorldEntryScrimMixin): open the select-world list, hover the first entry
+        add(action(c -> open(c, new net.minecraft.client.gui.screen.world.SelectWorldScreen(new net.minecraft.client.gui.screen.TitleScreen()))));
+        add(waitMs(1600));   // the WorldListWidget loads its saves asynchronously
+        add(shot("nm-worldlist-hover", null, 800, DevShotVerify::hoverWorldEntry));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+        // (C) smooth eased wheel scroll on a long menu list (ListMotionMixin): the key-binds list
+        add(action(c -> open(c, new net.minecraft.client.gui.screen.option.KeybindsScreen(new net.minecraft.client.gui.screen.TitleScreen(), c.options))));
+        add(waitMs(700));
+        add(shot("nm-keybinds-rest", null, 500));
+        add(burst("nm-keybinds-scroll", 10, DevShotVerify::wheelMenuList, null));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+    }
+
+    /** Hover the centre of the first world-list entry (GUI coords) so the dark hover scrim draws. */
+    private static void hoverWorldEntry(MinecraftClient c) {
+        // WorldListWidget centres on the screen; the first row sits a little below the search box (~y 55, row h 36).
+        hx = c.getWindow().getScaledWidth() / 2.0;
+        hy = 72;
+    }
+
+    /** One wheel notch down over the centre of whatever menu list is on screen (ListMotionMixin eases it). */
+    private static void wheelMenuList(MinecraftClient c) {
+        try {
+            double mx = c.getWindow().getScaledWidth() / 2.0, my = c.getWindow().getScaledHeight() / 2.0;
+            if (c.currentScreen != null) c.currentScreen.mouseScrolled(mx, my, 0.0, -1.0);
+        } catch (Throwable t) { skip("wheel menu list", t); }
+    }
+
+    // ============================================================================================================
+    //  newanim (Package D/E): typing, chat arrival/close, tab-list & scoreboard & boss fades, health trail, recipe book
+    // ============================================================================================================
+
+    private static void buildNewAnim() {
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); lookDown(c, 20f); emptyHand(c); clearChat(c); clearToasts(c); }));
+        add(waitMs(600));
+        // (D) per-glyph typing in the chat input (EditBoxTypingMixin): type one glyph per frame, capture each
+        add(action(c -> open(c, new net.minecraft.client.gui.screen.ChatScreen(""))));
+        add(waitMs(300));
+        add(typeChat("S1mp1e 液態玻璃輸入"));
+        add(action(c -> close(c)));
+        add(waitMs(400));
+        // (D) chat arrival: new lines rise / old lines glide up as they are appended
+        add(action(c -> { clearChat(c);
+            cmd(c, "tellraw @a \"[S1mp1e] 液態玻璃聊天面板\"");
+            cmd(c, "tellraw @a \"<Steve> new lines rise from the bottom\""); }));
+        add(waitMs(200));
+        add(burst("na-chat-arrival", 8, c -> {
+            cmd(c, "tellraw @a \"<Alex> older lines glide up as this one arrives\""); }, null));
+        add(action(c -> clearChat(c)));
+        add(waitMs(400));
+        // (D) tab list fade IN on press, then fade OUT on release (TabListGateMixin holds render through the fade)
+        add(burst("na-tablist-in", 8, DevShotVerify::tablistShow, null));
+        add(shot("na-tablist-settled", null, 500));
+        add(burst("na-tablist-out", 8, DevShotVerify::tablistHide, null));
+        add(waitMs(400));
+        // (D) scoreboard sidebar fade in, then fade out (ScoreboardGlassMixin)
+        add(burst("na-scoreboard-in", 8, c -> {
+            cmd(c, "scoreboard objectives add s1side dummy \"側邊玻璃記分板\"");
+            cmd(c, "scoreboard objectives setdisplay sidebar s1side");
+            cmd(c, "scoreboard players set 液態玻璃 s1side 256");
+            cmd(c, "scoreboard players set Alex s1side 128");
+            cmd(c, "scoreboard players set Steve s1side 64");
+            cmd(c, "scoreboard players set Glassmith s1side 32"); }, null));
+        add(shot("na-scoreboard-settled", null, 500));
+        add(burst("na-scoreboard-out", 8, c -> cmd(c, "scoreboard objectives remove s1side"), null));
+        add(waitMs(400));
+        // (D) boss bar appear, then removal ghost fade (BossOverlayGhostMixin)
+        add(burst("na-boss-in", 8, c -> {
+            cmd(c, "bossbar add s1mp1e:d \"末影龍\"");
+            cmd(c, "bossbar set s1mp1e:d color blue");
+            cmd(c, "bossbar set s1mp1e:d value 68");
+            cmd(c, "bossbar set s1mp1e:d players @a"); }, null));
+        add(shot("na-boss-settled", null, 500));
+        add(burst("na-boss-out", 8, c -> cmd(c, "bossbar remove s1mp1e:d"), null));
+        add(waitMs(400));
+        // (E) health trail: full health -> take damage -> the just-lost hearts linger white then drain (HeartTrailMixin)
+        add(action(c -> { cmd(c, "effect give @a minecraft:instant_health 1 4 true"); }));
+        add(waitMs(500));
+        add(burst("na-health-trail", 10, c -> cmd(c, "damage @p 7"), null));
+        add(waitMs(600));
+        add(action(c -> cmd(c, "effect give @a minecraft:instant_health 1 9 true")));
+        add(waitMs(400));
+        // (E) recipe-book open: whole-inventory glide + panel/tab fade + result cascade (RecipeBookInvGlideMixin/RecipeCascadeMixin)
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); cmd(c, "recipe give @a *"); fillInventory(c); }));
+        add(waitMs(500));
+        add(action(c -> open(c, new InventoryScreen(c.player))));
+        add(waitMs(500));
+        add(burst("na-recipebook-open", 12, DevShotVerify::openRecipeBook, null));
+        add(shot("na-recipebook-settled", null, 700));
+        add(action(c -> { closeRecipeBook(c); close(c); }));
+        add(waitMs(400));
+    }
+
+    /** Type {@code text} into the open ChatScreen's field one glyph per frame, capturing each frame so the per-glyph
+     *  entrance animation (blur -> sharp + rise, glass caret) is visible frame by frame. */
+    private static Scene typeChat(final String text) {
+        return (c, fr, ms) -> {
+            net.minecraft.client.gui.widget.TextFieldWidget tf = chatField(c);
+            int idx = fr - 1;
+            if (tf == null) return idx >= text.length();
+            if (idx >= 0 && idx < text.length()) {
+                try { tf.write(String.valueOf(text.charAt(idx))); } catch (Throwable t) { skip("type", t); }
+                capture(c, String.format("na-chattype-%02d.png", idx));
+                return false;
+            }
+            return true;
+        };
+    }
+
+    private static net.minecraft.client.gui.widget.TextFieldWidget chatField(MinecraftClient c) {
+        try {
+            if (!(c.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen)) return null;
+            Field f = net.minecraft.client.gui.screen.ChatScreen.class.getDeclaredField("chatField");
+            f.setAccessible(true);
+            return (net.minecraft.client.gui.widget.TextFieldWidget) f.get(c.currentScreen);
+        } catch (Throwable t) { return null; }
+    }
+
+    // ============================================================================================================
+    //  sodium (Package F): liquid-glass restyle of Sodium's own Video Settings screen (only when the Sodium mod loads)
+    // ============================================================================================================
+
+    private static void buildSodium() {
+        // In-world: the glass cards refract the blurred world. Geometry = SodiumGlass's grid (M 16, TOP 19, rows 18).
+        add(action(c -> { gamemode(c, GameMode.CREATIVE); lookDown(c, 18f); }));
+        add(waitMs(500));
+        add(shot("sd-open", DevShotVerify::openSodiumOptions, 1400));
+        // hover the first row (a slider): the slider slides out, the value moves aside, then the description card
+        add(burst("sd-slider-in", 8, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 47 + 9; }, null));
+        add(shot("sd-hover-slider", null, 1100));
+        // a boolean row + its description
+        add(shot("sd-hover-bool", null, 1100, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 47 + 54 + 8 + 18 + 9; }));
+        add(drag("sd-drag", 500, 560, 47 + 9, 12));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() - 16 - 3 * 65 - 16 + 30, c.getWindow().getScaledHeight() - 29)));
+        add(waitMs(400));
+        // flip a switch (group 3, row 1): the knob travels, the label goes italic, Undo appears, Done dims
+        add(burst("sd-toggle", 10, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, 47 + 54 + 8 + 90 + 8 + 9), null));
+        add(shot("sd-changed", null, 700, c -> { hx = 30; hy = 300; }));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() - 16 - 3 * 65 - 16 + 30, c.getWindow().getScaledHeight() - 29)));
+        add(shot("sd-undone", null, 600));
+        // the next page: the capsule slides, the rows cascade in
+        add(burst("sd-page", 12, c -> sodiumClick(c, 60, 47 + 20 + 18 + 9), null));
+        add(shot("sd-page2", null, 900));
+        add(burst("sd-roll", 12, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, 47 + 9), null));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() - 16 - 3 * 65 - 16 + 30, c.getWindow().getScaledHeight() - 29)));
+        add(waitMs(400));
+        add(shot("sd-page3", c -> sodiumClick(c, 60, 47 + 20 + 36 + 9), 900));
+        add(shot("sd-page4", c -> sodiumClick(c, 60, 47 + 20 + 54 + 9), 900));
+        // a short window: the page no longer fits and scrolls
+        add(action(c -> { DevShot.setTarget(854, 480); }));
+        add(waitMs(600));
+        add(shot("sd-small", c -> sodiumClick(c, 60, 47 + 20 + 18 + 9), 900));
+        add(shot("sd-small-scrolled", c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 100;
+            if (c.currentScreen != null) c.currentScreen.mouseScrolled(hx, hy, 0, -3); }, 900));
+        add(action(c -> { close(c); hx = hy = -1; DevShot.setTarget(1280, 720); }));
+        add(waitMs(600));
+    }
+
+    // ---- settings shell: every vanilla settings page in the Video Settings layout ---------------------------------
+
+    /** Click the {@code i}-th sidebar entry (0 = General) of the settings shell: M 16 + pad 4, rows of 18 from 47 + 4. */
+    private static void shellTab(MinecraftClient c, int i) { sodiumClick(c, 60, 47 + 4 + i * 18 + 9); }
+
+    private static double shellRowY(int i) { return 47 + i * 18 + 9; }
+
+    private static void buildSettings() {
+        add(action(c -> { gamemode(c, GameMode.CREATIVE); lookDown(c, 18f); }));
+        add(waitMs(500));
+        add(shot("st-main", c -> open(c, new net.minecraft.client.gui.screen.option.OptionsScreen(
+                new net.minecraft.client.gui.screen.GameMenuScreen(true), c.options)), 1300));
+        add(burst("st-main-slider", 8, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = shellRowY(0); }, null));
+        add(shot("st-main-hover", null, 900));
+        add(burst("st-to-sound", 10, c -> shellTab(c, 2), null));
+        add(shot("st-sound", null, 900, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = shellRowY(0); }));
+        add(drag("st-drag", 570, 486, shellRowY(0), 14));
+        add(drag("st-drag-back", 486, 540, shellRowY(0), 8));
+        add(shot("st-skin", c -> shellTab(c, 1), 900));
+        add(burst("st-roll", 12, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(7)), null));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(7))));
+        add(waitMs(400));
+        add(burst("st-skin-toggle", 10, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(0)), null));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(0))));
+        add(shot("st-controls", c -> shellTab(c, 4), 900));
+        add(shot("st-mouse", c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(0)), 900));
+        add(action(c -> shellTab(c, 0)));
+        add(waitMs(500));
+        add(action(c -> shellTab(c, 4)));
+        add(waitMs(500));
+        add(shot("st-keys", c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(1)), 1000));
+        add(shot("st-language", c -> shellTab(c, 5), 1000));
+        add(shot("st-chat", c -> shellTab(c, 6), 900));
+        add(shot("st-access", c -> shellTab(c, 8), 900));
+        add(shot("st-access-scrolled", c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 150;
+            if (c.currentScreen != null) c.currentScreen.mouseScrolled(hx, hy, 0, -4); }, 1100));
+        add(shot("st-access-tooltip", null, 1600, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = shellRowY(3); }));
+        add(shot("st-general-back", c -> shellTab(c, 0), 900));
+        add(action(c -> { DevShot.setTarget(854, 480); }));
+        add(waitMs(600));
+        add(shot("st-small", c -> shellTab(c, 6), 900));
+        add(action(c -> { close(c); hx = hy = -1; DevShot.setTarget(1280, 720); }));
+        add(waitMs(600));
+    }
+
+    /** A scripted slider drag: press at (xa, y), move to xb over {@code n} frames (one capture each), release, settle. */
+    private static Scene drag(final String name, final double xa, final double xb, final double y, final int n) {
+        return (c, fr, ms) -> {
+            Screen s = c.currentScreen;
+            if (s == null) return true;
+            if (fr == 1) { hx = xa; hy = y; return false; }
+            if (fr < 4) return false;
+            if (fr == 4) { dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown = true; s.mouseClicked(xa, y, 0); return false; }
+            int k = fr - 5;
+            if (k < n) {
+                double x = xa + (xb - xa) * (k + 1) / n;
+                hx = x;
+                s.mouseDragged(x, y, 0, 0, 0);
+                capture(c, String.format("%s-%02d.png", name, k));
+                say("drag " + name + " " + k + " x=" + fmt(x));
+                return false;
+            }
+            if (k == n) { s.mouseReleased(xb, y, 0); dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown = false; return false; }
+            if (k <= n + 8) { capture(c, String.format("%s-r%02d.png", name, k - n)); return false; }
+            return true;
+        };
+    }
+
+    private static void sodiumClick(MinecraftClient c, double x, double y) {
+        try {
+            Screen s = c.currentScreen;
+            if (s == null) return;
+            hx = x; hy = y;
+            s.mouseClicked(x, y, 0);
+            s.mouseReleased(x, y, 0);
+        } catch (Throwable t) { skip("sodium click", t); }
+    }
+
+    /** Open Sodium's own options screen via its public factory ({@code SodiumOptionsGUI.createScreen(Screen)}), by
+     *  reflection so there is no compile/runtime dependency on Sodium. No-op (skip) when Sodium is not present. */
+    static void openSodiumOptions(MinecraftClient c) {
+        try {
+            Class<?> gui = Class.forName("net.caffeinemc.mods.sodium.client.gui.SodiumOptionsGUI");
+            Screen prev = new net.minecraft.client.gui.screen.TitleScreen();
+            Screen s = null;
+            for (Method m : gui.getMethods()) {
+                if (m.getName().equals("createScreen") && m.getParameterCount() == 1) { s = (Screen) m.invoke(null, prev); break; }
+            }
+            if (s != null) c.setScreen(s); else say("sodium createScreen not found");
+        } catch (Throwable t) { skip("open sodium options", t); }
+    }
+
+    /** Click a tab in the Sodium options tab row (top-left) to move to the next page. Best-effort; guarded. */
+    private static void sodiumNextPage(MinecraftClient c) {
+        try {
+            Screen s = c.currentScreen;
+            if (s == null) return;
+            // Sodium's page tabs are FlatButtonWidget rows near the top-left; click a little below the first tab.
+            s.mouseClicked(40, 55, 0);
+            s.mouseReleased(40, 55, 0);
+        } catch (Throwable t) { skip("sodium next page", t); }
     }
 
     private static ServerPlayerEntity sp(MinecraftClient c) {

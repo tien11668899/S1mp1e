@@ -15,12 +15,26 @@ public final class ScreenOpenFade {
     private static final float DURATION_S = 0.15f;
     private static Object screen;
     private static long start;
+    /** While {@code nanoTime < holdUntil} a screen cross-dissolve covers the switch: report fully open. */
+    private static long holdUntil;
 
     /** @param currentScreen the open screen (identity-compared), or null in-world */
     public static float value(Object currentScreen) {
         long now = System.nanoTime();
-        if (currentScreen != screen) { screen = currentScreen; start = now; }
+        if (currentScreen != screen) { screen = currentScreen; start = now; }   // keep the clock even while held
+        if (now < holdUntil) return 1f;
         float t = (now - start) / 1.0e9f / DURATION_S;
         return t <= 0f ? 0f : (t >= 1f ? 1f : t);
     }
+
+    /**
+     * A snapshot cross-dissolve ({@code ScreenDissolve}) is fading the outgoing screen over the incoming one until
+     * {@code nanoTime}: the incoming screen must be complete underneath from its first frame (else its labels show
+     * before its glass widgets), so the open fade reads 1 until then. {@code 0} releases it. The clock above keeps
+     * running, so nothing restarts afterwards.
+     */
+    public static void holdUntil(long nanoTime) { holdUntil = nanoTime; }
+
+    /** True while a screen cross-dissolve is covering the switch (see {@link #holdUntil}). */
+    public static boolean held() { return System.nanoTime() < holdUntil; }
 }

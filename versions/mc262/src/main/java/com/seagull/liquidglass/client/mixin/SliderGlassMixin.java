@@ -33,7 +33,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * during a drag would leave it stuck and later presses anywhere would paint this slider as held.
  */
 @Mixin({AbstractSliderButton.class})
-public abstract class SliderGlassMixin {
+public abstract class SliderGlassMixin implements dev.s1mp1e.client.gui.SettingsShell.SliderAccess {
    @Shadow
    protected double value;
    @Unique
@@ -42,6 +42,42 @@ public abstract class SliderGlassMixin {
    private boolean lg$skinned;
    @Unique
    private boolean lg$held;
+   @Unique
+   private boolean lg$rowMode;
+
+   @Override
+   public double s1mp1e$value() {
+      return this.value;
+   }
+
+   @Override
+   public boolean s1mp1e$held() {
+      if (!this.lg$held) return false;
+      Minecraft mc = Minecraft.getInstance();
+      if (GLFW.glfwGetMouseButton(mc.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS
+            && !VanillaSliderSkin.devMouseDown) {
+         this.lg$held = false;
+      }
+      return this.lg$held;
+   }
+
+   /** A settings-page row paints this slider as the config-menu slider on the given track. */
+   @Override
+   public void s1mp1e$paintRow(GuiGraphicsExtractor g, float tx0, float tx1, float cy, float alpha) {
+      Minecraft mc = Minecraft.getInstance();
+      AbstractSliderButton self = (AbstractSliderButton)(Object)this;
+      if (this.lg$skin == null) {
+         this.lg$skin = new VanillaSliderSkin();
+      }
+      boolean down = GLFW.glfwGetMouseButton(mc.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS
+            || VanillaSliderSkin.devMouseDown;
+      if (!down || (!this.lg$rowMode && this.lg$skin.paintGap())) {
+         this.lg$held = false;
+      }
+      double pointerX = mc.mouseHandler.getScaledXPos(mc.getWindow());
+      this.lg$skin.paintRow(g, tx0, tx1, cy, this.value, this.lg$held, pointerX, self.active, alpha);
+      this.lg$rowMode = true;
+   }
 
    @Shadow
    protected abstract void setValue(double value);
@@ -49,6 +85,9 @@ public abstract class SliderGlassMixin {
    @Inject(method = {"onClick"}, at = @At("HEAD"))
    private void lg$press(MouseButtonEvent event, boolean doubleClick, CallbackInfo ci) {
       this.lg$held = ((AbstractSliderButton)(Object)this).active;
+      if (this.lg$rowMode && this.lg$skin != null) {
+         this.lg$skin.rowPress(event.x());
+      }
    }
 
    @Inject(method = {"onRelease"}, at = @At("HEAD"))
@@ -59,7 +98,10 @@ public abstract class SliderGlassMixin {
    /** Mouse → value on the skin's knob travel (vanilla maps onto its own 8 px handle travel). */
    @Inject(method = {"setValueFromMouse"}, at = @At("HEAD"), cancellable = true)
    private void lg$mapToSkin(MouseButtonEvent event, CallbackInfo ci) {
-      if (this.lg$skinned) {
+      if (this.lg$rowMode && this.lg$skin != null) {     // a settings-page row: its own track and grab offset
+         this.setValue(this.lg$skin.rowValueAt(event.x()));
+         ci.cancel();
+      } else if (this.lg$skinned) {
          AbstractSliderButton self = (AbstractSliderButton)(Object)this;
          this.setValue(VanillaSliderSkin.valueAt(event.x(), self.getX(), self.getWidth()));
          ci.cancel();
@@ -83,6 +125,7 @@ public abstract class SliderGlassMixin {
          return;
       }
       this.lg$skinned = false;
+      this.lg$rowMode = false;
       if (!GlassPipeline.ensureReady() || !GlassPipeline.btnUsable() || !VanillaSliderSkin.fits(w, h)) {
          g.blitSprite(pipeline, sprite, x, y, w, h, tint);
          return;

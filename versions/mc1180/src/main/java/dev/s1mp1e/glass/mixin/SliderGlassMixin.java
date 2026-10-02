@@ -41,7 +41,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * no {@code Text.empty()} static factory, so the never-run private ctor supplies {@code LiteralText.EMPTY}.
  */
 @Mixin(SliderWidget.class)
-public abstract class SliderGlassMixin extends ClickableWidget implements GlassSliderHook {
+public abstract class SliderGlassMixin extends ClickableWidget
+        implements GlassSliderHook, dev.s1mp1e.client.gui.SettingsShell.SliderAccess {
 
     @Shadow protected double value;
     @Shadow private void setValue(double value) {}
@@ -52,6 +53,25 @@ public abstract class SliderGlassMixin extends ClickableWidget implements GlassS
     @Unique private static boolean s1mp1e$errorLogged;
 
     private SliderGlassMixin() { super(0, 0, 0, 0, LiteralText.EMPTY); }
+
+    @Override
+    public double s1mp1e$value() {
+        return this.value;
+    }
+
+    @Override
+    public boolean s1mp1e$held() {
+        if (!this.s1mp1e$held) return false;
+        long window = MinecraftClient.getInstance().getWindow().getHandle();
+        if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS) this.s1mp1e$held = false;
+        return this.s1mp1e$held;
+    }
+
+    /** A settings-page row draws this slider: the widget is the track, so the pointer maps the vanilla way. */
+    @Override
+    public void s1mp1e$rowDrawn() {
+        this.s1mp1e$skinned = false;
+    }
 
     @Inject(method = "onClick", at = @At("HEAD"))
     private void s1mp1e$press(double mouseX, double mouseY, CallbackInfo ci) {

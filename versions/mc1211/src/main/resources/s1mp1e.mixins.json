@@ -15,7 +15,7 @@
     "GameRendererHurtTiltMixin", "LivingEntityRendererFlashMixin", "HeldItemSwingMixin",
     "SpriteContentsAccessor",
     "HandPositionMixin", "FovMultiplierMixin", "ZoomFovMixin", "LightmapGammaMixin",
-    "InGameHudEffectMixin", "FontSmoothMixin", "MouseZoomSensitivityMixin", "InGameHudFoodMixin",
+    "InGameHudEffectMixin", "FontSmoothMixin", "FontOversampleMixin", "MouseZoomSensitivityMixin", "InGameHudFoodMixin",
     "ForeignZoomKeyBlockMixin",
     "HandledScreenAccessor", "EffectsInInventoryGlassMixin",
     "AdvancementsGlassMixin", "BookGlassMixin",
@@ -25,6 +25,14 @@
     "ChatGlassMixin", "ChatInputGlassMixin", "TabListGlassMixin",
     "BossBarGlassMixin", "ToastGlassMixin", "ActionBarGlassMixin", "NameTagGlassMixin",
     "BlockOutlineMixin", "RenderPhaseLineWidthMixin",
+    "SplashOverlayIntroMixin", "LevelLoadingScreenGlassMixin",
+    "ProgressScreenGlassMixin", "ConnectScreenGlassMixin",
+    "ListMotionMixin", "WorldEntryScrimMixin", "TabButtonGlassMixin", "ButtonPressMixin",
+    "EditBoxTypingMixin", "ChatArrivalMixin", "ChatCloseGhostMixin", "TabListGateMixin",
+    "TabSwitchGlassMixin", "ServerEntryPingFadeMixin", "SfIconMixin", "TaskScreenGlassMixin", "CommandSuggestionsFadeMixin", "SuggestionsListGlideMixin", "TextIconButtonAccessor",
+    "TextShadowMixin", "ScreenShellMixin", "GameOptionsShellMixin", "OptionEntryShellMixin", "CyclingButtonShellMixin", "KeyEntryShellMixin", "KeyCategoryShellMixin", "LanguageEntryShellMixin", "BookEditTypingMixin",
+    "ScoreboardGlassMixin", "BossOverlayGhostMixin", "SignTypingMixin",
+    "HeartTrailMixin", "ItemFlightMixin", "RecipeBookInvGlideMixin", "RecipeCascadeMixin", "RecipeBookButtonGlassMixin",
     "DevShotMixin"
   ],
   "injectors": { "defaultRequire": 1 }

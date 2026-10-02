@@ -36,9 +36,13 @@ public abstract class BookGlassMixin {
         }
         // world + dim already in the framebuffer (renderBackground ran first) -> refract it.
         SceneCapture.grabNow();
-        int pw = 146, ph = 180;
-        GlassRenderer.glass(x, y, x + pw, y + ph, GlassRenderer.PAD_PANEL, 0.19f, 0f, 1f, GlassRenderer.FROST_PANEL);
+        // The visible page inside the 192x192 blit. Measured on book.png (the same file in 1.17.1 / 1.20.1 / 1.21.1):
+        // the page art is the rect (20,1)-(166,181), NOT the left 146x180 — the plate used to sit 20 px left of the
+        // real page, so the page text (vanilla draws it at x+36 .. x+150) and the page counter ran off the plate's
+        // right edge.
+        int px0 = x + 20, py0 = y + 1, px1 = x + 166, py1 = y + 181;
+        GlassRenderer.glass(px0, py0, px1, py1, GlassRenderer.PAD_PANEL, 0.19f, 0f, 1f, GlassRenderer.FROST_PANEL);
         if (GlassProgram.roundUsable())
-            GlassRenderer.roundRect(x + 4, y + 4, x + pw - 4, y + ph - 4, 4f, 0xD8EFE7D6);
+            GlassRenderer.roundRect(px0 + 4, py0 + 4, px1 - 4, py1 - 4, 4f, 0xD8EFE7D6);
     }
 }

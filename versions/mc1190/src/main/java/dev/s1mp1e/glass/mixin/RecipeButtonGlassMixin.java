@@ -46,6 +46,40 @@ public abstract class RecipeButtonGlassMixin {
     /** 26.2's craftable/selected lift (G=0xD8 -> 1-0xD8/255). */
     private static final float LIFT_CRAFTABLE = 0.153f;
 
+    // ---- (E) cascade scale-in (RecipeCascade) ---------------------------------------------------------------------
+    // 1.19.2: a recipe button's item icon is a GUI item model, which reads the RenderSystem model-view (vanilla's own
+    // "bounce" scales the button through that stack too), and the raw-GL glass cell is drawn under the same
+    // model-view — so ONE model-view scale about the button centre grows the glass cell and the icon together.
+    // s < 0 (not born yet) cancels the whole renderButton so nothing draws until the button's turn.
+    @org.spongepowered.asm.mixin.Unique private boolean s1mp1e$cascadePosed;
+
+    @org.spongepowered.asm.mixin.injection.Inject(method = "renderButton", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$cascadeBegin(MatrixStack matrices, int mouseX, int mouseY, float delta,
+                                     org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        s1mp1e$cascadePosed = false;
+        float s = dev.s1mp1e.glass.render.RecipeCascade.scale(this);
+        if (s < 0f) { ci.cancel(); return; }        // not born yet: draw nothing
+        if (s >= 1f) return;                         // settled
+        AnimatedResultButton self = (AnimatedResultButton) (Object) this;
+        float cx = self.x + self.getWidth() / 2f, cy = self.y + self.getHeight() / 2f;
+        MatrixStack mv = com.mojang.blaze3d.systems.RenderSystem.getModelViewStack();
+        mv.push();
+        mv.translate(cx, cy, 0f);
+        mv.scale(s, s, 1f);
+        mv.translate(-cx, -cy, 0f);
+        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix();
+        s1mp1e$cascadePosed = true;
+    }
+
+    @org.spongepowered.asm.mixin.injection.Inject(method = "renderButton", at = @At("RETURN"))
+    private void s1mp1e$cascadeEnd(MatrixStack matrices, int mouseX, int mouseY, float delta,
+                                   org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (!s1mp1e$cascadePosed) return;
+        s1mp1e$cascadePosed = false;
+        com.mojang.blaze3d.systems.RenderSystem.getModelViewStack().pop();
+        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix();
+    }
+
     @Redirect(method = "renderButton",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/recipebook/AnimatedResultButton;"

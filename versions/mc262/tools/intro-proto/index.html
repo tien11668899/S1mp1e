@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>S1mp1e loop proto</title>
+<style>html,body{margin:0;background:#000}canvas{display:block;width:100vw;height:auto}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+  // cache-busted load of the harness so edits are always picked up
+  const s = document.createElement('script');
+  s.src = 'proto2.js?' + Date.now();
+  document.body.appendChild(s);
+</script>
+</body></html>

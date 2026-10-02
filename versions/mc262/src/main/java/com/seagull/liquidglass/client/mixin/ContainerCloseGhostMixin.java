@@ -57,7 +57,7 @@ public abstract class ContainerCloseGhostMixin {
          ci.cancel();
          Slot s = this.hoveredSlot;
          boolean hovering = s != null && s.isHighlightable();
-         long now = System.nanoTime();
+         long now = net.minecraft.util.Util.getNanos();
          float dt = lg$hoverNanos == 0L ? 0.016666668F : Math.min(0.1F, (float)(now - lg$hoverNanos) * 1.0E-9F);
          lg$hoverNanos = now;
          if (hovering) {

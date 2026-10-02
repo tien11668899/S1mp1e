@@ -54,7 +54,8 @@ import java.util.List;
  * translated by the eased fractional offset, clipped to the 4-row window. A mid-glide click snaps to the target first.
  */
 @Mixin(LoomScreen.class)
-public abstract class LoomScrollGlassMixin {
+public abstract class LoomScrollGlassMixin
+        implements dev.s1mp1e.client.gui.GlideProbe, dev.s1mp1e.client.gui.ScrollDragOwner {
 
     @Unique private static final Identifier S1MP1E_TEX = new Identifier("textures/gui/container/loom.png");
     @Unique private static final int LG_PX0 = 60, LG_PY0 = 13, LG_COLS = 4, LG_VIS = 4, LG_CELL = 14;
@@ -67,8 +68,7 @@ public abstract class LoomScrollGlassMixin {
     @Shadow private void drawBanner(RegistryEntry<BannerPattern> pattern, int x, int y) { throw new AssertionError(); }
 
     @Unique private GlassScrollbar s1mp1e$bar;
-    @Unique private Fade s1mp1e$openFade;
-    @Unique private boolean s1mp1e$opened;
+    @Unique private final dev.s1mp1e.glass.render.ContainerGlass.State s1mp1e$glass = new dev.s1mp1e.glass.render.ContainerGlass.State();
     @Unique private boolean s1mp1e$sliding;
     @Unique private int s1mp1e$glideBase;
     @Unique private float s1mp1e$glideFracPx;
@@ -80,7 +80,19 @@ public abstract class LoomScrollGlassMixin {
     @Unique private LoomScreenHandler s1mp1e$handler() {
         return (LoomScreenHandler) ((HandledScreen<?>) (Object) this).getScreenHandler();
     }
-    @Unique private float s1mp1e$fade() { return s1mp1e$openFade == null ? 1f : s1mp1e$openFade.value(); }
+    @Unique private float s1mp1e$fade() { return s1mp1e$glass.fade(); }
+
+    @Override
+    public boolean s1mp1e$probeGliding() { return s1mp1e$sliding; }
+
+    @Override
+    public float s1mp1e$probeOffsetPx() {
+        return s1mp1e$bar == null ? 0f : s1mp1e$bar.pos() * Math.max(0, getRows() - LG_VIS) * LG_CELL;
+    }
+
+    /** Vanilla only clears its scrollbar-drag flag on the NEXT click; the glass thumb reads it as "held" (see ScrollDragOwner). */
+    @Override
+    public void s1mp1e$endScrollDrag() { scrollbarClicked = false; }
 
     /** Body PNG → glass panel (over the vanilla dim); scroller sprite → glass scrollbar + glide state; 14x14 pattern
      *  frames suppressed during a glide; everything else vanilla. */
@@ -88,23 +100,16 @@ public abstract class LoomScrollGlassMixin {
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/ingame/LoomScreen;"
                             + "drawTexture(Lnet/minecraft/client/util/math/MatrixStack;IIIIII)V"))
-    private void s1mp1e$blit(LoomScreen self, MatrixStack matrices, int x, int y, int u, int v, int w, int h) {
+    private void s1mp1e$blit(LoomScreen self, MatrixStack matrices, int x, int y, int u, int v, int w, int h,
+                             MatrixStack matricesEnc, float delta, int mouseX, int mouseY) {
         boolean glass = GlassProgram.ensureReady() && GlassProgram.usable();
         if (glass) {
             int px = s1mp1e$px(), py = s1mp1e$py();
             if (x == px && y == py && u == 0 && v == 0) {                 // body PNG -> glass panel
-                if (s1mp1e$openFade == null) s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
-                SceneCapture.grabNow();
-                if (!s1mp1e$opened) {
-                    s1mp1e$opened = true;
-                    s1mp1e$openFade.snap(0f);
-                    s1mp1e$openFade.to(1f);
-                    PanelGhost.cancel();
-                }
-                float fade = s1mp1e$openFade.value();
-                PanelGhost.beginFrame();
-                PanelGhost.remember(x, y, w, h);
-                GlassRenderer.panel(x, y, x + w, y + h, fade);
+                // panel + slot lattice + quick-craft highlight + hover pill (the shared container glass)
+                HandledScreenAccessor a = (HandledScreenAccessor) (Object) this;
+                dev.s1mp1e.glass.render.ContainerGlass.draw(s1mp1e$glass, matrices, x, y, w, h,
+                        a.s1mp1e$handler().slots, a.s1mp1e$cursorDragSlots(), a.s1mp1e$cursorDragging(), mouseX, mouseY);
                 s1mp1e$restoreVanillaBlitState();
                 return;
             }

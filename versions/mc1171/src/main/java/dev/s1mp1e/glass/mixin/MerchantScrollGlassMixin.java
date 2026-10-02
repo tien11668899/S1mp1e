@@ -171,6 +171,23 @@ public abstract class MerchantScrollGlassMixin implements GlideProbe, ScrollDrag
         RenderSystem.setShaderTexture(0, S1MP1E_TEX);
     }
 
+    /**
+     * The "out of stock" cross (static drawTexture ordinal 1 of drawBackground, javap-read: vanilla binds
+     * villager2.png again right before it): a 28x21 region painted on the panel grey, which showed as a light box on
+     * the glass. Drawn from the copy whose opaque panel grey is transparent ({@code ContainerExtras}; the merchant's
+     * body goes through the redirect above, not through the generic body-blit window where that swap happens).
+     * A no-op when the copy cannot be made; render() binds the vanilla texture again for the trade list.
+     */
+    @Redirect(method = "drawBackground",
+            at = @At(value = "INVOKE", ordinal = 1,
+                     target = "Lnet/minecraft/client/gui/screen/ingame/MerchantScreen;"
+                            + "drawTexture(Lnet/minecraft/client/util/math/MatrixStack;IIIFFIIII)V"))
+    private void s1mp1e$outOfStock(MatrixStack matrices, int x, int y, int z, float u, float v, int w, int h,
+                                   int tw, int th) {
+        if (GlassProgram.ensureReady() && GlassProgram.usable()) dev.s1mp1e.glass.render.ContainerExtras.rebindKeyed();
+        net.minecraft.client.gui.DrawableHelper.drawTexture(matrices, x, y, z, u, v, w, h, tw, th);
+    }
+
     // ---- C: the scroller thumb (6×27 sprite) → the glass slider, painted at the motion stepped at HEAD ----
     @Redirect(method = "render",
             at = @At(value = "INVOKE",

@@ -41,6 +41,7 @@ public final class HudGlass {
      */
     public static void glassBox(GuiGraphicsExtractor g, int x0, int y0, int x1, int y1, float alpha) {
         if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module)
         float a = alpha < 0f ? 0f : (alpha > 1f ? 1f : alpha);
         if (GlassPipeline.ensureReady() && GlassPipeline.usable()) {
             int ab = Math.round(a * 255f) & 0xFF;
@@ -64,15 +65,17 @@ public final class HudGlass {
         if (x1 <= x0 || y1 <= y0) return;
         if (GlassPipeline.ensureReady() && GlassPipeline.roundUsable()) {
             GuiRenderState rs = ((GuiGraphicsExtractorAccessor) g).liquidglass$guiRenderState();
-            rs.addGuiElement(new RoundRectRenderState(GlassPipeline.round(), g.pose(), x0, y0, x1, y1, radiusPx, argb, null));
+            rs.addGuiElement(new RoundRectRenderState(GlassPipeline.round(), g.pose(), x0, y0, x1, y1, radiusPx,
+                    HudFade.argb(argb), null));
         } else {
-            roundFill(g, x0, y0, x1 - x0, y1 - y0, Math.round(radiusPx), argb);
+            roundFill(g, x0, y0, x1 - x0, y1 - y0, Math.round(radiusPx), argb);   // roundFill applies the fade itself
         }
     }
 
     /** Rounded translucent pill from (x,y) size (w,h) under the current pose (three non-overlapping fills). */
     public static void pill(GuiGraphicsExtractor g, int x, int y, int w, int h, int argb) {
         if (w <= 0 || h <= 0) return;
+        argb = HudFade.argb(argb);
         int r = Math.min(3, Math.min(w, h) / 2);
         if (r <= 0) { g.fill(x, y, x + w, y + h, argb); return; }
         g.fill(x + r,     y,     x + w - r, y + h,     argb);   // centre band, full height
@@ -87,6 +90,7 @@ public final class HudGlass {
      */
     public static void roundFill(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, int argb) {
         if (w <= 0 || h <= 0) return;
+        argb = HudFade.argb(argb);
         r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
         if (r == 0) { g.fill(x, y, x + w, y + h, argb); return; }
         g.fill(x, y + r, x + w, y + h - r, argb);   // centre band (full width)

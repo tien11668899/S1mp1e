@@ -81,7 +81,7 @@ public final class AttackRingModule extends Module {
     private void draw(GuiGraphicsExtractor g, DeltaTracker delta) {
         Minecraft mc = Minecraft.getInstance();
         Player p = mc.player;
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         float dt = lastNanos == 0L ? 1f / 60f : Math.min(0.1f, (now - lastNanos) / 1.0e9f);
         lastNanos = now;
         if (p == null || mc.gui.hud.isHidden() || !mc.options.getCameraType().isFirstPerson()) { vis = 0f; return; }

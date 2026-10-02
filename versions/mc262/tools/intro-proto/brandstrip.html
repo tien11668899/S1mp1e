@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>@font-face{font-family:'Inter';src:url(fonts/Inter-500.woff2) format('woff2');font-weight:100 900;}</style>
+</head><body><canvas id="c"></canvas><script>
+const TEXT='S1mp1e', FONT_PX=120, RADII=[0,2,4,8,16,32,56], PAD=170;
+(async()=>{
+  await document.fonts.load(`500 ${FONT_PX}px Inter`);
+  const c=document.getElementById('c'), g=c.getContext('2d');
+  g.font=`500 ${FONT_PX}px Inter`;
+  const m=g.measureText(TEXT), tw=m.width;
+  const boxW=Math.ceil(tw+PAD*2), boxH=Math.ceil(FONT_PX*1.35+PAD*2);
+  c.width=boxW; c.height=boxH*RADII.length;
+  const base=PAD+FONT_PX*1.02;
+  RADII.forEach((r,i)=>{g.save();g.filter=r>0?`blur(${r}px)`:'none';g.font=`500 ${FONT_PX}px Inter`;g.textBaseline='alphabetic';g.fillStyle='#fff';g.fillText(TEXT,PAD,i*boxH+base);g.restore();});
+  window.META={tw,boxW,boxH,base,pad:PAD,fontPx:FONT_PX,rows:RADII.length,asc:m.actualBoundingBoxAscent,desc:m.actualBoundingBoxDescent};
+  window.READY=true;
+})();
+</script></body></html>

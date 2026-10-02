@@ -208,7 +208,7 @@ public abstract class HudHotbarMixin {
             int stripX1 = center + 91;
             int slot = player.getInventory().getSelectedSlot();
             float slotCenterX = (float)center - 80.0F + (float)slot * 20.0F;
-            long now = System.nanoTime();
+            long now = net.minecraft.util.Util.getNanos();
             float dt = lg$lastNanos == 0L ? 0.016666668F : Math.min(0.1F, (float)(now - lg$lastNanos) * 1.0E-9F);
             lg$lastNanos = now;
             if (lg$lead == null) {

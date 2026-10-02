@@ -64,7 +64,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * rect with {@link PanelGhost} so the panel fades out on close.
  */
 @Mixin(CreativeInventoryScreen.class)
-public abstract class CreativeGlassMixin implements dev.s1mp1e.client.gui.GlassGlideHost {
+public abstract class CreativeGlassMixin implements dev.s1mp1e.client.gui.GlassGlideHost, dev.s1mp1e.client.gui.GlideProbe {
 
     // drawTexture is inherited from DrawableHelper (public); NOT @Shadow'd — @Shadow
     // of an inherited method throws "not located in target class" at apply time. The
@@ -84,6 +84,17 @@ public abstract class CreativeGlassMixin implements dev.s1mp1e.client.gui.GlassG
 
     // Feature B — fused tab band. Static field (the vanilla selected-tab index) + a per-screen tab animator.
     @Shadow private static int selectedTab;
+
+    /**
+     * Switching the creative category swaps the whole item grid in one frame: snapshot the outgoing frame and
+     * cross-dissolve it over the new category (the fused tab sheet overlaps, so only the grid visibly fades). HEAD,
+     * before the static {@code selectedTab} flips, so the snapshot holds the old tab. Skips the re-select vanilla does
+     * in {@code init}. (1.19.2: {@code selectedTab} is the group's index.)
+     */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "setSelectedTab", at = @org.spongepowered.asm.mixin.injection.At("HEAD"))
+    private void s1mp1e$dissolveTab(net.minecraft.item.ItemGroup group, org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (group != null && selectedTab != group.getIndex()) dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+    }
     @Unique private GlassTabs s1mp1e$tabs;
 
     // Feature D — sub-pixel item-grid glide. Computed each frame in the scrollbar redirect, consumed by the shared
@@ -98,6 +109,15 @@ public abstract class CreativeGlassMixin implements dev.s1mp1e.client.gui.GlassG
     @Unique private final Fade s1mp1e$hoverFade = new Fade(0f, 100f);
     @Unique private boolean s1mp1e$hoverActive;
     @Unique private long s1mp1e$hoverNanos;
+
+    // ---- GlideProbe (dev capture harness only) ----
+    @Override
+    public boolean s1mp1e$probeGliding() { return s1mp1e$gridGliding; }
+
+    @Override
+    public float s1mp1e$probeOffsetPx() {
+        return s1mp1e$scrollbar == null ? 0f : s1mp1e$scrollbar.pos() * Math.max(0, s1mp1e$offRows()) * 18f;
+    }
 
     @Unique private int s1mp1e$px() { return ((HandledScreenAccessor) (Object) this).s1mp1e$x(); }
     @Unique private int s1mp1e$py() { return ((HandledScreenAccessor) (Object) this).s1mp1e$y(); }

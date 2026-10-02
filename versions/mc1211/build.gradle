@@ -25,6 +25,9 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    // Sodium's own options screen is restyled by the (optional, Sodium-gated) compat mixins; compile against it only.
+    // For a dev run drop the same jar into run/mods (needs loader >= 0.16).
+    modCompileOnly files('libs/compat/sodium-0.6.13-compile.jar')
 }
 
 processResources {

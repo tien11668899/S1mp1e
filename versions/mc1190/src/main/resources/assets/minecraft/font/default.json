@@ -11,7 +11,7 @@
       "type": "ttf",
       "file": "s1mp1e:pingfangtc_semibold.ttf",
       "size": 12.0,
-      "oversample": 8.0,
+      "oversample": 2.0,
       "shift": [0.0, 1.0]
     }
   ]

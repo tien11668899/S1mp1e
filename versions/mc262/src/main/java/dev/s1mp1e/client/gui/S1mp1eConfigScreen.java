@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.gui;
 
+import com.seagull.liquidglass.client.render.ScreenTransition;
 import com.seagull.liquidglass.client.animation.Fade;
 import dev.s1mp1e.client.LayoutEditable;
 import dev.s1mp1e.client.Module;
@@ -85,7 +86,9 @@ public final class S1mp1eConfigScreen extends Screen {
     public S1mp1eConfigScreen(Module focus) { this(); this.initialFocus = focus; }
 
     @Override protected void init() {
-        openFade.snap(0f); openFade.to(1f);
+        // Opened by a screen switch that is cross-dissolving: be complete underneath the dissolve from the first frame
+        // (fading in here too would show the background through both). Otherwise (resize, no dissolve) fade in.
+        if (ScreenOpenFade.held()) { openFade.snap(1f); } else { openFade.snap(0f); openFade.to(1f); }
         Module focus = initialFocus;
         initialFocus = null;   // only the first init (a resize re-runs init and must keep the user's place)
         int focusTab = focus == null ? -1 : categoryIndex(focus.category);
@@ -142,7 +145,7 @@ public final class S1mp1eConfigScreen extends Screen {
     }
 
     private void easeScroll() {
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         float dt = lastScrollNanos == 0L ? 0f : (now - lastScrollNanos) / 1.0e9f;
         lastScrollNanos = now;
         if (dt > 0.1f) dt = 0.1f;
@@ -407,9 +410,12 @@ public final class S1mp1eConfigScreen extends Screen {
     // openFade reaches 0 (the close animation).
     @Override public void onClose() {
         if (closing) return;
+        S1mp1eConfig.save();
+        // With the screen cross-dissolve available, switch now: the dissolve fades this (still complete) screen into
+        // whatever is behind. Fading out first would dip to the bare background and then pop the next screen in.
+        if (ScreenTransition.canDissolve()) { super.onClose(); return; }
         closing = true;
         openFade.to(0f);
-        S1mp1eConfig.save();
     }
 
     private boolean hit(float[] r, int mx, int my) { return GlassWidgets.inside(mx, my, r[0], r[1], r[2], r[3]); }

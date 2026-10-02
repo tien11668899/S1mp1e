@@ -43,6 +43,8 @@ public final class RoundRectRenderState implements GuiElementRenderState {
     */
    public RoundRectRenderState(RenderPipeline pipeline, Matrix3x2fc pose, float x0, float y0, float x1, float y1,
                                float radiusPx, int color, @Nullable ScreenRectangle scissor) {
+      scissor = GuiAmbient.scissor(scissor);
+      color = GuiAmbient.argb(color);
       this.pipeline = pipeline;
       this.pose = new Matrix3x2f(pose);
       this.x0 = x0;

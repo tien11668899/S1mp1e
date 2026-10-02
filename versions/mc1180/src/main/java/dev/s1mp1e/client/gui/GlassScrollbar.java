@@ -61,12 +61,23 @@ public final class GlassScrollbar {
      */
     public static void run(GlassScrollbar bar, MatrixStack matrices, float cx, float trackTop, float travelPx,
                            float thumbLen, float ratio, boolean active, boolean dragging, double mouseY, float alpha) {
+        step(bar, cx, trackTop, travelPx, thumbLen, ratio, dragging, mouseY);
+        bar.paint(matrices, active, alpha);
+    }
+
+    /**
+     * The motion half of {@link #run} without painting: geometry, drag fold-in, target and one motion step. For a screen
+     * that must know the eased value ({@link #pos}) BEFORE the frame's content is drawn but paints the thumb later in
+     * the frame (the merchant: its trade buttons draw before its scroller) — call this early, then {@link #paint}.
+     */
+    public static void step(GlassScrollbar bar, float cx, float trackTop, float travelPx, float thumbLen,
+                            float ratio, boolean dragging, double mouseY) {
         bar.geometryTravel(cx, trackTop, travelPx, thumbLen);
         if (dragging && !bar.dragging) bar.press(mouseY);
         if (dragging) bar.drag(mouseY);
         else if (bar.dragging) bar.release();
         bar.setTarget(ratio);
-        bar.draw(matrices, active, alpha);
+        bar.update();
     }
 
     public void setTarget(float t01) {
@@ -90,6 +101,12 @@ public final class GlassScrollbar {
     private float thumbTopFor(float r01) { return trackTop + r01 * travel; }
 
     public void draw(MatrixStack matrices, boolean active, float alpha) {
+        update();
+        paint(matrices, active, alpha);
+    }
+
+    /** Advance the thumb motion one frame (position glide / drag + rubber, lens morph, speed stretch). */
+    public void update() {
         float dt = clock.tick();
         long now = System.nanoTime();
 
@@ -110,7 +127,6 @@ public final class GlassScrollbar {
         }
         lift.update(dt);
         lift.settle(0.002f);
-        float L = Motion.clamp01(lift.x);
         if (!Float.isNaN(lastThumbPx) && dt > 0f) {
             float inst = Math.abs(cy - lastThumbPx) / dt;
             speed += (inst - speed) * Motion.ema(dt, Motion.SPEED_TAU_S);
@@ -118,7 +134,12 @@ public final class GlassScrollbar {
         lastThumbPx = cy;
         stretch.retarget(Motion.stretchTarget(speed, thumbLen)).update(dt);
         Motion.lensShape(stretch.x, lens);   // [wideFactor, tallFactor, corner] for a horizontal slider
+    }
 
+    /** Paint the groove + thumb at the current (already updated) motion state. */
+    public void paint(MatrixStack matrices, boolean active, float alpha) {
+        float cy = thumbTopFor(Float.isNaN(pos) ? target : pos) + thumbLen / 2f;
+        float L = Motion.clamp01(lift.x);
         int a = Math.round(alpha * 255f);
         float grooveA = active ? 0.30f : 0.16f;
         float gtop = trackTop, gbot = trackTop + travel + thumbLen;

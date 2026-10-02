@@ -65,7 +65,7 @@ public final class XpFlowHudModule extends Module {
         int fillW = Math.round(progress * BAR_W * (barW / (float) BAR_W));
         if (fillW <= 0) return;
 
-        float p = (System.nanoTime() % 4_000_000_000L) / 4.0e9f;   // 0..1, real-time, frame-rate independent
+        float p = (net.minecraft.util.Util.getNanos() % 4_000_000_000L) / 4.0e9f;   // 0..1, real-time, frame-rate independent
         if (p >= 0.40f) return;                                    // rest gap: draw nothing
         float u = p / 0.40f;                                       // 0..1 during the 1.6 s glide
         float s = u * u * u * (u * (6f * u - 15f) + 10f);          // smootherstep (ease-in-out)

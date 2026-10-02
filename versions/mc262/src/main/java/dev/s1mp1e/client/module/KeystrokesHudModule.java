@@ -78,7 +78,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
 
     @Override
     public void renderHud(S1mp1eHudCtx c) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudDriverMixin via HudFade
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.options == null) return;   // F1 handled by HudDriverMixin
         GuiGraphicsExtractor g = c.g();
@@ -89,7 +89,7 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
             pressed(mc.options.keyAttack), pressed(mc.options.keyUse),
             pressed(mc.options.keyShift),  pressed(mc.options.keyJump),
         };
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         float dt = (lastNano == 0L) ? (1f / 60f) : Math.min(0.1f, (now - lastNano) / 1.0e9f);
         lastNano = now;
         float a = 1f - (float) Math.exp(-dt * 16.0);

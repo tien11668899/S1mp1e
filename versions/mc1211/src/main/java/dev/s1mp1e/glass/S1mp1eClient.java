@@ -35,6 +35,15 @@ public final class S1mp1eClient implements ClientModInitializer {
         if (Boolean.getBoolean("s1mp1e.preloadMixinTargets")) {
             for (String target : new String[] {
                     "net.minecraft.client.gui.widget.ClickableWidget",
+                    "net.minecraft.client.gui.tab.TabManager",
+                    "net.minecraft.client.gui.screen.TaskScreen",
+                    "net.minecraft.client.gui.screen.ChatInputSuggestor",
+                    "net.minecraft.client.gui.screen.ChatInputSuggestor$SuggestionWindow",
+                    "net.minecraft.client.gui.screen.multiplayer.MultiplayerServerListWidget$ServerEntry",
+                    "net.minecraft.client.gui.DrawContext",
+                    "net.minecraft.client.gui.widget.EntryListWidget",
+                    "net.minecraft.client.gui.screen.advancement.AdvancementsScreen",
+                    "net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen",
                     "net.minecraft.client.gui.widget.SliderWidget",
                     "net.minecraft.client.option.KeyBinding",
                     // BATCH A new targets — keep this list current so a broken injection fails at launch, not later.
@@ -67,7 +76,21 @@ public final class S1mp1eClient implements ClientModInitializer {
                     "net.minecraft.client.gui.screen.ingame.BookEditScreen",
                     "net.minecraft.client.render.RenderPhase$LineWidth",
                     "net.minecraft.client.gui.DrawContext",
-                    "net.minecraft.client.render.GameRenderer" }) {
+                    "net.minecraft.client.render.GameRenderer",
+                    // PORT batch — intro/loading/menu/HUD/recipe targets.
+                    "net.minecraft.client.gui.screen.SplashOverlay",
+                    "net.minecraft.client.gui.screen.world.LevelLoadingScreen",
+                    "net.minecraft.client.gui.screen.ProgressScreen",
+                    "net.minecraft.client.gui.screen.multiplayer.ConnectScreen",
+                    "net.minecraft.client.gui.widget.TabButtonWidget",
+                    "net.minecraft.client.gui.widget.PressableWidget",
+                    "net.minecraft.client.gui.screen.world.WorldListWidget",
+                    "net.minecraft.client.gui.widget.TextFieldWidget",
+                    "net.minecraft.client.gui.screen.ingame.AbstractSignEditScreen",
+                    "net.minecraft.client.gui.screen.recipebook.RecipeBookWidget",
+                    "net.minecraft.client.gui.screen.recipebook.RecipeBookResults",
+                    "net.minecraft.client.gui.screen.recipebook.AnimatedResultButton",
+                    "net.minecraft.client.gui.widget.TexturedButtonWidget" }) {
                 try {
                     Class.forName(target, true, S1mp1eClient.class.getClassLoader());
                     System.out.println("[S1mp1e] mixin target preload OK: " + target);

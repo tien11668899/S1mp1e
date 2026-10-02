@@ -117,7 +117,7 @@ public final class GlassTabs {
     */
    public static void flush(GuiGraphicsExtractor g, Object screenOwner, int leftPos, int topPos, int imageWidth, int imageHeight, int fadeByte) {
       try {
-         long now = System.nanoTime();
+         long now = net.minecraft.util.Util.getNanos();
          float dt = lastNanos == 0L ? 1.0F / 60.0F : Math.min(0.1F, (now - lastNanos) * 1.0E-9F);
          lastNanos = now;
          if (screenOwner != owner) {

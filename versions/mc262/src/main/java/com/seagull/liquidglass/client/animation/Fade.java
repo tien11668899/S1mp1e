@@ -25,7 +25,7 @@ public final class Fade {
          this.from = this.target;
          this.target = t;
          this.legMs = ms <= 0.0F ? 1.0F : ms;
-         this.legStart = System.nanoTime();
+         this.legStart = net.minecraft.util.Util.getNanos();
       }
    }
 
@@ -41,7 +41,7 @@ public final class Fade {
       if (this.legStart == 0L) {
          return this.value;
       } else {
-         float p = (float)(System.nanoTime() - this.legStart) / 1000000.0F / this.legMs;
+         float p = (float)(net.minecraft.util.Util.getNanos() - this.legStart) / 1000000.0F / this.legMs;
          if (p >= 1.0F) {
             this.value = this.target;
             this.legStart = 0L;

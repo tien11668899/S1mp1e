@@ -22,7 +22,7 @@ public final class Anim {
         if (t == to) return;
         from = value();
         to = t;
-        legStart = System.nanoTime();
+        legStart = net.minecraft.util.Util.getNanos();
     }
 
     /** Jump straight there, cancelling any leg in flight (e.g. on a list rebuild). */
@@ -30,7 +30,7 @@ public final class Anim {
 
     public float value() {
         if (legStart == 0L) return settled;
-        float lin = (System.nanoTime() - legStart) / 1.0e6f / DURATION_MS;
+        float lin = (net.minecraft.util.Util.getNanos() - legStart) / 1.0e6f / DURATION_MS;
         if (lin >= 1f) { legStart = 0L; settled = to; return to; }
         return from + (to - from) * easeBack(lin);
     }

@@ -16,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  *
  * <p>Verified against yarn 1.18.2+build.4: {@code BookEditScreen.render} binds {@code BookScreen.BOOK_TEXTURE} and does
  * one {@code this.drawTexture(MatrixStack, i, 2, 0, 0, 192, 192)} ({@code i = (width-192)/2}) before the editable text;
- * the page art occupies the top-left {@code 146 x 180}. This {@link Redirect}s that blit to a refracting glass plate +
+ * the page art is the rect {@code (20,1)-(166,181)} of that blit. This {@link Redirect}s that blit to a refracting glass plate +
  * a light parchment scrim ({@code 0xD8EFE7D6}, inset 4, radius 4) so dark ink stays readable; the editor text / cursor
  * / page-turn + finalize buttons draw on top, unchanged. Falls back to the vanilla book texture when glass is off.
  */
@@ -35,9 +35,12 @@ public abstract class BookEditGlassMixin {
         }
         // world + dim already in the framebuffer (renderBackground ran first) -> refract it.
         SceneCapture.grabNow();
-        int pw = 146, ph = 180;
-        GlassRenderer.glass(x, y, x + pw, y + ph, GlassRenderer.PAD_PANEL, 0.19f, 0f, 1f, GlassRenderer.FROST_PANEL);
+        // The visible page inside the 192x192 blit is the rect (20,1)-(166,181) of book.png, NOT its left 146x180 (same
+        // correction as BookGlassMixin): the plate used to sit 20 px left of the real page, so the typed text (vanilla
+        // draws it at x+36 .. x+150) and the page counter ran off the plate's right edge.
+        int px0 = x + 20, py0 = y + 1, px1 = x + 166, py1 = y + 181;
+        GlassRenderer.glass(px0, py0, px1, py1, GlassRenderer.PAD_PANEL, 0.19f, 0f, 1f, GlassRenderer.FROST_PANEL);
         if (GlassProgram.roundUsable())
-            GlassRenderer.roundRect(x + 4, y + 4, x + pw - 4, y + ph - 4, 4f, 0xD8EFE7D6);
+            GlassRenderer.roundRect(px0 + 4, py0 + 4, px1 - 4, py1 - 4, 4f, 0xD8EFE7D6);
     }
 }

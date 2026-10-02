@@ -32,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@code drawScrollableText} overload with an explicit box compiles; the constructor never runs.
  */
 @Mixin(SliderWidget.class)
-public abstract class SliderGlassMixin extends ClickableWidget {
+public abstract class SliderGlassMixin extends ClickableWidget implements dev.s1mp1e.client.gui.SettingsShell.SliderAccess {
 
     @Shadow protected double value;
     @Shadow private void setValue(double value) {}
@@ -40,13 +40,43 @@ public abstract class SliderGlassMixin extends ClickableWidget {
     @Unique private VanillaSliderSkin s1mp1e$skin;
     @Unique private boolean s1mp1e$held;
     @Unique private boolean s1mp1e$skinned;
+    @Unique private boolean s1mp1e$rowMode;
     @Unique private static boolean s1mp1e$errorLogged;
 
     private SliderGlassMixin() { super(0, 0, 0, 0, Text.empty()); }
 
+    @Override
+    public double s1mp1e$value() {
+        return this.value;
+    }
+
+    @Override
+    public boolean s1mp1e$held() {
+        if (!this.s1mp1e$held) return false;
+        long window = MinecraftClient.getInstance().getWindow().getHandle();
+        if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS
+                && !VanillaSliderSkin.devMouseDown) this.s1mp1e$held = false;
+        return this.s1mp1e$held;
+    }
+
+    /** A settings-page row paints this slider as the config-menu slider on the given track. */
+    @Override
+    public void s1mp1e$paintRow(DrawContext context, float tx0, float tx1, float cy, float alpha) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (this.s1mp1e$skin == null) this.s1mp1e$skin = new VanillaSliderSkin();
+        long window = mc.getWindow().getHandle();
+        boolean buttonDown = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS
+                || VanillaSliderSkin.devMouseDown;
+        if (!buttonDown || (!this.s1mp1e$rowMode && this.s1mp1e$skin.paintGap())) this.s1mp1e$held = false;
+        double pointerX = mc.mouse.getX() * mc.getWindow().getScaledWidth() / Math.max(1, mc.getWindow().getWidth());
+        this.s1mp1e$skin.paintRow(context, tx0, tx1, cy, this.value, this.s1mp1e$held, pointerX, this.active, alpha);
+        this.s1mp1e$rowMode = true;
+    }
+
     @Inject(method = "onClick", at = @At("HEAD"))
     private void s1mp1e$press(double mouseX, double mouseY, CallbackInfo ci) {
         this.s1mp1e$held = this.active;
+        if (this.s1mp1e$rowMode && this.s1mp1e$skin != null) this.s1mp1e$skin.rowPress(mouseX);
     }
 
     @Inject(method = "onRelease", at = @At("HEAD"))
@@ -57,7 +87,10 @@ public abstract class SliderGlassMixin extends ClickableWidget {
     /** Mouse → value on the skin's knob travel (vanilla maps onto its own 8 px handle travel). */
     @Inject(method = "setValueFromMouse", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$mapToSkin(double mouseX, CallbackInfo ci) {
-        if (this.s1mp1e$skinned) {
+        if (this.s1mp1e$rowMode && this.s1mp1e$skin != null) {     // a settings-page row: its own track and grab offset
+            this.setValue(this.s1mp1e$skin.rowValueAt(mouseX));
+            ci.cancel();
+        } else if (this.s1mp1e$skinned) {
             this.setValue(VanillaSliderSkin.valueAt(mouseX, this.getX(), this.width));
             ci.cancel();
         }
@@ -66,6 +99,11 @@ public abstract class SliderGlassMixin extends ClickableWidget {
     @Inject(method = "renderWidget", at = @At("HEAD"), cancellable = true)
     private void s1mp1e$glassSlider(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         this.s1mp1e$skinned = false;
+        if (dev.s1mp1e.client.gui.SettingsShell.suppresses(this)) {      // a settings-page row draws this slider
+            ci.cancel();
+            return;
+        }
+        this.s1mp1e$rowMode = false;
         int x = this.getX(), y = this.getY(), w = this.width, h = this.height;
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable() || !VanillaSliderSkin.fits(w, h)) return;
         try {

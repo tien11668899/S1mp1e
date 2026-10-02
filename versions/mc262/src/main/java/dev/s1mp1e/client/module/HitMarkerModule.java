@@ -71,7 +71,7 @@ public final class HitMarkerModule extends Module {
     public static void onAttack(Entity target) {
         if (!active() || target == null) return;
         targetId = target.getId();
-        attackNanos = System.nanoTime();
+        attackNanos = net.minecraft.util.Util.getNanos();
         critPending = false;
     }
 
@@ -82,7 +82,7 @@ public final class HitMarkerModule extends Module {
 
     public static void onDamage(LivingEntity e) {
         if (!active() || e == null || e.getId() != targetId) return;
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         if ((now - attackNanos) / 1_000_000L > CONFIRM_MS) return;
         markerNanos = now;
         markerCrit = critPending;
@@ -94,7 +94,7 @@ public final class HitMarkerModule extends Module {
     /** Server crit animation for entity {@code entityId} (26.2's only crit signal on the client). */
     public static void onCritAnimate(int entityId) {
         if (!active()) return;
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         if (entityId == markerTargetId && markerNanos != 0L && (now - markerNanos) / 1_000_000L <= CRIT_UPGRADE_MS) {
             markerCrit = true;                         // damage event came first: upgrade the shown marker
         } else if (entityId == targetId && (now - attackNanos) / 1_000_000L <= CONFIRM_MS) {
@@ -106,7 +106,7 @@ public final class HitMarkerModule extends Module {
     public static void onDeath(int entityId) {
         if (!active()) return;
         if (entityId == markerTargetId && markerNanos != 0L
-                && (System.nanoTime() - markerNanos) / 1_000_000L <= KILL_UPGRADE_MS) {
+                && (net.minecraft.util.Util.getNanos() - markerNanos) / 1_000_000L <= KILL_UPGRADE_MS) {
             markerKill = true;
         }
     }
@@ -121,7 +121,7 @@ public final class HitMarkerModule extends Module {
         if (markerNanos == 0L) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.gui.hud.isHidden() || !mc.options.getCameraType().isFirstPerson()) return;
-        float ageMs = (System.nanoTime() - markerNanos) / 1.0e6f;
+        float ageMs = (net.minecraft.util.Util.getNanos() - markerNanos) / 1.0e6f;
         float dur = Math.max(50, duration.intValue);
         if (ageMs >= dur) { markerNanos = 0L; return; }
 

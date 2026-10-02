@@ -1,10 +1,14 @@
 package dev.s1mp1e.client.module;
 
+import dev.s1mp1e.client.hud.HudFade;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -59,42 +63,95 @@ public final class PotionHudModule extends Module implements HudBounds, HudRende
         return m != null && m.enabled && m.hideVanilla.boolValue;
     }
 
+    /** One effect's row: its gliding slot y (cell units, unscaled) and last sprite, so an expired effect fades in place. */
+    private static final class Row {
+        final Holder<MobEffect> type;
+        TextureAtlasSprite sprite;
+        float y;
+        Row(Holder<MobEffect> type) { this.type = type; }
+    }
+
+    /** Known rows: live effects plus expired ones still fading out. Render thread only. */
+    private final LinkedHashMap<Holder<MobEffect>, Row> rows = new LinkedHashMap<Holder<MobEffect>, Row>();
+    private long lastFrameNs;
+    /** Time constant of a row's glide to its new slot when the sorted list changes. */
+    private static final float GLIDE_S = 0.07f;
+
     @Override
     public void renderHud(S1mp1eHudCtx c) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudDriverMixin via HudFade
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;   // F1 handled by HudDriverMixin
         GuiGraphicsExtractor g = c.g();
 
         Collection<MobEffectInstance> active = mc.player.getActiveEffects();
-        if (active == null || active.isEmpty()) return;
-
-        List<MobEffectInstance> sorted = new ArrayList<MobEffectInstance>(active);
+        List<MobEffectInstance> sorted = active == null
+                ? new ArrayList<MobEffectInstance>() : new ArrayList<MobEffectInstance>(active);
         Collections.sort(sorted, NAME_ORDER);
         int n = sorted.size();
 
-        float s = (float) scale.doubleValue;
-        lastW = Math.round(CELL * s);
-        lastH = Math.round(n * CELL * s);
-        float time = (System.nanoTime() % 3_000_000_000L) / 3.0e9f;
+        long now = net.minecraft.util.Util.getNanos();
+        float dt = lastFrameNs == 0L ? 0f : Math.min(0.1f, (now - lastFrameNs) / 1.0e9f);
+        lastFrameNs = now;
+        float glide = 1f - (float) Math.exp(-dt / GLIDE_S);
 
+        // Live effects take their sorted slot. A new one appears in its slot (fading in); the others GLIDE to their
+        // new slot instead of jumping when an effect is gained or runs out.
+        HashSet<Holder<MobEffect>> live = new HashSet<Holder<MobEffect>>();
+        for (int i = 0; i < n; i++) {
+            Holder<MobEffect> type = sorted.get(i).getEffect();
+            live.add(type);
+            float slot = i * CELL;
+            Row r = rows.get(type);
+            if (r == null) {
+                r = new Row(type);
+                r.y = slot;
+                rows.put(type, r);
+            } else {
+                r.y += (slot - r.y) * glide;
+            }
+            r.sprite = mc.getAtlasManager().getAtlasOrThrow(AtlasIds.GUI).getSprite(Hud.getMobEffectSprite(type));
+        }
+        if (rows.isEmpty()) return;
+
+        float s = (float) scale.doubleValue;
+        if (n > 0) {
+            lastW = Math.round(CELL * s);
+            lastH = Math.round(n * CELL * s);
+        }
+        float time = (net.minecraft.util.Util.getNanos() % 3_000_000_000L) / 3.0e9f;
+
+        float saved = HudFade.alpha;
         // push in try/finally so a swallowed throw can't leave the shared matrix stack unbalanced.
         g.pose().pushMatrix();
         try {
             g.pose().translate(posX.intValue, posY.intValue);
             g.pose().scale(s, s);
-            for (int i = 0; i < n; i++) {
-                MobEffectInstance eff = sorted.get(i);
-                Holder<MobEffect> type = eff.getEffect();
-                TextureAtlasSprite sprite = mc.getAtlasManager().getAtlasOrThrow(AtlasIds.GUI)
-                        .getSprite(Hud.getMobEffectSprite(type));
-                int ix = CELL / 2 - 8, iy = i * CELL + CELL / 2 - 8;
+            Iterator<Row> it = rows.values().iterator();
+            while (it.hasNext()) {
+                Row r = it.next();
+                boolean on = live.contains(r.type);
+                float v = HudFade.visibility(r, on, false);   // new effect fades in, expired one fades out
+                if (v <= 0.004f) {
+                    if (!on) {
+                        HudFade.forget(r);
+                        it.remove();
+                    }
+                    continue;
+                }
+                HudFade.alpha = saved * v;
+                int ix = CELL / 2 - 8, iy = Math.round(r.y) + CELL / 2 - 8;
                 // Full outline (no time encoding), the icon on top. Outline sits 1px OUTSIDE the shape,
                 // so the icon never covers it.
-                Silhouette.draw(g, contour(type, sprite), ix, iy, 1f, color(type), time);
-                g.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, ix, iy, 16, 16);
+                Silhouette.draw(g, contour(r.type, r.sprite), ix, iy, 1f, color(r.type), time);
+                if (HudFade.alpha < 1f) {   // appear/disappear: the colour overload carries the fade
+                    g.blitSprite(RenderPipelines.GUI_TEXTURED, r.sprite, ix, iy, 16, 16, HudFade.argb(0xFFFFFFFF));
+                } else {
+                    g.blitSprite(RenderPipelines.GUI_TEXTURED, r.sprite, ix, iy, 16, 16);
+                }
             }
         } finally {
+            HudFade.alpha = saved;
             g.pose().popMatrix();
         }
     }

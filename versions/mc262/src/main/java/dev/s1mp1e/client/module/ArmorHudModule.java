@@ -59,7 +59,7 @@ public final class ArmorHudModule extends Module implements HudBounds, HudRender
 
     @Override
     public void renderHud(S1mp1eHudCtx c) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudDriverMixin via HudFade
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;   // F1 handled by HudDriverMixin
         GuiGraphicsExtractor g = c.g();
@@ -75,7 +75,7 @@ public final class ArmorHudModule extends Module implements HudBounds, HudRender
         float s = (float) scale.doubleValue;
         lastW = Math.round(CELL * s);
         lastH = Math.round(n * CELL * s);
-        float time = (System.nanoTime() % 3_000_000_000L) / 3.0e9f;
+        float time = (net.minecraft.util.Util.getNanos() % 3_000_000_000L) / 3.0e9f;
 
         g.pose().pushMatrix();
         try {

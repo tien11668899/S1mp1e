@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.module;
 
+import dev.s1mp1e.client.hud.HudFade;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -90,7 +91,7 @@ public final class Silhouette {
             float ripple = 0.55f + 0.45f * (float) Math.sin(Math.PI * 2 * ((float) i / cnt * 2f - time));
             int a = i < keep ? 255 : 55;
             int col = (a << 24) | scaleRgb(baseRgb, ripple);
-            g.fill(ix + ex, iy + ey, ix + ex + 1, iy + ey + 1, col);
+            g.fill(ix + ex, iy + ey, ix + ex + 1, iy + ey + 1, HudFade.argb(col));
         }
     }
 

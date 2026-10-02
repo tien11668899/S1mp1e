@@ -46,7 +46,7 @@ public final class SliderWidget extends Widget {
 
     private float editFade() {
         if (editStart == 0L) return 1f;
-        float f = (System.nanoTime() - editStart) / 1.0e6f / 150f;
+        float f = (net.minecraft.util.Util.getNanos() - editStart) / 1.0e6f / 150f;
         return f < 0f ? 0f : (f > 1f ? 1f : f);
     }
 
@@ -75,7 +75,7 @@ public final class SliderWidget extends Widget {
 
     @Override public void draw(GuiGraphicsExtractor g, int mouseX, int mouseY, float pt, float alpha) {
         float dt = clock.tick();
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         int a = Math.round(alpha * 255f);
         float tx0 = x0, tx1 = trackX1(), tw = Math.max(1f, tx1 - tx0);
         float cy = (y0 + y1) / 2f;
@@ -142,7 +142,7 @@ public final class SliderWidget extends Widget {
             float pillL = vx - 4f, pillR = x1;
             float grown = pillL + (pillR - pillL) * (0.55f + 0.45f * ef);   // grows out from the value
             GlassWidgets.capsule(g, pillL, cy - 9, grown, cy + 9, 0.6f, 0.5f, alpha * ef, true);
-            float pulse = 0.30f + 0.70f * (0.5f + 0.5f * (float) Math.sin(System.nanoTime() / 1.0e9 * Math.PI * 2 / 0.9));
+            float pulse = 0.30f + 0.70f * (0.5f + 0.5f * (float) Math.sin(net.minecraft.util.Util.getNanos() / 1.0e9 * Math.PI * 2 / 0.9));
             int cA = Math.round(a * pulse * ef);
             GlassWidgets.fill(g, grown - 3, cy - 6, grown - 2, cy + 6, (cA << 24) | 0x0A84FF);
         }
@@ -191,7 +191,7 @@ public final class SliderWidget extends Widget {
                 return true;
             }
             if (onValue) {                                   // click the value -> type it in
-                editing = true; buffer = valueStr(); editStart = System.nanoTime(); return true;
+                editing = true; buffer = valueStr(); editStart = net.minecraft.util.Util.getNanos(); return true;
             }
             {
                 if (onThumb) {                               // on the thumb: keep the grab offset, no jump
@@ -209,7 +209,7 @@ public final class SliderWidget extends Widget {
                     rebase = true;
                 }
                 dragging = true;
-                pressNano = System.nanoTime();
+                pressNano = net.minecraft.util.Util.getNanos();
                 lifted = true;
                 lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
                 apply(mx);
@@ -224,7 +224,7 @@ public final class SliderWidget extends Widget {
         if (!dragging) return;
         dragging = false;
         released = true;
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         holdUntilNano = (now - pressNano) / 1.0e9f < Motion.TAP_S ? now + (long) (Motion.TAP_HOLD_S * 1.0e9f) : now;
         S1mp1eConfig.save();
     }

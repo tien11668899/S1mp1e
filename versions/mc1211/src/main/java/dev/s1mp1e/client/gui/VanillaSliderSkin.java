@@ -141,6 +141,102 @@ public final class VanillaSliderSkin {
                 Math.min(tx1, knobX), 0xFF000000 | fillRgb, 0x4DFFFFFF, ta);
     }
 
+    // ---- row form (settings pages): the S1mp1e config-menu slider, bare — track + pill, no capsule, no label ---------
+
+    /** Dev capture harness only: stands in for the physical left button, which a scripted drag cannot hold. */
+    public static boolean devMouseDown;
+
+    private static final float ROW_HW = 9f, ROW_HH = 6f, ROW_TRACK = 4f;   // = widget/SliderWidget (18x12 pill, 4 px track)
+    private float rowX0, rowX1 = 1f, rowGrab;
+
+    /**
+     * A press on a row slider: on the pill the grab offset is kept (the value does not jump), on bare track the pill
+     * glides to the pointer — exactly the config-menu slider. Call before the press is mapped through {@link #rowValueAt}.
+     */
+    public void rowPress(double pointerX) {
+        float knob = lastKnobX;
+        boolean onPill = !Float.isNaN(knob) && Math.abs(pointerX - knob) <= ROW_HW + 3f;
+        rowGrab = onPill ? (float) (pointerX - Math.max(rowX0, Math.min(rowX1, knob))) : 0f;
+    }
+
+    /** Slider value (unclamped) for a pointer x on the row track last painted, honouring the grab offset. */
+    public double rowValueAt(double pointerX) {
+        return (pointerX - rowGrab - rowX0) / Math.max(1f, rowX1 - rowX0);
+    }
+
+    /**
+     * The config-menu slider on a settings row: the pill centre travels the whole track {@code tx0..tx1}. While held it
+     * rides the pointer 1:1 and unquantised (a stepped option still drags smoothly), rubber-bands past the ends, turns
+     * into the glass lens and stretches with speed; a release / a click on the track / a keyboard step glide on the
+     * same springs as {@link #paint}.
+     */
+    public void paintRow(DrawContext g, float tx0, float tx1, float cy, double value, boolean held, double pointerX,
+                         boolean active, float alpha) {
+        float dt = clock.tick();
+        long now = System.nanoTime();
+        lastPaintNano = now;
+        rowX0 = tx0;
+        rowX1 = tx1;
+        float range = Math.max(1f, tx1 - tx0);
+
+        float base;
+        if (held) {
+            double raw = rowValueAt(pointerX);
+            float clamped = Motion.clamp01((float) raw);
+            float overPx = (float) ((raw - clamped) * range);
+            base = clamped + Math.signum(overPx) * Motion.rubberBand(Math.abs(overPx), ROW_HW * 2f) / range;
+        } else {
+            base = (float) Math.max(0.0, Math.min(1.0, value));
+        }
+        boolean pressed = held && !wasHeld, released = !held && wasHeld;
+        wasHeld = held;
+        if (pressed) {
+            pressNano = now;
+            lifted = true;
+            lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
+        }
+        if (released) {
+            holdUntilNano = (now - pressNano) / 1.0e9f < Motion.TAP_S ? now + (long) (Motion.TAP_HOLD_S * 1.0e9f) : now;
+        }
+        if (!Float.isNaN(lastBase) && base != lastBase && (!held || pressed)) {
+            if (released) glide.tune(Motion.SETTLE_S, 0f);
+            else if (pressed || (glide.x == 0f && glide.v == 0f)) glide.tune(Motion.JUMP_S, 0f);
+            glide.x += lastBase - base;
+            glide.retarget(0f);
+            if (released) glide.settleMonotonic();
+            else glide.capOvershoot();
+        }
+        lastBase = base;
+        glide.update(dt);
+        glide.settle(0.0002f);
+        float knobX = tx0 + range * (base + glide.x);
+
+        if (!held && lifted && now >= holdUntilNano) {
+            lifted = false;
+            lift.tune(Motion.MORPH_OUT_S, 0f).retarget(0f);
+        }
+        lift.update(dt);
+        lift.settle(0.002f);
+        float L = Motion.clamp01(lift.x);
+        if (!Float.isNaN(lastKnobX) && dt > 0f) {
+            float inst = Math.abs(knobX - lastKnobX) / dt;
+            speed += (inst - speed) * Motion.ema(dt, Motion.SPEED_TAU_S);
+        }
+        lastKnobX = knobX;
+        stretch.retarget(Motion.stretchTarget(speed, ROW_HW * 2f)).update(dt);
+        Motion.lensShape(stretch.x, lens);
+
+        float ta = alpha * (active ? 1f : 0.5f);
+        int fillRgb = active ? 0x0A84FF : 0x8E8E93;
+        float ty0 = cy - ROW_TRACK / 2f, ty1 = cy + ROW_TRACK / 2f;
+        GlassWidgets.fillRound(g, tx0, ty0, tx1, ty1, (byteOf(ta * 0.30f) << 24) | 0xFFFFFF, ROW_TRACK / 2f);
+        float fillEnd = Math.min(tx1, knobX - (ROW_HW - ROW_TRACK) * (1f - L));
+        if (fillEnd > tx0 + ROW_TRACK)
+            GlassWidgets.fillRound(g, tx0, ty0, Math.max(tx0 + ROW_TRACK, fillEnd), ty1, (byteOf(ta) << 24) | fillRgb, ROW_TRACK / 2f);
+        GlassWidgets.knobLens(g, knobX, cy, ROW_HW, ROW_HH, L, lens[0], lens[1], lens[2], tx0, tx1, ROW_TRACK / 2f,
+                Math.min(tx1, knobX), 0xFF000000 | fillRgb, 0x4DFFFFFF, ta);
+    }
+
     private static int byteOf(float a) {
         int v = Math.round(a * 255f);
         return v < 0 ? 0 : (v > 255 ? 255 : v);

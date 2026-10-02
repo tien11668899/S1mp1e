@@ -2,7 +2,9 @@ package dev.s1mp1e.client.mixin;
 
 import java.util.List;
 
+import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.ModuleManager;
 import dev.s1mp1e.client.S1mp1eHudCtx;
@@ -53,14 +55,27 @@ public abstract class HudDriverMixin {
         List<Module> all = ModuleManager.all();
         for (int i = 0; i < all.size(); i++) {
             Module m = all.get(i);
-            if (!m.enabled || !(m instanceof HudRenderer hr)) continue;
+            if (!(m instanceof HudRenderer hr)) continue;
+            // Visibility, not the enabled flag, decides drawing: a module switched on fades in, and one switched off keeps
+            // drawing while it fades out (modules therefore no longer early-return on !enabled themselves).
+            float vis = HudFade.visibility(m, m.enabled);
+            if (vis <= 0.004F) continue;
             g.pose().pushMatrix();
             try {
+                if (vis < 1F && m instanceof HudBounds hb) {
+                    float s = HudFade.SCALE_FROM + (1F - HudFade.SCALE_FROM) * HudFade.easeOut(vis);
+                    float cx = hb.hudX() + hb.hudW() * 0.5F, cy = hb.hudY() + hb.hudH() * 0.5F;
+                    g.pose().translate(cx, cy);
+                    g.pose().scale(s, s);
+                    g.pose().translate(-cx, -cy);
+                }
+                HudFade.alpha = vis;
                 hr.renderHud(ctx);
             } catch (Throwable t) {
                 // one bad module never breaks the HUD pass — but log the first failure so it isn't invisible
                 dev.s1mp1e.client.ErrorOnce.report("HUD module " + m.name, t);
             } finally {
+                HudFade.alpha = 1F;
                 g.pose().popMatrix();
             }
         }

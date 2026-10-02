@@ -4,6 +4,7 @@ import java.util.WeakHashMap;
 
 import dev.s1mp1e.client.gui.ScreenOpenFade;
 import dev.s1mp1e.glass.anim.Fade;
+import dev.s1mp1e.glass.anim.PressPulse;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import net.minecraft.client.MinecraftClient;
@@ -11,6 +12,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -105,6 +107,7 @@ public abstract class ButtonGlassMixin {
                             + "renderWidget(Lnet/minecraft/client/gui/DrawContext;IIF)V"))
     private void s1mp1e$glassButton(ClickableWidget self, DrawContext context,
                                     int mouseX, int mouseY, float delta) {
+        if (dev.s1mp1e.client.gui.SettingsShell.suppresses(self)) return;   // a settings-page row stands in for it
         // Villager trade buttons (the 88x20 label-less ButtonWidgets of the MerchantScreen): 26.2 draws them as faint
         // glass capsules (AbstractButton.extractDefaultSprite -> glass, even inside a container screen) and slides them
         // with the trade list mid-glide (MerchantGlide, armed by MerchantGlassMixin only while the list glides).
@@ -147,8 +150,13 @@ public abstract class ButtonGlassMixin {
         // Icon buttons that paint their OWN sprite instead of the default button background (the book page-turn arrows,
         // textured icon buttons): 26.2 only glasses the default sprite (extractDefaultSprite), so their icon — here the
         // book navigation arrow — must stay vanilla rather than becoming an empty capsule.
+        // The checkbox and the difficulty lock likewise paint only their own sprite (no default background): as plain
+        // capsules they lost the tick / the padlock and showed their narration text instead. Vanilla draw — the
+        // checkbox sprite is then swapped for the iOS circle by SfIconMixin, exactly as on 26.2.
         if (self instanceof net.minecraft.client.gui.widget.PageTurnWidget
-                || self instanceof net.minecraft.client.gui.widget.TexturedButtonWidget) {
+                || self instanceof net.minecraft.client.gui.widget.TexturedButtonWidget
+                || self instanceof net.minecraft.client.gui.widget.CheckboxWidget
+                || self instanceof net.minecraft.client.gui.widget.LockButtonWidget) {
             this.renderWidget(context, mouseX, mouseY, delta);
             return;
         }
@@ -189,12 +197,86 @@ public abstract class ButtonGlassMixin {
         // at the widget's own alpha, exactly the Forge port.
         float opacity = this.alpha * ScreenOpenFade.value(mc.currentScreen);
 
-        GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
+        // Tap-feedback pulse (26.2's ButtonPressPulseMixin): on activation the whole button — glass capsule AND label —
+        // dips to ~95% around its centre and springs back over ~0.25 s. ButtonPressMixin stamps the press time; here the
+        // scale is 1.0 (no-op) unless recently pressed. The capsule is raw-GL absolute coords (scaled by hand about the
+        // centre); the label follows the same scale via the DrawContext matrix so the two stay locked together.
+        float s = PressPulse.scale(self);
+        float cx = x + w / 2f, cy = y + h / 2f;
+        if (s != 1f) {
+            float bx0 = cx + (x - cx) * s, by0 = cy + (y - cy) * s;
+            float bx1 = cx + (x + w - cx) * s, by1 = cy + (y + h - cy) * s;
+            GlassRenderer.button(bx0, by0, bx1, by1, 1.0f, lift, opacity, this.active);
+        } else {
+            GlassRenderer.button(x, y, x + w, y + h, 1.0f, lift, opacity, this.active);
+        }
 
-        // label on top, vanilla colouring
+        // label on top, vanilla colouring (scaled with the capsule during a press dip)
         int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
         int a = Math.round(this.alpha * 255f) << 24;
-        context.drawCenteredTextWithShadow(mc.textRenderer, self.getMessage(),
-                x + w / 2, y + (h - 8) / 2, textColor | a);
+        if (s != 1f) {
+            context.getMatrices().push();
+            context.getMatrices().translate(cx, cy, 0f);
+            context.getMatrices().scale(s, s, 1f);
+            context.getMatrices().translate(-cx, -cy, 0f);
+        }
+        if (self instanceof net.minecraft.client.gui.widget.TextIconButtonWidget) {
+            // Icon buttons (title screen language / accessibility): vanilla draws the default background and then the
+            // icon sprite. The capsule above replaced the background; draw the icon (and, for the with-text kind, the
+            // label) the way vanilla lays them out — an icon-only button has NO label (its message is narration only).
+            TextIconButtonAccessor icon = (TextIconButtonAccessor) self;
+            int tw = icon.s1mp1e$textureWidth(), th = icon.s1mp1e$textureHeight();
+            boolean iconOnly = self instanceof net.minecraft.client.gui.widget.TextIconButtonWidget.IconOnly;
+            int ix = iconOnly ? x + w / 2 - tw / 2 : x + w - tw - 2;
+            int iy = y + h / 2 - th / 2;
+            if (!iconOnly) {
+                context.drawCenteredTextWithShadow(mc.textRenderer, self.getMessage(),
+                        x + (w - tw - 2) / 2, y + (h - 8) / 2, textColor | a);
+            }
+            context.setShaderColor(1f, 1f, 1f, opacity);
+            com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+            context.drawGuiTexture(icon.s1mp1e$texture(), ix, iy, tw, th);
+            context.setShaderColor(1f, 1f, 1f, 1f);
+        } else if (!s1mp1e$rollLabel(context, mc, self, x, y, w, h, textColor | a)) {
+            context.drawCenteredTextWithShadow(mc.textRenderer, self.getMessage(),
+                    x + w / 2, y + (h - 8) / 2, textColor | a);
+        }
+        if (s != 1f) context.getMatrices().pop();
+    }
+
+    // ---- cycle buttons roll their value (26.2's CycleButtonRollMixin) ---------------------------------------------
+
+    /** One label animator per cycle button (weak: dies with the widget). */
+    @Unique
+    private static final java.util.WeakHashMap<ClickableWidget, dev.s1mp1e.glass.render.TypingAnim> s1mp1e$rollers =
+            new java.util.WeakHashMap<>();
+
+    /**
+     * Cycle buttons ("Difficulty: Normal", "Clouds: Fancy", on/off toggles …) roll their value like an odometer when
+     * it changes instead of swapping the label in one frame: the unchanged "Name: " stays put, the old value floats up
+     * and fades, the new one rises in glyph by glyph, and the label re-centres by gliding. Drawn at exactly the
+     * position/colour/shadow of the plain centred draw above; a label too wide for the button, an invisible button or
+     * any failure falls back to it (returns false).
+     */
+    @Unique
+    private static boolean s1mp1e$rollLabel(DrawContext context, MinecraftClient mc, ClickableWidget self,
+                                            int x, int y, int w, int h, int color) {
+        if (!(self instanceof net.minecraft.client.gui.widget.CyclingButtonWidget<?>)) return false;
+        if ((color >>> 24) <= 1) return false;
+        dev.s1mp1e.glass.render.TypingAnim label = s1mp1e$rollers.get(self);
+        if (label == null) { label = new dev.s1mp1e.glass.render.TypingAnim(); s1mp1e$rollers.put(self, label); }
+        if (label.broken) return false;
+        net.minecraft.text.Text msg = self.getMessage();
+        net.minecraft.text.OrderedText seq = msg.asOrderedText();
+        int x0 = x + 2, x1 = x + w - 2;
+        if (mc.textRenderer.getWidth(seq) > x1 - x0) return false;
+        try {
+            label.extractLabel(context, mc.textRenderer, msg.getString(), seq, x + w / 2, y + (h - 8) / 2, x0, x1, color, true);
+            return true;
+        } catch (Throwable t) {
+            label.broken = true;
+            System.out.println("[S1mp1e] cycle-button roll disabled: " + t);
+            return false;
+        }
     }
 }

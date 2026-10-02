@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.seagull.liquidglass.client.render.GlassPipeline;
+import com.seagull.liquidglass.client.render.ScreenTransition;
 import com.seagull.liquidglass.client.render.TooltipLayer;
 import dev.s1mp1e.client.GuiLayerProbe;
 import java.util.List;
@@ -40,11 +41,27 @@ public class GuiRendererGrabMixin {
       at = {@At("HEAD")}
    )
    private void lg$grabCleanBackdrop(CallbackInfo ci) {
+      dev.s1mp1e.client.gui.GuiAlpha.reset();   // frame boundary: nothing pushed may leak into the next frame
+      com.seagull.liquidglass.client.render.GuiAmbient.clear();
       GlassPipeline.grabBackdrop();
       // Tooltip strata to the END of the strata list: drawn after everything else in the frame.
       TooltipLayer.promote(this.renderState);
+      // Screen cross-dissolve: the outgoing screen's snapshot as the very last stratum (over tooltips too).
+      ScreenTransition.appendOverlay(this.renderState);
       // Dev-only layer probe (inert unless the tooltips DevShot sweep armed it): verifies the FINAL order.
       GuiLayerProbe.onGuiRender(this.renderState);
+   }
+
+   /**
+    * Right after the panorama pass (only fired when a panorama is actually rendered) and before the GUI draws: grab the
+    * (no-world) menu panorama as the base backdrop, so glass panels refract the panorama rather than the black HEAD grab
+    * / the darkened menu backdrop the screen paints on top. No panorama this frame → not fired → the HEAD grab's neutral
+    * fallback stands.
+    */
+   @Inject(method = "render", at = @At(value = "INVOKE",
+         target = "Lnet/minecraft/client/renderer/CubeMap;render(FF)V", shift = At.Shift.AFTER))
+   private void lg$grabMenuPanorama(CallbackInfo ci) {
+      com.seagull.liquidglass.client.render.MenuBackdrop.grabBeforeGui();
    }
 
    @Inject(method = "addElementToMesh", at = @At("HEAD"))

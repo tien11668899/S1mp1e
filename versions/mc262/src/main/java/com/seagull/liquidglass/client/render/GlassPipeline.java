@@ -17,6 +17,7 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuSampler;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
+import org.joml.Vector4f;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.seagull.liquidglass.client.LiquidGlassClient;
 import java.io.InputStream;
@@ -48,6 +49,9 @@ public final class GlassPipeline {
    private static RenderPipeline round;
    private static int state = 0;
    private static RenderPipeline fade;
+   /** The S1mp1e brand intro (s1mp1e_intro.fsh): a full-screen procedural animation; time on UV0.x, mode on UV0.y,
+    *  overall opacity on the vertex alpha, the headline strip on Sampler0. Used by the boot / world-entry screens. */
+   private static RenderPipeline intro;
    private static GpuTexture snapTex;
    private static GpuTextureView snapView;
    private static int sw0;
@@ -137,6 +141,14 @@ public final class GlassPipeline {
 
    public static boolean fadeUsable() {
       return state == 1 && fade != null && snapView != null;
+   }
+
+   public static RenderPipeline intro() {
+      return intro;
+   }
+
+   public static boolean introUsable() {
+      return state == 1 && intro != null;
    }
 
    public static GpuTextureView snapshotView() {
@@ -395,6 +407,29 @@ public final class GlassPipeline {
                LiquidGlassClient.LOG.warn("[LiquidGlass] fade pipeline unavailable: {}", var5.toString());
             }
 
+            try {
+               RenderPipeline ip = RenderPipeline.builder(new Snippet[0])
+                  .withLocation(Identifier.fromNamespaceAndPath("liquidglass", "pipeline/s1mp1e_intro"))
+                  .withBindGroupLayout(BindGroupLayouts.GLOBALS)
+                  .withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+                  .withBindGroupLayout(BindGroupLayouts.SAMPLER0)
+                  .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+                  .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+                  .withPrimitiveTopology(PrimitiveTopology.QUADS)
+                  .withVertexShader(Identifier.fromNamespaceAndPath("liquidglass", "core/glass"))
+                  .withFragmentShader(Identifier.fromNamespaceAndPath("liquidglass", "core/s1mp1e_intro"))
+                  .build();
+               CompiledRenderPipeline ic = dev.precompilePipeline(ip, src);
+               if (ic != null && ic.isValid()) {
+                  intro = ip;
+                  LiquidGlassClient.LOG.info("[LiquidGlass] intro pipeline compiled (S1mp1e brand intro)");
+               } else {
+                  LiquidGlassClient.LOG.warn("[LiquidGlass] intro pipeline invalid, boot/world-entry falls back to vanilla");
+               }
+            } catch (Throwable varIntro) {
+               LiquidGlassClient.LOG.warn("[LiquidGlass] intro pipeline unavailable: {}", varIntro.toString());
+            }
+
             sampler = dev.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.LINEAR, FilterMode.LINEAR, 1, OptionalDouble.empty());
             state = 1;
             LiquidGlassClient.LOG.info("[LiquidGlass] glass pipeline compiled - real refraction ACTIVE");
@@ -406,6 +441,9 @@ public final class GlassPipeline {
          return state == 1;
       }
    }
+
+   /** Neutral frost, used only as a fallback when there is no world AND the panorama grab could not run. */
+   private static final Vector4f NEUTRAL_BACKDROP = new Vector4f(0.34F, 0.36F, 0.40F, 1.0F);
 
    public static void grabBackdrop() {
       if (state == 1) {
@@ -429,18 +467,58 @@ public final class GlassPipeline {
                   grabTex = null;
                }
 
-               grabTex = dev.createTexture("liquidglass_backdrop", 5, main.getColorTexture().getFormat(), w, h, 1, 1);
+               // usage 13 = COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT (the last so it can be cleared, below)
+               grabTex = dev.createTexture("liquidglass_backdrop", 13, main.getColorTexture().getFormat(), w, h, 1, 1);
                grabView = dev.createTextureView(grabTex);
                gw = w;
                gh = h;
             }
 
-            dev.createCommandEncoder().copyTextureToTexture(main.getColorTexture(), grabTex, 0, 0, 0, 0, 0, w, h);
+            // Deferred GUI: this grab (GuiRenderer.render HEAD, before any GUI draws) is the world. In a world that is
+            // the right backdrop for every glass panel. With NO world (title screen, options, world select…) the main
+            // target is still black here — the menu panorama is drawn LATER, as the first GUI elements. So clear to a
+            // neutral frost as a fallback; {@link MenuBackdrop} then re-grabs the framebuffer mid-draw, right before the
+            // first glass panel, so the panels actually refract the panorama (see the GuiRenderer.draw split).
+            if (Minecraft.getInstance().level == null) {
+               dev.createCommandEncoder().clearColorTexture(grabTex, NEUTRAL_BACKDROP);
+            } else {
+               dev.createCommandEncoder().copyTextureToTexture(main.getColorTexture(), grabTex, 0, 0, 0, 0, 0, w, h);
+            }
          } catch (Throwable var4) {
             state = -1;
             LiquidGlassClient.LOG.warn("[LiquidGlass] backdrop grab failed, disabling refraction: {}", var4.toString());
          }
       }
+   }
+
+   /**
+    * Mid-draw re-grab of the base backdrop from the (partially drawn) framebuffer: used only with NO world, called by
+    * {@link MenuBackdrop} at the draw split right before the first glass panel, so the panels refract the menu panorama /
+    * background that has by then been drawn. Assumes {@code grabTex} already exists at the current size (created at the
+    * HEAD grab this frame). Returns true if the copy ran.
+    */
+   public static boolean grabBackdropNow() {
+      if (state != 1 || grabTex == null) {
+         return false;
+      }
+      try {
+         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+         int w = main.width;
+         int h = main.height;
+         if (w <= 0 || h <= 0 || w != gw || h != gh) {
+            return false;
+         }
+         RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(main.getColorTexture(), grabTex, 0, 0, 0, 0, 0, w, h);
+         return true;
+      } catch (Throwable t) {
+         LiquidGlassClient.LOG.warn("[LiquidGlass] panorama backdrop grab failed: {}", t.toString());
+         return false;
+      }
+   }
+
+   /** True for the pipelines that refract the base backdrop (grabView) — the glass panels, tabs, ring and lens. */
+   public static boolean samplesBackdrop(RenderPipeline p) {
+      return p != null && (p == glass || p == round || p == tabTop || p == tabBot || p == capsule || p == ringGlass || p == lens);
    }
 
    public static void grabSnapshot() {

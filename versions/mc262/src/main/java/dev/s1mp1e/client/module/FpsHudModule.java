@@ -36,7 +36,7 @@ public final class FpsHudModule extends Module implements HudBounds, HudRenderer
 
     @Override
     public void renderHud(S1mp1eHudCtx c) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudDriverMixin via HudFade
         GuiGraphicsExtractor g = c.g();
         Font font = c.font();
 

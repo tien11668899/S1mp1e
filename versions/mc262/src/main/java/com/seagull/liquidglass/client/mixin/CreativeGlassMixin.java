@@ -5,6 +5,7 @@ import com.seagull.liquidglass.client.render.GlassPanels;
 import com.seagull.liquidglass.client.render.GlassPipeline;
 import com.seagull.liquidglass.client.render.GlassSurface;
 import com.seagull.liquidglass.client.render.GlassTabs;
+import com.seagull.liquidglass.client.render.ScreenTransition;
 import dev.s1mp1e.client.gui.GlassGlideHost;
 import dev.s1mp1e.client.gui.GlassScrollbar;
 import dev.s1mp1e.client.gui.GlassWidgets;
@@ -24,6 +25,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
@@ -225,6 +227,18 @@ public abstract class CreativeGlassMixin implements GlassGlideHost {
       if (liquidglass$sliding && liquidglass$scrollbar != null) {
          liquidglass$scrollbar.snapToTarget();
          liquidglass$sliding = false;
+      }
+   }
+
+   /**
+    * Switching creative category tab swaps the whole item grid in one frame. Snapshot the outgoing frame and cross-dissolve
+    * it over the new tab (the unchanged panel/tabs/hotbar overlap, so only the item grid visibly cross-fades). HEAD, before
+    * the static {@code selectedTab} flips, so the snapshot holds the old tab. Skips a re-select of the same tab.
+    */
+   @Inject(method = "selectTab", at = @At("HEAD"))
+   private void lg$dissolveTab(CreativeModeTab tab, CallbackInfo ci) {
+      if (selectedTab != tab) {
+         ScreenTransition.onTabSwitch();
       }
    }
 

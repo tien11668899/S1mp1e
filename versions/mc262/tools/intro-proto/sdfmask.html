@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>@font-face{font-family:'PF';src:url(fonts/PingFangUITC-600.ttf) format('truetype');font-weight:100 900;}</style>
+</head><body><canvas id="c"></canvas><script>
+// High-res mask of one half of the "S1mp1e" word (?half=0 "S1m", 1 "p1e") in PingFang UI TC Semibold, laid out as in
+// the whole word centred on x = 960 with the capitals' centre on y = 540, over a 400 x 360 design-px field box
+// centred on that half's ink centre, SS canvas px per design px. META has the numbers the loop shader needs.
+const HALF=+((location.href.match(/half=([01])/)||[0,0])[1]);
+const PARTS=['S1m','p1e'], FONT_PX=120, FW=400, FH=360, SS=8;
+(async()=>{
+  await document.fonts.load(`600 ${FONT_PX}px PF`);
+  const c=document.getElementById('c'), g=c.getContext('2d');
+  g.font=`600 ${FONT_PX}px PF`;
+  const word=g.measureText(PARTS.join('')).width, penL=960-word/2, penR=penL+g.measureText(PARTS[0]).width;
+  const capAsc=g.measureText('S').actualBoundingBoxAscent, base=540+capAsc/2;
+  const ink=PARTS.map((s,i)=>{const m=g.measureText(s),p=i?penR:penL;return [p-m.actualBoundingBoxLeft,p+m.actualBoundingBoxRight];});
+  const cx=ink.map(r=>(r[0]+r[1])/2);
+  const PEN=HALF?penR:penL, CX=cx[HALF], x0=CX-FW/2, y0=540-FH/2;
+  c.width=FW*SS; c.height=FH*SS;
+  g.fillStyle='#000'; g.fillRect(0,0,c.width,c.height);
+  g.font=`600 ${FONT_PX*SS}px PF`; g.textBaseline='alphabetic'; g.fillStyle='#fff';
+  g.fillText(PARTS[HALF],(PEN-x0)*SS,(base-y0)*SS);
+  window.META={half:HALF,word,penL,penR,capAsc,base,ink,cx,x0,y0,FW,FH,SS};
+  window.READY=true;
+})();
+</script></body></html>

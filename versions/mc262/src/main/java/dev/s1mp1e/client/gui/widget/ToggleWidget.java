@@ -149,12 +149,12 @@ public final class ToggleWidget extends Widget {
                 grabDX = mx - (travelX0() + span() * here);
                 lastDragPos = here;
             }
-            lastDragNano = System.nanoTime();
+            lastDragNano = net.minecraft.util.Util.getNanos();
             lifted = true;
             lift.tune(SWITCH_MORPH_IN, 0f).retarget(1f);
         }
         float pos = Motion.clamp01((float) ((mx - grabDX - travelX0()) / span()));
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         float edt = lastDragNano == 0L ? 1f / 60f
                 : Math.max(1f / 240f, Math.min(0.05f, (now - lastDragNano) / 1.0e9f));
         lastDragNano = now;
@@ -184,7 +184,7 @@ public final class ToggleWidget extends Widget {
         if (nv == bind.get() && maxDragPx < knobHalfW() && onWidget) nv = !nv;
         float goal = nv ? 1f : 0f;
         travel.target = goal;
-        float age = lastDragNano == 0L ? 1f : (System.nanoTime() - lastDragNano) / 1.0e9f;
+        float age = lastDragNano == 0L ? 1f : (net.minecraft.util.Util.getNanos() - lastDragNano) / 1.0e9f;
         float v = age > 0.05f ? 0f : Math.max(-VEL_MAX, Math.min(VEL_MAX, dragVel));   // stale speed = no speed
         travel.v = travel.x == goal ? 0f : v;            // landed exactly on the end: nothing left to hand off
         travel.settleMonotonic();                        // never swing back past the side it committed to

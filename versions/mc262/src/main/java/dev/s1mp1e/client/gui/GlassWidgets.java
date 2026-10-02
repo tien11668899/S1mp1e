@@ -90,6 +90,26 @@ public final class GlassWidgets {
     }
 
     /**
+     * {@link #panel} with an explicit corner radius in GUI px (e.g. {@code GlassCorners.HOTBAR_RADIUS} for new glass
+     * surfaces, which {@link #panel}'s size-proportional corner would make near-square on a short wide card).
+     * {@code scrim} is the readability darkening (0.16 = {@link #panel}'s).
+     */
+    public static void panel(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, float alpha, float radiusPx,
+                             float scrim) {
+        float minSide = Math.min(x1 - x0, y1 - y0);
+        if (minSide <= 0f) return;
+        float r = Math.min(radiusPx, minSide / 2f);
+        if (GlassPipeline.ensureReady() && GlassPipeline.usable()) {
+            int knobs = (0x00 << 24) | (clampByte(Math.min(1f, 4f * r / minSide)) << 16) | (0xFF << 8) | clampByte(alpha);
+            TextureSetup ts = TextureSetup.singleTexture(GlassPipeline.backdropView(), GlassPipeline.sampler());
+            add(g, new QuadState(GlassPipeline.glass(), ts, g.pose(), x0, y0, x1, y1, 12f, knobs, scissor()));
+            if (scrim > 0f) roundRect(g, x0, y0, x1, y1, r, (clampByte(alpha * scrim) << 24) | 0x1C1C1E);
+            return;
+        }
+        roundRect(g, x0, y0, x1, y1, r, (clampByte(alpha * 0.58f) << 24) | 0x1C1C1E);
+    }
+
+    /**
      * iOS-26 scroll-edge for a scroll list. mc1211 = progressive blur of the list content + a 4% dim.
      * 26.2's backdrop is grabbed before any GUI content exists, so the content blur is impossible; only the
      * whisper dim survives, drawn as a vertical gradient strongest at the outer edge.

@@ -31,6 +31,10 @@ dependencies {
     // tweaker to the `named` namespace, but 26.2's unobfuscated runtime namespace is `official`, so the dev
     // `runClient` aborts ("Namespace (named) does not match current runtime namespace (official)"). The mod
     // needs nothing from it anyway: the menu key is polled by our own MenuKeyMixin at Minecraft.tick().
+    // Compile-only: Sodium + Reese's Sodium Options, for the liquid-glass video-settings restyle
+    // (liquidglass.rso.mixins.json, applied only when RSO is installed). Plain files, not modCompileOnly, so Loom
+    // leaves their class tweakers alone; for a dev test drop the same jars into run/mods.
+    compileOnly files('libs/compat/sodium-fabric-0.9.1+mc26.2.jar', 'libs/compat/reeses-sodium-options-fabric-2.2.3+mc26.2.jar')
 }
 
 // Dev client only: make LiquidGlassClient force-load every mixin target at startup so a bad injection target
@@ -39,6 +43,10 @@ loom {
     runs {
         client {
             vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // Fixed offline identity so every dev/film run shows the same player skin. The default skin is picked by
+            // floorMod(uuid.hashCode(), 18); this UUID lands on index 15 = wide (classic) Steve. Without it MC names
+            // the dev player "Player<random>" and the skin changes from run to run.
+            programArgs "--username", "S1mp1e", "--uuid", "c70e98b9e0923798a7a64f0fd4e52ed1"
         }
     }
 }

@@ -16,7 +16,8 @@
   },
   "mixins": [
     "liquidglass.mixins.json",
-    "s1mp1e.mixins.json"
+    "s1mp1e.mixins.json",
+    "liquidglass.rso.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.0",

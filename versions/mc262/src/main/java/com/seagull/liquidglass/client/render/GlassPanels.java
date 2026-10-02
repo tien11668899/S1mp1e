@@ -51,6 +51,8 @@ public final class GlassPanels {
          }
          PanelGhost.beginFrame();
          PanelGhost.remember(x, gy0, w, gy1 - gy0);
+         // A recipe book sliding out goes on the layer under this panel, so the panel's rounded glass occludes it.
+         RecipeBookUnder.drawBeneath(g, screen);
          GuiRenderState rs = ((GuiGraphicsExtractorAccessor)g).liquidglass$guiRenderState();
          TextureSetup ts = TextureSetup.singleTexture(GlassPipeline.backdropView(), GlassPipeline.sampler());
          rs.addGuiElement(new GlassRectRenderState(GlassPipeline.glass(), ts, g.pose(), x, gy0, x + w, gy1, 12, knobs | b, null));

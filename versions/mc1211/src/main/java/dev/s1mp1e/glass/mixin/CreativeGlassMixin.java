@@ -234,6 +234,17 @@ public abstract class CreativeGlassMixin implements GlassGlideHost, GlideProbe {
         }
     }
 
+    /**
+     * Switching creative category swaps the whole item grid in one frame. Snapshot the outgoing frame and cross-dissolve
+     * it over the new tab (the unchanged panel / tabs / hotbar overlap, so only the item grid visibly cross-fades). HEAD,
+     * before the static {@code selectedTab} flips, so the snapshot holds the old tab. Skips the re-select vanilla does
+     * in {@code init}.
+     */
+    @Inject(method = "setSelectedTab", at = @At("HEAD"))
+    private void s1mp1e$dissolveTab(ItemGroup group, CallbackInfo ci) {
+        if (selectedTab != group) dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+    }
+
     // ---- GlassGlideHost -------------------------------------------------------------------------
 
     @Override

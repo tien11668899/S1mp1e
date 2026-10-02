@@ -113,7 +113,7 @@ public final class GlassScrollbar {
 
     public void draw(GuiGraphicsExtractor g, boolean active, float alpha) {
         float dt = clock.tick();
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
 
         // ---- where the thumb sits ----
         if (dragging) {
@@ -168,7 +168,7 @@ public final class GlassScrollbar {
     public void press(double mouseY) {
         dragging = true;
         lifted = true;
-        pressNano = System.nanoTime();
+        pressNano = net.minecraft.util.Util.getNanos();
         lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
         grabDY = thumbLen / 2f;
         dragRaw = (float) ((mouseY - grabDY - trackTop) / travel);
@@ -183,7 +183,7 @@ public final class GlassScrollbar {
     public void release() {
         if (!dragging) return;
         dragging = false;
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         // a quick tap leaves the lens up briefly (like the slider), otherwise it collapses right away
         holdUntilNano = (now - pressNano) / 1.0e9f < Motion.TAP_S ? now + (long) (Motion.TAP_HOLD_S * 1.0e9f) : now;
     }

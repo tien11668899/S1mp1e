@@ -76,7 +76,7 @@ public final class HungerSaturationHudModule extends Module {
             g.fill(x0, y0, x1, y1, (baseA << 24) | gold);
 
             // moving highlight band (enchant-glint feel), clipped to the bar
-            float t = (System.nanoTime() % 1_800_000_000L) / 1.8e9f;   // 0..1 scroll every 1.8s
+            float t = (net.minecraft.util.Util.getNanos() % 1_800_000_000L) / 1.8e9f;   // 0..1 scroll every 1.8s
             int span = x1 - x0, band = 18;
             int bx = x0 - band + Math.round(t * (span + band * 2));
             for (int i = -band; i <= band; i++) {

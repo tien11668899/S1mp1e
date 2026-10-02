@@ -38,6 +38,8 @@ public final class GlassRectRenderState implements GuiElementRenderState {
       int color,
       @Nullable ScreenRectangle scissor
    ) {
+      scissor = GuiAmbient.scissor(scissor);
+      color = GuiAmbient.glassColor(color);
       this.pipeline = pipeline;
       this.textureSetup = textureSetup;
       this.pose = new Matrix3x2f(pose);

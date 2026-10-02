@@ -2,6 +2,7 @@ package dev.s1mp1e.glass.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import dev.s1mp1e.glass.render.ScreenDissolve;
 import dev.s1mp1e.glass.ui.GlassTooltip;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -44,7 +45,8 @@ public abstract class GameRendererTooltipLayerMixin {
                      target = "Lnet/minecraft/client/toast/ToastManager;draw(Lnet/minecraft/client/gui/DrawContext;)V"))
     private void s1mp1e$tooltipTopLayer(ToastManager toasts, DrawContext ctx, Operation<Void> op) {
         op.call(toasts, ctx);
-        GlassTooltip.endDefer(ctx);   // the recorded tooltip + ghost: the last GUI draw of the frame
+        GlassTooltip.endDefer(ctx);   // the recorded tooltip + ghost: the top GUI layer of the frame
+        ScreenDissolve.draw(ctx);     // ...under only the outgoing-screen snapshot of a running cross-dissolve
     }
 
     @Inject(method = "render", at = @At("TAIL"))

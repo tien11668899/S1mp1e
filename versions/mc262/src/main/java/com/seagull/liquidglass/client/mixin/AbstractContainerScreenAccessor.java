@@ -9,6 +9,9 @@ public interface AbstractContainerScreenAccessor {
    @Accessor("leftPos")
    int liquidglass$leftPos();
 
+   @Accessor("leftPos")
+   void liquidglass$setLeftPos(int value);
+
    @Accessor("topPos")
    int liquidglass$topPos();
 

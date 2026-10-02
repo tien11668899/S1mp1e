@@ -80,8 +80,10 @@ public abstract class ChatGlassMixin {
       if (!(scale > 0.0)) return;
       int lineHeight = this.getLineHeight();
       int bottomY = Mth.floor((g.guiHeight() - CHAT_BOTTOM_MARGIN) / (float) scale);
-      int y0 = bottomY - n * lineHeight;
+      // top edge follows the arrival slide (ChatArrival), so the panel grows smoothly with the rising lines
+      int y0 = bottomY - n * lineHeight + Math.round(com.seagull.liquidglass.client.render.ChatArrival.offset(lineHeight));
       int y1 = bottomY;
+      if (y1 - y0 < 2) return;
 
       // Hug the actual text: width = widest visible line (not the full chat column, which would leave empty glass).
       int textW = 0;

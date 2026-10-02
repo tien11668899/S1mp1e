@@ -37,7 +37,7 @@ public final class CoordinatesHudModule extends Module implements HudBounds, Hud
 
     @Override
     public void renderHud(S1mp1eHudCtx c) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudDriverMixin via HudFade
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         GuiGraphicsExtractor g = c.g();

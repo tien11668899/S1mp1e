@@ -33,6 +33,26 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(AdvancementsScreen.class)
 public abstract class AdvancementsGlassMixin {
 
+    @org.spongepowered.asm.mixin.Shadow @org.spongepowered.asm.mixin.Final
+    private java.util.Map<net.minecraft.advancement.AdvancementEntry,
+            net.minecraft.client.gui.screen.advancement.AdvancementTab> tabs;
+    @org.spongepowered.asm.mixin.Shadow
+    private net.minecraft.client.gui.screen.advancement.AdvancementTab selectedTab;
+
+    /**
+     * Switching advancement tab swaps the whole tree in one frame. Snapshot the outgoing frame and cross-dissolve it
+     * over the new tree (the glass window frame and tab row overlap, so only the tree region visibly cross-fades). HEAD,
+     * before {@code selectedTab} flips. Skips a no-op re-select of the current tab.
+     */
+    @Inject(method = "selectTab", at = @At("HEAD"))
+    private void s1mp1e$dissolveAdvTab(net.minecraft.advancement.AdvancementEntry advancement, CallbackInfo ci) {
+        net.minecraft.client.gui.screen.advancement.AdvancementTab next =
+                advancement == null ? null : this.tabs.get(advancement);
+        if (next != null && this.selectedTab != null && next != this.selectedTab) {
+            dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+        }
+    }
+
     @Inject(method = "drawAdvancementTree", at = @At("HEAD"))
     private void s1mp1e$glassPanel(DrawContext ctx, int mouseX, int mouseY, int x, int y, CallbackInfo ci) {
         if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return;

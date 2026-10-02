@@ -81,7 +81,7 @@ public final class Motion {
     public static final class Clock {
         private long last;
         public float tick() {
-            long now = System.nanoTime();
+            long now = net.minecraft.util.Util.getNanos();
             float dt = last == 0L ? 1f / 60f : (now - last) / 1.0e9f;
             last = now;
             return dt < 0f ? 0f : Math.min(dt, 0.05f);

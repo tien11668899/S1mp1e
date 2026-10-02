@@ -51,6 +51,7 @@ public final class ZoomModule extends Module {
     public static boolean zooming() {
         ZoomModule m = instance;
         if (m == null || !m.enabled) return false;
+        if (dev.s1mp1e.client.film.Film.zoomHeld()) return true;   // film mode: scripted "zoom on"
         int k = m.key.intValue;
         if (k <= 0) return false;
         Minecraft mc = Minecraft.getInstance();
@@ -97,7 +98,7 @@ public final class ZoomModule extends Module {
      */
     public static double smoothFactor() {
         tickForeignZoomBlock();
-        long now = System.nanoTime();
+        long now = net.minecraft.util.Util.getNanos();
         double dt = (lastNano == 0L) ? (1.0 / 60.0) : (now - lastNano) / 1.0e9;
         lastNano = now;
         if (dt < 0) dt = 0;

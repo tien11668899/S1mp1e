@@ -12,6 +12,7 @@ import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.DeathScreen;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.achievement.StatsScreen;
 import net.minecraft.client.gui.screens.advancements.AdvancementsScreen;
@@ -27,7 +28,9 @@ import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.client.gui.screens.inventory.StonecutterScreen;
 import net.minecraft.client.gui.screens.recipebook.RecipeBookComponent;
 import net.minecraft.client.gui.screens.recipebook.RecipeBookPage;
+import net.minecraft.client.gui.screens.options.OptionsScreen;
 import net.minecraft.client.gui.screens.options.VideoSettingsScreen;
+import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
 import net.minecraft.client.gui.screens.social.SocialInteractionsScreen;
 import net.minecraft.client.gui.screens.worldselection.WorldOpenFlows;
 import net.minecraft.client.player.LocalPlayer;
@@ -135,7 +138,8 @@ public final class DevShot {
                              P_DRAIN = 14, P_STOP = 15, P_DONE = 16,
                              P_SCREENS = 17, P_VERIFY = 18, P_HUD = 19, P_MODULES = 20,
                              P_FLICKER = 21, P_TABS = 22, P_SCROLL = 23, P_CLICKS = 24, P_GLIDE = 25,
-                             P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28;
+                             P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28, P_TRANS = 29, P_INGAME = 30, P_LISTS = 31,
+                             P_LOOPPREV = 32;
 
     /** Per-screen shot timing for the {@code screens} sweep. */
     private static final int SCREEN_SETTLE = 45;   // frames rendered before the capture request
@@ -196,6 +200,28 @@ public final class DevShot {
      *  narrow GUI-scale survival inventory where the COMPACT icon-only layout shows plus its top-layer hover tooltip
      *  (armed through {@link GuiLayerProbe}). Inert otherwise. */
     private static boolean effectsMode;
+    /** When set (env {@code S1MP1E_SHOT_MODE=trans}) the run stays in the main menu and walks menu-to-menu screen
+     *  switches, capturing the last frame before each switch and every frame of the first 12 after it. */
+    private static boolean transMode;
+
+    /** When set (env {@code S1MP1E_SHOT_MODE=ingame}) the run drives the in-gameplay screen switches that vanilla cuts hard:
+     *  creative category-tab switch, survival recipe-book open/close and its category-tab switch, and the advancements tab —
+     *  each now snapshot-cross-dissolved ({@link com.seagull.liquidglass.client.render.ScreenTransition#onTabSwitch}). Captures
+     *  a {@code -pre} frame then early frames so the dissolve is visible frame by frame. Also validates the four new @Inject
+     *  targets resolve (require:1 fails the load if a target method is missing when its screen class loads). */
+    private static boolean ingameMode;
+    /** {@code S1MP1E_SHOT_MODE=lists}: menu-only sweep of the selection-list animations (smooth wheel scroll, gliding
+     *  selection box) on the language list; logs the list's scroll amount at every capture. */
+    private static boolean listsMode;
+    /** {@code S1MP1E_SHOT_MODE=intro}: capture the real boot {@code LoadingOverlay} frame by frame (the brand intro,
+     *  held up ~3.9 s by {@link com.seagull.liquidglass.client.mixin.LoadingOverlayIntroMixin}) into {@code intro_NNN.png},
+     *  time-sampled ~33 fps, then quit. Lets the ported intro shader be compared against the prototype. */
+    private static boolean introMode;
+    private static int     introCount;
+    private static long    introLastMs;
+    private static long    introFirstMs;
+    private static boolean introSeen;
+    private static int ingStage;
     private static int     effectsStage;
     private static java.util.Map<Setting, Object> modulesSnapshot;
     private static java.util.Map<Module, Boolean> modulesEnabledSnapshot;
@@ -220,6 +246,14 @@ public final class DevShot {
      *  the effects sweep's compact stage narrows the window (so the space right of the inventory drops below 120 px and
      *  {@code EffectsInInventory} falls into its COMPACT icon-only layout), then restores them. */
     private static int forcedScale = 2;
+    static {
+        // Dev-only: S1MP1E_SHOT_SCALE overrides the pinned GUI scale so font sharpness can be checked
+        // at scales other than 2 (the font atlas bakes at launch from options.txt's guiScale, set to match).
+        try {
+            String s = System.getenv("S1MP1E_SHOT_SCALE");
+            if (s != null && !s.trim().isEmpty()) forcedScale = Integer.parseInt(s.trim());
+        } catch (Throwable ignored) {}
+    }
     private static int forcedW = SHOT_W;
     private static int forcedH = SHOT_H;
 
@@ -246,6 +280,14 @@ public final class DevShot {
                     tooltipsMode = mode != null && mode.trim().equalsIgnoreCase("tooltips");
                     effectsMode = mode != null && mode.trim().equalsIgnoreCase("effects");
                     combatMode = mode != null && mode.trim().equalsIgnoreCase("combat");
+                    transMode = mode != null && mode.trim().equalsIgnoreCase("trans");
+                    ingameMode = mode != null && mode.trim().equalsIgnoreCase("ingame");
+                    listsMode = mode != null && mode.trim().equalsIgnoreCase("lists");
+                    introMode = mode != null && mode.trim().equalsIgnoreCase("intro");
+                    try {   // S1MP1E_SHOT_INGAME_FROM=<stage>: start the ingame sweep at that stage (e.g. 7 = typing only)
+                        String from = System.getenv("S1MP1E_SHOT_INGAME_FROM");
+                        if (from != null && !from.isBlank()) ingStage = Integer.parseInt(from.trim());
+                    } catch (NumberFormatException ignored) {}
                     System.out.println("[S1mp1e][DevShot] active -> " + outDir.getAbsolutePath()
                             + (screensMode ? " (screens sweep)" : verifyMode ? " (verify sweep)"
                             : hudMode ? " (hud sweep)" : modulesMode ? " (modules sweep)"
@@ -271,6 +313,23 @@ public final class DevShot {
         }
 
         if (outDir == null || client == null) return;
+
+        // Intro mode runs before the normal state machine: it just shoots the boot LoadingOverlay frame by frame.
+        if (introMode) {
+            if (busy) return;
+            busy = true;
+            try {
+                stepIntro(client);
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e][DevShot] intro capture error: " + t);
+                introMode = false;
+                frames = 0;
+                phase = P_DRAIN;
+            } finally {
+                busy = false;
+            }
+            return;
+        }
 
         // Global watchdog — never hang.
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > WATCHDOG_MS) {
@@ -314,6 +373,10 @@ public final class DevShot {
                 case P_TOOLTIPS:     stepTooltips(client);                 break;
                 case P_EFFECTS:      stepEffects(client);                  break;
                 case P_COMBAT:       stepCombat(client);                   break;
+                case P_TRANS:        stepTrans(client);                    break;
+                case P_INGAME:       stepIngame(client);                   break;
+                case P_LISTS:        stepLists(client);                    break;
+                case P_LOOPPREV:     stepLoopPreview(client);              break;
                 case P_DRAIN:        stepDrain(client);                    break;
                 case P_STOP:         stepStop(client);                     break;
                 default:             break;
@@ -360,10 +423,75 @@ public final class DevShot {
 
     // ---- steps 1-2: window + title -----------------------------------------
 
+    /**
+     * Boot-intro capture: while the {@code LoadingOverlay} is up, shoot the framebuffer ~33 fps into {@code intro_NNN.png};
+     * once it is gone (or it never appeared) flush the async writes and quit. The overlay is held ~3.9 s by the intro
+     * mixin, so this samples the whole animation regardless of frame rate.
+     */
+    private static void stepIntro(Minecraft client) {
+        forceSize(client);
+        Object ov = client.gui == null ? null : client.gui.overlay();
+        long now = System.currentTimeMillis();
+        if (ov instanceof net.minecraft.client.gui.screens.LoadingOverlay) {
+            if (introFirstMs == 0) introFirstMs = now;
+            introSeen = true;
+            if (now - introLastMs >= 30 && introCount < 220) {
+                introLastMs = now;
+                capture(client, String.format("intro_%03d.png", introCount++));
+            }
+            return;
+        }
+        // Overlay gone, or never showed within 20 s — boot part done. Continue through the title (glass must still be
+        // intact after the intro ran during the reload) into a fresh world, shooting the world-entry loop on the way.
+        if (introSeen || now - startMs > 20000) {
+            System.out.println("[S1mp1e][DevShot] intro capture done: " + introCount + " frames");
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}   // an unfocused dev window must not pause the world
+            introMode = false;
+            introWorld = true;
+            frames = 0;
+            phase = P_WAIT_TITLE;
+        }
+    }
+
+    /** Dev-only screen that plays the world-entry loop ({@link dev.s1mp1e.client.gui.BrandIntro#MODE_LOOP}) on black,
+     *  exactly as {@code LevelLoadingScreen} does, for as long as it is open. */
+    private static final class LoopPreview extends Screen {
+        private final long t0 = System.nanoTime();
+        LoopPreview() { super(net.minecraft.network.chat.Component.literal("loop preview")); }
+        @Override public void extractBackground(net.minecraft.client.gui.GuiGraphicsExtractor g, int mx, int my, float d) {}
+        @Override public void extractRenderState(net.minecraft.client.gui.GuiGraphicsExtractor g, int mx, int my, float d) {
+            g.fill(0, 0, this.width, this.height, 0xFF000000);
+            dev.s1mp1e.client.gui.BrandIntro.draw(g, (System.nanoTime() - t0) / 1.0E9F, dev.s1mp1e.client.gui.BrandIntro.MODE_LOOP, 1.0F);
+        }
+    }
+    private static long lpLastMs;
+    private static int  lpCount;
+
+    /** Loop preview: 8 s at 10 fps into {@code lp_NNN.png}, then on into the real world entry. */
+    private static void stepLoopPreview(Minecraft client) {
+        if (!(currentScreen(client) instanceof LoopPreview)) {
+            if (++frames > WAIT_SCREEN_CAP) { skip("loop preview", new IllegalStateException("never opened")); lpCount = 80; }
+            else return;
+        }
+        long ms = System.currentTimeMillis();
+        if (lpCount < 80) {
+            if (ms - lpLastMs >= 100) { lpLastMs = ms; capture(client, String.format("lp_%03d.png", lpCount++)); }
+            return;
+        }
+        close(client);
+        if (createWorld(client)) { frames = 0; phase = P_WAIT_WORLD; }
+        else { skip("create world", new IllegalStateException("world creation did not start")); phase = P_DRAIN; }
+    }
+
+    /** Set after the boot part of the {@code intro} mode: title shot, then the world-entry loop, then an in-world shot. */
+    private static boolean introWorld;
+    private static int     wlCount;
+    private static long    wlLastMs;
+
     private static void stepInit(Minecraft client) {
         try {
             client.getWindow().setWindowed(SHOT_W, SHOT_H);
-            client.options.guiScale().set(2);
+            client.options.guiScale().set(forcedScale);
             // Only pay the resource-reload cost when the language actually differs.
             if (!"zh_tw".equals(client.getLanguageManager().getSelected())) {
                 client.getLanguageManager().setSelected("zh_tw");
@@ -396,7 +524,16 @@ public final class DevShot {
 
     private static void stepTitle(Minecraft client) {
         if (++frames >= TITLE_FRAMES) {
-            if (screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode) {
+            if (introWorld) {
+                capture(client, "after-title.png");   // glass buttons must render after the boot intro
+                // a dev world loads in ~2 s, too short to see a whole cycle: preview the world-entry loop on its own first
+                open(client, new LoopPreview(), "open world-entry loop preview");
+                frames = 0; lpLastMs = 0L; lpCount = 0; phase = P_LOOPPREV;
+                return;
+            }
+            if (transMode) { frames = 0; transStep = 0; phase = P_TRANS; return; }   // menus only, no world
+            if (listsMode) { frames = 0; phase = P_LISTS; return; }
+            if (screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode) {
                 // Screens / HUD / modules / flicker / tabs / scroll / clicks / effects sweep: skip the title/config baseline shots and head straight for the world.
                 if (createWorld(client)) {
                     frames = 0; phase = P_WAIT_WORLD;
@@ -439,7 +576,19 @@ public final class DevShot {
 
     // ---- step 4: world load, settle, loadout, shot ------------------------
 
+    private static long rlT0;
+    private static int rlIdx;
+
     private static void stepWaitWorld(Minecraft client) {
+        // the real world-load screen (chunk grid + liquid loader): a time-spaced strip while it is up
+        if (introWorld && currentScreen(client) instanceof net.minecraft.client.gui.screens.LevelLoadingScreen) {
+            long ms = System.currentTimeMillis();   // world-entry loop: ~20 fps strip for as long as it is up
+            if (ms - wlLastMs >= 50 && wlCount < 400) { wlLastMs = ms; capture(client, String.format("wl_%03d.png", wlCount++)); }
+        } else if (currentScreen(client) instanceof net.minecraft.client.gui.screens.LevelLoadingScreen && rlIdx < 20) {
+            long now = System.nanoTime();
+            if (rlT0 == 0L) rlT0 = now;
+            if ((now - rlT0) / 1_000_000L >= rlIdx * 100L) capture(client, String.format("ld-realload-%02d.png", rlIdx++));
+        }
         if (client.level != null && client.player != null && client.getSingleplayerServer() != null
                 && currentScreen(client) == null) {
             frames = 0; phase = P_WORLD_SETTLE;
@@ -451,11 +600,17 @@ public final class DevShot {
 
     private static void stepWorldSettle(Minecraft client) {
         if (++frames < WORLD_SETTLE) return;
+        if (introWorld) {                   // glass HUD must be intact in game too; then finish
+            System.out.println("[S1mp1e][DevShot] world-entry loop frames: " + wlCount);
+            capture(client, "after-world.png");
+            frames = 0; phase = P_DRAIN;
+            return;
+        }
         applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
-        frames = 0; phase = verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
+        frames = 0; phase = transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
                 : modulesMode ? P_MODULES : flickerMode ? P_FLICKER : tabsMode ? P_TABS
                 : scrollMode ? P_SCROLL : clicksMode ? P_CLICKS : glideMode ? P_GLIDE : tooltipsMode ? P_TOOLTIPS
-                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : P_WORLD;
+                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : P_WORLD;
     }
 
     private static void stepWorld(Minecraft client) {
@@ -751,7 +906,51 @@ public final class DevShot {
                     try { client.gui.hud.setOverlayMessage(Component.literal("動作列 - Action Bar"), false); }
                     catch (Throwable ignored) {}
                 }
-                if (advanceHud(client, "actionbar.png")) hudStage = 7;
+                if (advanceHud(client, "actionbar.png")) hudStage = HUD_EARLY ? 7 : 99;
+                return;
+            }
+            case 7: {   // (early-capture runs only) HUD modules switched OFF -> their fade-out
+                if (frames == 0) {
+                    hudFadeWas = new boolean[]{ hudFadeSet(false, 0), hudFadeSet(false, 1) };
+                    hudFadeLogBounds();
+                }
+                if (advanceHud(client, "hudout.png")) hudStage = 8;
+                return;
+            }
+            case 8: {   // ... and switched back ON -> their fade-in (and the items' scale-in)
+                if (frames == 0) { hudFadeSet(true, 0); hudFadeSet(true, 1); }
+                if (advanceHud(client, "hudin.png")) {
+                    if (hudFadeWas != null) { hudFadeSet(hudFadeWas[0], 0); hudFadeSet(hudFadeWas[1], 1); }
+                    hudStage = 9;
+                }
+                return;
+            }
+            // Potion HUD rows (zh_tw names: 力量 Strength sorts before 加速 Speed): a new row fades in, the others glide.
+            case 9: {   // Speed alone -> row 0 fades in
+                if (frames == 0) {
+                    hudCmd(client, "effect clear @p");
+                    hudCmd(client, "effect give @p minecraft:speed 120 0 true");
+                }
+                if (advanceHud(client, "potin.png")) hudStage = 10;
+                return;
+            }
+            case 10: {  // + Strength -> it fades in at row 0 and Speed glides down to row 1
+                if (frames == 0) hudCmd(client, "effect give @p minecraft:strength 120 0 true");
+                if (advanceHud(client, "potglide.png")) hudStage = 11;
+                return;
+            }
+            case 11: {  // - Strength -> it fades out and Speed glides back up to row 0
+                if (frames == 0) hudCmd(client, "effect clear @p minecraft:strength");
+                if (advanceHud(client, "potout.png")) hudStage = 14;
+                return;
+            }
+            case 14: {  // HUD editor opens with the shared screen-open fade
+                if (frames == 0) open(client, new dev.s1mp1e.client.gui.S1mp1eHudEditScreen(), "open HUD editor");
+                if (advanceHud(client, "hudedit.png")) {
+                    close(client);
+                    hudCmd(client, "effect clear @p");
+                    hudStage = 99;
+                }
                 return;
             }
             default:
@@ -759,9 +958,56 @@ public final class DevShot {
         }
     }
 
+    /** Run one command through the integrated server as the server source. */
+    private static void hudCmd(Minecraft client, String command) {
+        try {
+            MinecraftServer server = client.getSingleplayerServer();
+            if (server != null) server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), command);
+        } catch (Throwable t) {
+            skip("hud cmd " + command, t);
+        }
+    }
+
+    /** Original enabled state of the two modules the HUD-fade stages switch (restored afterwards). */
+    private static boolean[] hudFadeWas;
+
+    /** The HUD-fade stages' two modules: FPS (glass + text) and the inventory HUD (item icons). */
+    private static dev.s1mp1e.client.Module hudFadeModule(int which) {
+        for (dev.s1mp1e.client.Module m : dev.s1mp1e.client.ModuleManager.all()) {
+            if (which == 0 && m instanceof dev.s1mp1e.client.module.FpsHudModule) return m;
+            if (which == 1 && m instanceof dev.s1mp1e.client.module.InventoryHudModule) return m;
+        }
+        return null;
+    }
+
+    /** Set a HUD-fade module's enabled flag directly (render-side only); returns its previous state. */
+    private static boolean hudFadeSet(boolean on, int which) {
+        dev.s1mp1e.client.Module m = hudFadeModule(which);
+        if (m == null) { skip("hud fade module " + which, new IllegalStateException("not found")); return false; }
+        boolean was = m.enabled;
+        m.enabled = on;
+        return was;
+    }
+
+    private static void hudFadeLogBounds() {
+        for (int w = 0; w < 2; w++) {
+            if (hudFadeModule(w) instanceof dev.s1mp1e.client.HudBounds hb) {
+                System.out.println("[S1mp1e][DevShot] hudfade bounds " + w + ": " + hb.hudX() + "," + hb.hudY() + " "
+                        + hb.hudW() + "x" + hb.hudH());
+            }
+        }
+    }
+
+    /** Dev-only: {@code S1MP1E_SHOT_EARLY=1} also captures the first frames after each HUD stage opens, so an
+     *  appear animation (fade / slide) is visible as a curve instead of only its settled end state. */
+    private static final boolean HUD_EARLY = "1".equals(System.getenv("S1MP1E_SHOT_EARLY"));
+
     /** Render HUD_SETTLE frames, capture {@code name}, then HUD_FLUSH more; returns true once the stage is done. */
     private static boolean advanceHud(Minecraft client, String name) {
         frames++;
+        if (HUD_EARLY && (frames == 1 || frames == 3 || frames == 6 || frames == 10)) {
+            capture(client, name.replace(".png", String.format("-f%02d.png", frames)));
+        }
         if (frames == HUD_SETTLE) {
             capture(client, name);
         } else if (frames >= HUD_SETTLE + HUD_FLUSH) {
@@ -1281,6 +1527,1085 @@ public final class DevShot {
         try {
             client.gameMode.setLocalMode(GameType.CREATIVE);
         } catch (Throwable t) { skip("tabs gamemode creative (client)", t); }
+    }
+
+    private static void ingGamemodeSurvival(Minecraft client) {
+        try {
+            MinecraftServer server = client.getSingleplayerServer();
+            if (server != null) {
+                server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), "gamemode survival @a");
+            }
+        } catch (Throwable t) { skip("ingame gamemode survival (server)", t); }
+        try {
+            client.gameMode.setLocalMode(GameType.SURVIVAL);
+        } catch (Throwable t) { skip("ingame gamemode survival (client)", t); }
+    }
+
+    /** Find the {@link net.minecraft.client.gui.screens.recipebook.RecipeBookComponent} the given screen holds (scanning the
+     *  screen and its superclasses), so the sweep can drive its open/close without simulating the exact button geometry. */
+    private static Object ingFindBook(Screen s) {
+        Class<?> c = s.getClass();
+        while (c != null && c != Object.class) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (net.minecraft.client.gui.screens.recipebook.RecipeBookComponent.class.isAssignableFrom(f.getType())) {
+                    try { f.setAccessible(true); Object v = f.get(s); if (v != null) return v; } catch (Throwable ignored) {}
+                }
+            }
+            c = c.getSuperclass();
+        }
+        return null;
+    }
+
+    private static void ingInvoke(Object o, String method) {
+        if (o == null) { skip("ingame invoke " + method, new IllegalStateException("null target")); return; }
+        Class<?> c = o.getClass();
+        while (c != null) {
+            try { java.lang.reflect.Method m = c.getDeclaredMethod(method); m.setAccessible(true); m.invoke(o); return; }
+            catch (NoSuchMethodException e) { c = c.getSuperclass(); }
+            catch (Throwable t) { skip("ingame invoke " + method, t); return; }
+        }
+        skip("ingame invoke " + method, new IllegalStateException("no such method"));
+    }
+
+    private static void ingInvoke1(Object o, String method, Class<?> type, Object arg) {
+        if (o == null) { skip("ingame invoke " + method, new IllegalStateException("null target")); return; }
+        Class<?> c = o.getClass();
+        while (c != null) {
+            try { java.lang.reflect.Method m = c.getDeclaredMethod(method, type); m.setAccessible(true); m.invoke(o, arg); return; }
+            catch (NoSuchMethodException e) { c = c.getSuperclass(); }
+            catch (Throwable t) { skip("ingame invoke " + method, t); return; }
+        }
+        skip("ingame invoke " + method, new IllegalStateException("no such method"));
+    }
+
+    /** Find the {@link net.minecraft.client.gui.components.EditBox} a screen holds (the chat input, a rename field, …). */
+    private static Object ingFindEditBox(Screen s) {
+        Class<?> c = s.getClass();
+        while (c != null && c != Object.class) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (net.minecraft.client.gui.components.EditBox.class.isAssignableFrom(f.getType())) {
+                    try { f.setAccessible(true); Object v = f.get(s); if (v != null) return v; } catch (Throwable ignored) {}
+                }
+            }
+            c = c.getSuperclass();
+        }
+        return null;
+    }
+
+    /**
+     * In-gameplay screen-switch cross-dissolves (env {@code S1MP1E_SHOT_MODE=ingame}). Three sub-stages: (0) creative
+     * category-tab switch, (1) survival recipe-book open then close, (2) load the advancements screen to validate its tab
+     * hook. Each captures a {@code -pre} frame then early frames. The very act of opening each screen makes mixin
+     * {@code require:1} validate the four new @Inject targets resolved.
+     */
+    private static void stepIngame(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        if (ingStage != 8) { try { client.gui.hud.getChat().clearMessages(false); } catch (Throwable ignored) {} }   // stage 8 tests the chat itself
+
+        final int OPEN = TAB_WARM, PRE = OPEN + 18, SWITCH = PRE + 1, POST = 14;
+
+        switch (ingStage) {
+            case 0: {   // CREATIVE category-tab switch: col 1 -> col 4
+                if (frames == 0) {
+                    tabsCameraDown(client);
+                    tabsGamemodeCreative(client);
+                    try {
+                        net.minecraft.world.item.CreativeModeTabs.tryRebuildTabContents(
+                                player.connection.enabledFeatures(), true, client.level.registryAccess());
+                    } catch (Throwable t) { skip("ingame creative rebuild", t); }
+                }
+                frames++;
+                if (frames == OPEN) {
+                    open(client, new CreativeModeInventoryScreen(player, player.connection.enabledFeatures(), true), "ingame creative");
+                    tabsSelect(client, tabsAt(true, 1));
+                }
+                if (frames == PRE)    capture(client, "cre-pre.png");
+                if (frames == SWITCH) tabsSelect(client, tabsAt(true, 4));
+                if (frames > SWITCH && frames <= SWITCH + POST) capture(client, String.format("cre-f%02d.png", frames - SWITCH));
+                else if (frames >= SWITCH + POST + TAB_FLUSH) { close(client); ingStage = 1; frames = 0; }
+                return;
+            }
+            case 1: {   // SURVIVAL recipe book: open (dissolve) then close (dissolve)
+                if (frames == 0) ingGamemodeSurvival(client);
+                frames++;
+                if (frames == OPEN) {
+                    open(client, new net.minecraft.client.gui.screens.inventory.InventoryScreen(player), "ingame survival inv");
+                    Screen s = currentScreen(client);
+                    ingBook = s == null ? null : ingFindBook(s);
+                }
+                if (frames == OPEN + 12) capture(client, "rb-pre.png");            // book closed
+                if (frames == OPEN + 13) ingInvoke(ingBook, "toggleVisibility");    // OPEN book
+                if (frames > OPEN + 13 && frames <= OPEN + 13 + POST) capture(client, String.format("rb-open-f%02d.png", frames - (OPEN + 13)));
+                if (frames == OPEN + 13 + POST + 4) ingInvoke(ingBook, "toggleVisibility");  // CLOSE book
+                if (frames > OPEN + 13 + POST + 4 && frames <= OPEN + 13 + POST + 4 + POST)
+                    capture(client, String.format("rb-close-f%02d.png", frames - (OPEN + 13 + POST + 4)));
+                else if (frames >= OPEN + 13 + POST + 4 + POST + TAB_FLUSH) { close(client); ingStage = 2; frames = 0; }
+                return;
+            }
+            case 2: {   // ADVANCEMENTS: force class load so its new tab-switch @Inject is validated by require:1
+                frames++;
+                if (frames == 1) {
+                    try {
+                        Class.forName("net.minecraft.client.gui.screens.advancements.AdvancementsScreen", true,
+                                DevShot.class.getClassLoader());
+                        System.out.println("[S1mp1e][DevShot] AdvancementsScreen loaded — tab-switch inject applied OK");
+                    } catch (Throwable t) { skip("ingame advancements class-load", t); }
+                }
+                if (frames >= 6) { ingStage = 3; frames = 0; }
+                return;
+            }
+            case 3: {   // CHAT: Apple caret — type text (end caret), then jump the cursor to show the glide
+                frames++;
+                if (frames == 1) open(client, new net.minecraft.client.gui.screens.ChatScreen("", false), "ingame chat");
+                if (frames == 5) {
+                    Screen s = currentScreen(client);
+                    ingChatBox = s == null ? null : ingFindEditBox(s);
+                    if (ingChatBox != null) {
+                        ingInvoke1(ingChatBox, "setValue", String.class, "s1mp1e liquid glass");
+                        ingInvoke1(ingChatBox, "setFocused", boolean.class, Boolean.TRUE);
+                        ingInvoke1(ingChatBox, "moveCursorToEnd", boolean.class, Boolean.FALSE);
+                    }
+                }
+                if (frames == 8)  capture(client, "caret-end.png");                 // caret bar at end of text
+                if (frames == 9 && ingChatBox != null)
+                    ingInvoke1(ingChatBox, "setCursorPosition", int.class, Integer.valueOf(3));   // jump → glide
+                if (frames >= 10 && frames <= 15) capture(client, String.format("caret-glide-f%02d.png", frames - 9));
+                if (frames == 20) close(client);   // close chat → ChatCloseFade.begin() → HUD ghost fades the input bar
+                if (frames >= 21 && frames <= 28) capture(client, String.format("chatclose-f%02d.png", frames - 20));
+                else if (frames >= 32) { ingStage = 4; frames = 0; }
+                return;
+            }
+            case 4: {   // TAB LIST: hold the player-list key (fade in), then release (fade OUT instead of pop)
+                frames++;
+                if (frames == 1) {
+                    // The list only renders when held AND (multiplayer OR a list-slot objective exists). In the dev
+                    // singleplayer world neither holds, so add a list objective to make it show — the real scenario the
+                    // fade targets. (Nothing to fade in true 1-player singleplayer; vanilla never shows it there.)
+                    try {
+                        MinecraftServer server = client.getSingleplayerServer();
+                        if (server != null) {
+                            var src = server.createCommandSourceStack();
+                            server.getCommands().performPrefixedCommand(src, "scoreboard objectives add s1tl dummy Players");
+                            server.getCommands().performPrefixedCommand(src, "scoreboard objectives setdisplay list s1tl");
+                        }
+                    } catch (Throwable t) { skip("ingame tablist objective", t); }
+                }
+                if (frames == 3)  { try { client.options.keyPlayerList.setDown(true); } catch (Throwable t) { skip("ingame tablist down", t); } }
+                if (frames == 10) capture(client, "tab-in.png");                    // faded in, holding
+                if (frames == 11) { try { client.options.keyPlayerList.setDown(false); } catch (Throwable t) { skip("ingame tablist up", t); } }
+                if (frames >= 12 && frames <= 20) capture(client, String.format("tab-out-f%02d.png", frames - 11));  // fade-out
+                else if (frames >= 26) { ingStage = 5; frames = 0; }
+                return;
+            }
+            case 5: {   // SCOREBOARD sidebar: set on the sidebar slot (fade in), then clear the slot (fade OUT)
+                frames++;
+                if (frames == 1) {
+                    ingCmd(client, "scoreboard objectives add s1sb dummy Sidebar");
+                    ingCmd(client, "scoreboard players set Alpha s1sb 7");
+                    ingCmd(client, "scoreboard players set Bravo s1sb 4");
+                    ingCmd(client, "scoreboard players set Charlie s1sb 2");
+                    ingCmd(client, "scoreboard objectives setdisplay sidebar s1sb");
+                }
+                if (frames >= 3 && frames <= 9) capture(client, String.format("sb-in-f%02d.png", frames - 2));    // fade in
+                if (frames == 12) ingCmd(client, "scoreboard objectives setdisplay sidebar");                      // clear slot -> fade out
+                if (frames >= 13 && frames <= 21) capture(client, String.format("sb-out-f%02d.png", frames - 12)); // fade out
+                else if (frames >= 27) { ingCmd(client, "scoreboard objectives remove s1sb"); ingStage = 6; frames = 0; }
+                return;
+            }
+            case 6: {   // BOSS BAR: add + show (fade in), then remove (ghost fade OUT instead of pop)
+                frames++;
+                if (frames == 1) {
+                    ingCmd(client, "bossbar add s1:boss \"Ender Dragon\"");
+                    ingCmd(client, "bossbar set s1:boss players @a");
+                    ingCmd(client, "bossbar set s1:boss color purple");
+                    ingCmd(client, "bossbar set s1:boss max 100");
+                    ingCmd(client, "bossbar set s1:boss value 70");
+                    ingCmd(client, "bossbar set s1:boss visible true");
+                }
+                if (frames >= 4 && frames <= 10) capture(client, String.format("boss-in-f%02d.png", frames - 3));   // fade in
+                if (frames == 13) ingCmd(client, "bossbar remove s1:boss");                                          // remove -> ghost fade out
+                if (frames >= 14 && frames <= 22) capture(client, String.format("boss-out-f%02d.png", frames - 13)); // fade out
+                else if (frames >= 28) { ingStage = 7; frames = 0; }
+                return;
+            }
+            case 7: {   // TYPING: per-glyph entrance / burst / mid-insert glide / backspace exit / replace roll / select / scroll
+                frames++;
+                if (frames == 1) open(client, new net.minecraft.client.gui.screens.ChatScreen("", false), "ingame typing");
+                if (frames == 4) {
+                    Screen s = currentScreen(client);
+                    ingChatBox = s == null ? null : ingFindEditBox(s);
+                    if (ingChatBox != null) ((net.minecraft.client.gui.components.EditBox) ingChatBox).setFocused(true);
+                }
+                net.minecraft.client.gui.components.EditBox box =
+                        ingChatBox instanceof net.minecraft.client.gui.components.EditBox eb ? eb : null;
+                if (box == null) { if (frames >= 6) { close(client); ingStage = 8; frames = 0; } return; }
+                // Everything below is scheduled in MILLISECONDS from the stage start (frame-rate independent). Each
+                // capture is of the frame just rendered; with TypingAnim.debugLog the log pairs capture times with the
+                // animation's own progress for that frame.
+                if (tyEvents == null) { tyEvents = tySchedule(client, box); tyNext = 0; tyT0 = System.currentTimeMillis(); }
+                long t = System.currentTimeMillis() - tyT0;
+                boolean shot = false;   // at most ONE capture per rendered frame (a hitch must not stack several on one frame)
+                while (tyNext < tyEvents.size() && tyEvents.get(tyNext).t() <= t) {
+                    TyEv e = tyEvents.get(tyNext);
+                    if (e.shot() && shot) break;
+                    e.run().run();
+                    tyNext++;
+                    shot |= e.shot();
+                }
+                if (tyNext >= tyEvents.size()) {
+                    com.seagull.liquidglass.client.render.TypingAnim.timeScale = 1F;
+                    com.seagull.liquidglass.client.render.TypingAnim.debugLog = false;
+                    tyEvents = null;
+                    close(client); ingStage = 8; frames = 0;
+                }
+                return;
+            }
+            case 8: {   // CHAT: arrivals (rise + panel grows), suggestion popup (fade in / glide / fade out), close text lift
+                frames++;
+                if (frames == 1) { close(client); return; }
+                if (frames < 4) return;
+                if (tyEvents == null) { tyEvents = chSchedule(client); tyNext = 0; tyT0 = System.currentTimeMillis(); }
+                long t = System.currentTimeMillis() - tyT0;
+                boolean shot = false;
+                while (tyNext < tyEvents.size() && tyEvents.get(tyNext).t() <= t) {
+                    TyEv e = tyEvents.get(tyNext);
+                    if (e.shot() && shot) break;
+                    e.run().run();
+                    tyNext++;
+                    shot |= e.shot();
+                }
+                if (tyNext >= tyEvents.size()) { tyEvents = null; close(client); ingStage = 9; frames = 0; }
+                return;
+            }
+            case 9: {   // SIGN + BOOK typing
+                frames++;
+                if (frames < 3) return;
+                if (tyEvents == null) { tyEvents = sbSchedule(client); tyNext = 0; tyT0 = System.currentTimeMillis(); }
+                long t = System.currentTimeMillis() - tyT0;
+                boolean shot = false;
+                while (tyNext < tyEvents.size() && tyEvents.get(tyNext).t() <= t) {
+                    TyEv e = tyEvents.get(tyNext);
+                    if (e.shot() && shot) break;
+                    e.run().run();
+                    tyNext++;
+                    shot |= e.shot();
+                }
+                if (tyNext >= tyEvents.size()) { tyEvents = null; close(client); ingStage = 10; frames = 0; }
+                return;
+            }
+            case 10: {   // HEALTH trail + ITEM flights
+                frames++;
+                if (frames < 3) return;
+                if (tyEvents == null) { tyEvents = hfSchedule(client); tyNext = 0; tyT0 = System.currentTimeMillis(); }
+                long t = System.currentTimeMillis() - tyT0;
+                boolean shot = false;
+                while (tyNext < tyEvents.size() && tyEvents.get(tyNext).t() <= t) {
+                    TyEv e = tyEvents.get(tyNext);
+                    if (e.shot() && shot) break;
+                    e.run().run();
+                    tyNext++;
+                    shot |= e.shot();
+                }
+                if (tyNext >= tyEvents.size()) { tyEvents = null; close(client); ingStage = 11; frames = 0; }
+                return;
+            }
+            case 11: {   // RECIPE BOOK: slide out from behind the inventory, per-item cascade on open / page / tab, slide back
+                frames++;
+                if (frames < 3) return;
+                if (tyEvents == null) { tyEvents = rbSchedule(client); tyNext = 0; tyT0 = System.currentTimeMillis(); }
+                long t = System.currentTimeMillis() - tyT0;
+                boolean shot = false;
+                while (tyNext < tyEvents.size() && tyEvents.get(tyNext).t() <= t) {
+                    TyEv e = tyEvents.get(tyNext);
+                    if (e.shot() && shot) break;
+                    e.run().run();
+                    tyNext++;
+                    shot |= e.shot();
+                }
+                if (tyNext >= tyEvents.size()) { tyEvents = null; close(client); ingStage = 12; frames = 0; }
+                return;
+            }
+            case 12: {   // SF SYMBOLS: every replaced glyph sprite, vanilla vs Apple, normal + highlighted
+                frames++;
+                if (frames == 2) open(client, new IconGallery(), "sf icon gallery");
+                if (frames == 45) capture(client, "icons.png");
+                if (frames >= 48) { close(client); ingStage = 13; frames = 0; }
+                return;
+            }
+            case 13: {   // SODIUM / REESE'S SODIUM OPTIONS video settings (only when those mods are present)
+                frames++;
+                if (frames == 2) {
+                    try {
+                        Class<?> c = Class.forName("me.flashyreese.mods.reeses_sodium_options.client.gui.SodiumVideoOptionsScreen");
+                        Screen s = (Screen) c.getConstructor(Screen.class).newInstance((Screen) null);
+                        open(client, s, "sodium options");
+                    } catch (Throwable t) { skip("sodium options screen", t); ingStage = 14; frames = 0; return; }
+                }
+                // GUI coords at the dev window's scale 2 (640x360): slider row "最大 FPS", boolean row "自動儲存指示器",
+                // Sodium Extra page "動畫" in the rail.
+                if (frames < 46) sodPark(client, 320, 352);
+                else if (frames < 82) sodPark(client, 400, 184);
+                else if (frames < 141) sodPark(client, 400, 224);
+                else sodPark(client, 300, 77);                       // Sodium Extra 動畫 → "水" row (tooltip)
+                if (frames == 45) capture(client, "sodium-open.png");
+                if (frames == 80) capture(client, "sodium-hover-slider.png");
+                if (frames == 110) capture(client, "sodium-hover-bool.png");
+                if (frames == 111) rbClickAt(client, 400, 224, "sodium bool row");
+                if (frames == 113 || frames == 116 || frames == 120 || frames == 130) capture(client, "sodium-switch-" + frames + ".png");
+                if (frames == 140) rbClickAt(client, 35, 156, "sodium extra page");
+                if (frames == 142 || frames == 146 || frames == 152 || frames == 175) capture(client, "sodium-page-" + frames + ".png");
+                if (frames == 300) capture(client, "sodium-tooltip.png");
+                // smooth scroll + scrollbar: Quality has enough options to overflow at 720p; wheel down, capture the ease
+                if (frames == 305) rbClickAt(client, 60, 95, "sodium quality tab");
+                if (frames >= 330) sodPark(client, 360, 200);
+                if (frames == 335) { Screen s = currentScreen(client); if (s != null) s.mouseScrolled(360, 200, 0, -4); }
+                if (frames >= 336 && frames <= 352) capture(client, String.format("sodium-scroll-%02d.png", frames - 335));
+                if (frames >= 356) { close(client); ingStage = 14; frames = 0; }
+                return;
+            }
+            case 14: {   // SETTINGS SHELL: every vanilla settings page in the Video Settings layout (SettingsShell)
+                frames++;
+                if (frames == 2) open(client, shellRoot(client), "settings shell");
+                // grid: sidebar entries at x 60, y 47 + 4 + i*18 + 9; first content row at y 47 + 9
+                if (frames < 50) sodPark(client, 400, 56);
+                if (frames == 20 || frames == 24 || frames == 28 || frames == 34) capture(client, "st-main-slider-" + frames + ".png");
+                if (frames == 45) capture(client, "st-main.png");
+                int k = (frames - 50) / 40, ph = (frames - 50) % 40;
+                if (frames >= 50 && k < 11) {
+                    if (ph == 0) { rbClickAt(client, 60, 47 + 4 + (k + 1) * 18 + 9, "settings tab " + (k + 1)); sodPark(client, 400, 56); }
+                    if (ph == 2 || ph == 5 || ph == 9) capture(client, "st-tab" + (k + 1) + "-in" + ph + ".png");
+                    if (ph == 34) capture(client, "st-tab" + (k + 1) + ".png");
+                    if (ph == 36) {                              // a category that leaves the settings (packs, credits…): come back
+                        Screen cur = currentScreen(client);
+                        if (!(cur instanceof net.minecraft.client.gui.screens.options.OptionsScreen)
+                                && !(cur instanceof net.minecraft.client.gui.screens.options.OptionsSubScreen)) {
+                            open(client, shellRoot(client), "settings shell again");
+                        }
+                    }
+                    return;
+                }
+                int f = frames - 490;
+                if (f == 1) {
+                    Screen root = shellRoot(client);
+                    open(client, new net.minecraft.client.gui.screens.options.controls.KeyBindsScreen(root, client.options), "settings keys");
+                }
+                if (f == 36) capture(client, "st-keys.png");
+                if (f == 38) sodPark(client, 400, 150);
+                if (f == 40) dev.s1mp1e.client.gui.SettingsShell.wheel(currentScreen(client), 400, 150, -4);
+                if (f == 70) capture(client, "st-keys-scrolled.png");
+                if (f == 72) {
+                    Screen root = shellRoot(client);
+                    open(client, new net.minecraft.client.gui.screens.options.LanguageSelectScreen(root, client.options, client.getLanguageManager()), "settings language");
+                }
+                if (f == 110) capture(client, "st-language.png");
+                if (f == 111) {                                  // the search box refills the list: the rows must follow
+                    Screen cur = currentScreen(client);
+                    if (cur != null) for (Object c : cur.children()) {
+                        if (c instanceof net.minecraft.client.gui.components.EditBox eb) { cur.setFocused(eb); eb.setValue("English"); }
+                    }
+                }
+                if (f == 126) capture(client, "st-language-search.png");
+                f -= 20;
+                if (f == 112) {
+                    Screen root = shellRoot(client);
+                    open(client, new net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen(root, client.options), "settings accessibility");
+                    sodPark(client, 400, 47 + 18 + 9);
+                }
+                if (f == 150) capture(client, "st-access.png");
+                if (f == 151) rbClickAt(client, 400, 47 + 18 + 9, "settings row click");
+                if (f == 153 || f == 156 || f == 160 || f == 170) capture(client, "st-access-click-" + f + ".png");
+                if (f == 172) rbClickAt(client, 400, 47 + 18 + 9, "settings row click back");
+                if (f == 172 + 10) open(client, new net.minecraft.client.gui.screens.options.SoundOptionsScreen(shellRoot(client), client.options), "settings sound");
+                // drag the master-volume pill (right end of its track) to the left, frame by frame, then let go
+                int df = f - 215;
+                if (df == 0) { shellDragX = shellPillX(client); sodPark(client, shellDragX, 56); }
+                if (df == 2) { dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown = true; shellMouse(client, 0, shellDragX, 56); }
+                if (df >= 3 && df < 17) {
+                    double x = shellDragX - 6.0 * (df - 2);
+                    sodPark(client, x, 56);
+                    shellMouse(client, 1, x, 56);
+                    capture(client, String.format("st-drag-%02d.png", df - 3));
+                }
+                if (df == 17) { shellMouse(client, 2, shellDragX - 84, 56); dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown = false; }
+                if (df > 17 && df <= 25) capture(client, String.format("st-drag-r%02d.png", df - 17));
+                // a cycle row's value rolls: Skin Customization, last row = main hand
+                if (df == 27) open(client, new net.minecraft.client.gui.screens.options.SkinCustomizationScreen(shellRoot(client), client.options), "settings skin");
+                if (df == 60) rbClickAt(client, 400, 47 + 7 * 18 + 9, "settings cycle row");
+                if (df > 60 && df <= 72) capture(client, String.format("st-roll-%02d.png", df - 61));
+                if (df == 74) rbClickAt(client, 400, 47 + 7 * 18 + 9, "settings cycle row back");
+                if (df >= 90) { close(client); ingStage = 15; frames = 0; }
+                return;
+            }
+            default:
+                close(client);
+                frames = 0; phase = P_DRAIN;
+        }
+    }
+
+    private static double shellDragX;
+
+    /** Screen x of the first slider row's pill at its current value (grid: right edge 16 + 6, value column, 14 gap). */
+    private static double shellPillX(Minecraft client) {
+        Screen s = currentScreen(client);
+        if (s != null) for (Object c : s.children()) {
+            if (c instanceof net.minecraft.client.gui.components.AbstractSliderButton sl) return sl.getX() + sl.getWidth() - 9;
+        }
+        return client.getWindow().getGuiScaledWidth() - 16 - 6 - 34 - 14;
+    }
+
+    /** kind 0 press / 1 drag / 2 release on the current screen at GUI (x, y). */
+    private static void shellMouse(Minecraft client, int kind, double x, double y) {
+        try {
+            Screen s = currentScreen(client);
+            if (s == null) return;
+            net.minecraft.client.input.MouseButtonEvent ev = new net.minecraft.client.input.MouseButtonEvent(x, y,
+                    new net.minecraft.client.input.MouseButtonInfo(0, 0));
+            if (kind == 0) s.mouseClicked(ev, false);
+            else if (kind == 1) s.mouseDragged(ev, 0, 0);
+            else s.mouseReleased(ev);
+        } catch (Throwable t) { skip("settings mouse", t); }
+    }
+
+    private static Screen shellRoot(Minecraft client) {
+        return new net.minecraft.client.gui.screens.options.OptionsScreen(
+                new net.minecraft.client.gui.screens.PauseScreen(true), client.options, true);
+    }
+
+    private static void ingCmd(Minecraft client, String cmd) {
+        try {
+            MinecraftServer server = client.getSingleplayerServer();
+            if (server != null) server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), cmd);
+        } catch (Throwable t) { skip("ingame cmd: " + cmd, t); }
+    }
+
+    // ---- lists sweep --------------------------------------------------------------------------------------------
+    private static net.minecraft.client.gui.components.AbstractSelectionList<?> lsList;
+
+    private static void stepLists(Minecraft client) {
+        if (lsPhase > 0) { stepListsLoad(client); return; }
+        frames++;
+        if (frames == 1) {
+            open(client, new net.minecraft.client.gui.screens.options.LanguageSelectScreen(
+                    currentScreen(client), client.options, client.getLanguageManager()), "lists language");
+            return;
+        }
+        if (frames < 6) return;
+        if (tyEvents == null) {
+            Screen s = currentScreen(client);
+            lsList = null;
+            if (s != null) for (Object c : s.children())
+                if (c instanceof net.minecraft.client.gui.components.AbstractSelectionList<?> l) { lsList = l; break; }
+            if (lsList == null) { skip("lists: no selection list", new IllegalStateException()); phase = P_DRAIN; return; }
+            tyEvents = lsSchedule(client, lsList);
+            tyNext = 0;
+            tyT0 = System.currentTimeMillis();
+        }
+        long t = System.currentTimeMillis() - tyT0;
+        boolean shot = false;
+        while (tyNext < tyEvents.size() && tyEvents.get(tyNext).t() <= t) {
+            TyEv e = tyEvents.get(tyNext);
+            if (e.shot() && shot) break;
+            e.run().run();
+            tyNext++;
+            shot |= e.shot();
+        }
+        if (tyNext >= tyEvents.size()) { tyEvents = null; lsPhase = 1; lsFrames = 0; }
+    }
+
+    // ---- lists sweep, part 2/3: the world list's async load and a server ping result, one capture per frame ----
+    private static int lsPhase, lsFrames;
+
+    private static void stepListsLoad(Minecraft client) {
+        lsFrames++;
+        if (lsPhase == 1) {                                   // worlds: entries arriving after the async load
+            if (lsFrames == 1) open(client, new net.minecraft.client.gui.screens.worldselection.SelectWorldScreen(
+                    new net.minecraft.client.gui.screens.TitleScreen()), "lists worlds");
+            if (lsFrames >= 2 && lsFrames <= 16) capture(client, String.format("ls-wl-%02d.png", lsFrames - 1));
+            if (lsFrames >= 22) { lsList = lsFindList(currentScreen(client)); }   // hover the first world row's icon
+            if (lsFrames >= 22 && lsList != null) {
+                java.util.List<?> ch = lsList.children();
+                if (!ch.isEmpty() && ch.get(0) instanceof net.minecraft.client.gui.layouts.LayoutElement e) {
+                    sodPark(client, e.getX() + 16, e.getY() + 18);
+                }
+            }
+            if (lsFrames == 30) capture(client, "ls-wl-hover.png");
+            if (lsFrames >= 34) { lsPhase = 2; lsFrames = 0; }
+            return;
+        }
+        if (lsPhase == 2) {                                   // servers: an unreachable localhost entry's ping result
+            if (lsFrames == 1) {
+                try {
+                    net.minecraft.client.multiplayer.ServerList sl = new net.minecraft.client.multiplayer.ServerList(client);
+                    sl.load();
+                    if (sl.size() == 0) {
+                        sl.add(new net.minecraft.client.multiplayer.ServerData("S1mp1e Test", "127.0.0.1:1",
+                                net.minecraft.client.multiplayer.ServerData.Type.OTHER), false);
+                        sl.save();
+                    }
+                } catch (Throwable t) { skip("lists add test server", t); }
+                open(client, new net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen(
+                        new net.minecraft.client.gui.screens.TitleScreen()), "lists servers");
+            }
+            if (lsFrames >= 2 && lsFrames <= 60) capture(client, String.format("ls-sv-%02d.png", lsFrames - 1));
+            if (lsFrames >= 64) { lsPhase = 3; lsFrames = 0; }
+            return;
+        }
+        if (lsPhase == 3) {                                   // controls: a real click on a cycle button (view bobbing)
+            if (lsFrames == 1) open(client, new net.minecraft.client.gui.screens.options.VideoSettingsScreen(
+                    new net.minecraft.client.gui.screens.TitleScreen(), client, client.options), "lists video");
+            if (lsFrames == 8) { lsCycle = lsFindCycle(currentScreen(client)); if (lsCycle == null) skip("lists: no cycle button", new IllegalStateException()); }
+            if (lsFrames == 10) lsClick(client, lsCycle);                                   // toggle -> pulse + roll
+            if (lsFrames >= 10 && lsFrames <= 26) { lsLogCycle(); capture(client, String.format("ls-cb-%02d.png", lsFrames - 9)); }
+            if (lsFrames == 34) lsClick(client, lsCycle);                                   // toggle back (restore the setting)
+            if (lsFrames >= 34 && lsFrames <= 50) { lsLogCycle(); capture(client, String.format("ls-cc-%02d.png", lsFrames - 33)); }
+            if (lsFrames >= 56) { lsPhase = 4; lsFrames = 0; }
+            return;
+        }
+        if (lsPhase == 4) {                                   // glass over NO world: Sodium options + our config screen
+            if (lsFrames == 1) {
+                try {
+                    Class<?> c = Class.forName("me.flashyreese.mods.reeses_sodium_options.client.gui.SodiumVideoOptionsScreen");
+                    open(client, (Screen) c.getConstructor(Screen.class).newInstance((Screen) null), "lists sodium (no world)");
+                } catch (Throwable t) { skip("lists sodium", t); }
+            }
+            if (lsFrames == 20) capture(client, "ls-noworld-sodium.png");
+            if (lsFrames == 24) open(client, new dev.s1mp1e.client.gui.S1mp1eConfigScreen(), "lists config (no world)");
+            if (lsFrames == 40) capture(client, "ls-noworld-config.png");
+            if (lsFrames >= 44) { lsPhase = 5; lsFrames = 0; ldIdx = 0; ldScenes = null; }
+            return;
+        }
+        if (lsPhase == 5) {                                   // loading screens: liquid loader, time-spaced strips
+            if (ldScenes == null) ldScenes = ldBuildScenes();
+            if (ldIdx >= ldScenes.size()) { lsPhase = 0; close(client); frames = 0; phase = P_DRAIN; return; }
+            Object[] sc = ldScenes.get(ldIdx);
+            String name = (String) sc[0];
+            if (lsFrames == 1) {
+                Screen s = null;
+                try {
+                    @SuppressWarnings("unchecked") Supplier<Screen> sup = (Supplier<Screen>) sc[1];
+                    s = sup.get();
+                } catch (Throwable t) { skip("loader scene " + name, t); }
+                if (s == null) { ldIdx++; lsFrames = 0; return; }
+                open(client, s, "loader " + name);
+                ldT0 = 0L; ldShot = 0; ldMidDone = false;
+            }
+            if (lsFrames < 30) return;                        // let the screen cross-dissolve finish
+            long now = System.nanoTime();
+            if (ldT0 == 0L) ldT0 = now;
+            if (!ldMidDone && sc[2] != null && ldShot >= 12) { ((Runnable) sc[2]).run(); ldMidDone = true; }
+            if (ldShot < 24 && (now - ldT0) / 1_000_000L >= ldShot * 70L) {
+                capture(client, String.format("ld-%s-%02d.png", name, ldShot++));
+            }
+            if (ldShot >= 24) { ldIdx++; lsFrames = 0; }
+        }
+    }
+
+    private static java.util.List<Object[]> ldScenes;
+    private static int ldIdx, ldShot;
+    private static long ldT0;
+    private static boolean ldMidDone;
+
+    /** {name, Supplier<Screen>, Runnable run at strip frame 12 (or null)} — every text loading screen we restyled. */
+    private static java.util.List<Object[]> ldBuildScenes() {
+        java.util.List<Object[]> l = new java.util.ArrayList<>();
+        net.minecraft.network.chat.Component T = net.minecraft.network.chat.Component.literal("正在載入世界");
+        l.add(new Object[]{"prog0", (Supplier<Screen>) () -> {
+            net.minecraft.client.gui.screens.ProgressScreen ps = new net.minecraft.client.gui.screens.ProgressScreen(false);
+            ps.progressStartNoAbort(T);
+            return ps;
+        }, null});
+        final net.minecraft.client.gui.screens.ProgressScreen[] pRef = new net.minecraft.client.gui.screens.ProgressScreen[1];
+        l.add(new Object[]{"prog", (Supplier<Screen>) () -> {
+            net.minecraft.client.gui.screens.ProgressScreen ps = new net.minecraft.client.gui.screens.ProgressScreen(false);
+            ps.progressStartNoAbort(T);
+            ps.progressStage(net.minecraft.network.chat.Component.literal("建立地形"));
+            ps.progressStagePercentage(30);
+            pRef[0] = ps;
+            return ps;
+        }, (Runnable) () -> { if (pRef[0] != null) pRef[0].progressStagePercentage(75); }});
+        l.add(new Object[]{"wait", (Supplier<Screen>) () ->
+                net.minecraft.client.gui.screens.GenericWaitingScreen.createWaitingWithoutButton(
+                        net.minecraft.network.chat.Component.literal("請稍候"),
+                        net.minecraft.network.chat.Component.literal("正在把你的世界傳送到伺服器，這可能需要一點時間。")), null});
+        l.add(new Object[]{"conn", (Supplier<Screen>) () -> {
+            try {
+                java.lang.reflect.Constructor<net.minecraft.client.gui.screens.ConnectScreen> c =
+                        net.minecraft.client.gui.screens.ConnectScreen.class.getDeclaredConstructor(Screen.class, net.minecraft.network.chat.Component.class);
+                c.setAccessible(true);
+                return c.newInstance(new net.minecraft.client.gui.screens.TitleScreen(), net.minecraft.network.chat.Component.literal("連線到伺服器"));
+            } catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
+        }, null});
+        l.add(new Object[]{"level", (Supplier<Screen>) () -> new net.minecraft.client.gui.screens.LevelLoadingScreen(
+                new net.minecraft.client.multiplayer.LevelLoadTracker(), net.minecraft.client.gui.screens.LevelLoadingScreen.Reason.OTHER), null});
+        return l;
+    }
+
+    private static net.minecraft.client.gui.components.AbstractSelectionList<?> lsFindList(Screen s) {
+        if (s != null) for (Object c : s.children())
+            if (c instanceof net.minecraft.client.gui.components.AbstractSelectionList<?> l) return l;
+        return null;
+    }
+
+    private static net.minecraft.client.gui.components.CycleButton<?> lsCycle;
+
+    private static net.minecraft.client.gui.components.CycleButton<?> lsFindCycle(Object node) {
+        String want = net.minecraft.network.chat.Component.translatable("options.viewBobbing").getString();
+        java.util.ArrayDeque<Object> q = new java.util.ArrayDeque<>();
+        if (node != null) q.add(node);
+        net.minecraft.client.gui.components.CycleButton<?> anyBool = null;
+        while (!q.isEmpty()) {
+            Object o = q.poll();
+            if (o instanceof net.minecraft.client.gui.components.CycleButton<?> cb) {
+                if (cb.getMessage().getString().startsWith(want)) return cb;
+                if (anyBool == null && cb.getValue() instanceof Boolean) anyBool = cb;
+            }
+            if (o instanceof net.minecraft.client.gui.components.events.ContainerEventHandler c) q.addAll(c.children());
+        }
+        return anyBool;
+    }
+
+    private static void lsClick(Minecraft client, net.minecraft.client.gui.components.AbstractWidget w) {
+        Screen s = currentScreen(client);
+        if (s == null || w == null) return;
+        double x = w.getX() + w.getWidth() / 2.0, y = w.getY() + w.getHeight() / 2.0;
+        net.minecraft.client.input.MouseButtonEvent ev = new net.minecraft.client.input.MouseButtonEvent(x, y, new net.minecraft.client.input.MouseButtonInfo(0, 0));
+        s.mouseClicked(ev, false);
+        s.mouseReleased(ev);
+        System.out.println("[DevShot] lists clicked '" + w.getMessage().getString() + "' at " + (int) x + "," + (int) y);
+    }
+
+    private static void lsLogCycle() {
+        if (lsCycle != null) System.out.println("[DevShot] cycle label now '" + lsCycle.getMessage().getString() + "' ns=" + System.nanoTime()
+                + " box=" + lsCycle.getX() + "," + lsCycle.getY() + "," + lsCycle.getWidth() + "," + lsCycle.getHeight());
+    }
+
+    private static java.util.List<TyEv> lsSchedule(Minecraft client, net.minecraft.client.gui.components.AbstractSelectionList<?> list) {
+        java.util.List<TyEv> ev = new java.util.ArrayList<>();
+        double cx = list.getX() + list.getWidth() / 2.0, cy = list.getY() + list.getHeight() / 2.0;
+        // W: two wheel notches down
+        lsShots(ev, client, list, "w", 300, 40, 1);
+        ev.add(new TyEv(360, () -> list.mouseScrolled(cx, cy, 0, 3)));   // up: the language list opens at the bottom
+        lsShots(ev, client, list, "w", 380, 40, 14, 2);
+        // S: select a row a few below the first visible one, then one far below
+        ev.add(new TyEv(1400, () -> lsSelect(list, 2)));
+        lsShots(ev, client, list, "s", 1420, 40, 10);
+        ev.add(new TyEv(2300, () -> lsSelect(list, 7)));
+        lsShots(ev, client, list, "t", 2320, 40, 10);
+        // F: a quick flick of five notches
+        for (int i = 0; i < 6; i++) ev.add(new TyEv(3200 + 45L * i, () -> list.mouseScrolled(cx, cy, 0, 1)));
+        lsShots(ev, client, list, "f", 3210, 40, 20);
+        ev.add(new TyEv(4600, () -> {}));
+        ev.sort(java.util.Comparator.comparingLong(TyEv::t));
+        return ev;
+    }
+
+    /** Select the {@code k}-th row below the first row currently visible (Entry is protected: LayoutElement + reflection). */
+    private static void lsSelect(net.minecraft.client.gui.components.AbstractSelectionList<?> list, int k) {
+        try {
+            java.util.List<?> ch = list.children();
+            int first = 0;
+            for (int i = 0; i < ch.size(); i++) {
+                if (((net.minecraft.client.gui.layouts.LayoutElement) ch.get(i)).getY() >= list.getY()) { first = i; break; }
+            }
+            int idx = Math.min(ch.size() - 1, first + k);
+            Class<?> entryCls = Class.forName("net.minecraft.client.gui.components.AbstractSelectionList$Entry");
+            net.minecraft.client.gui.components.AbstractSelectionList.class.getMethod("setSelected", entryCls).invoke(list, ch.get(idx));
+            System.out.println("[DevShot] lists select row " + idx);
+        } catch (Throwable t) { skip("lists select", t); }
+    }
+
+    private static void lsShots(java.util.List<TyEv> ev, Minecraft client, net.minecraft.client.gui.components.AbstractSelectionList<?> list,
+                                String tag, long start, long step, int n) { lsShots(ev, client, list, tag, start, step, n, 1); }
+
+    private static void lsShots(java.util.List<TyEv> ev, Minecraft client, net.minecraft.client.gui.components.AbstractSelectionList<?> list,
+                                String tag, long start, long step, int n, int firstIndex) {
+        for (int k = 0; k < n; k++) {
+            final String name = String.format("ls-%s-%02d.png", tag, firstIndex + k);
+            ev.add(new TyEv(start + step * k, () -> {
+                System.out.printf("[DevShot] capture %s scroll=%.2f ns=%d%n", name, list.scrollAmount(), System.nanoTime());
+                capture(client, name);
+            }, true));
+        }
+    }
+
+    private static Object ingBook;
+    private static Object ingChatBox;
+
+    // ---- typing stage: a millisecond schedule of actions and captures ----
+    private record TyEv(long t, Runnable run, boolean shot) {
+        TyEv(long t, Runnable run) { this(t, run, false); }
+    }
+    private static java.util.List<TyEv> tyEvents;
+    private static int tyNext;
+    private static long tyT0;
+
+    private static java.util.List<TyEv> tySchedule(Minecraft client, net.minecraft.client.gui.components.EditBox box) {
+        java.util.List<TyEv> ev = new java.util.ArrayList<>();
+        // A: one glyph in 10x slow motion, captured every 120 ms real (= 12 ms of animation time)
+        ev.add(new TyEv(400, () -> {
+            com.seagull.liquidglass.client.render.TypingAnim.timeScale = 0.1F;
+            com.seagull.liquidglass.client.render.TypingAnim.debugLog = true;
+            box.insertText("S");
+        }));
+        tyShots(ev, client, "a", 460, 120, 20);
+        ev.add(new TyEv(2900, () -> com.seagull.liquidglass.client.render.TypingAnim.timeScale = 1F));
+        // B: real-speed burst, one glyph every 70 ms (incl. CJK)
+        String burst = "imp1e 你好";
+        for (int i = 0; i < burst.length(); i++) {
+            final String ch = String.valueOf(burst.charAt(i));
+            ev.add(new TyEv(3100 + 70L * i, () -> box.insertText(ch)));
+        }
+        tyShots(ev, client, "b", 3115, 30, 26);
+        // C: insert in the middle -> the rest glides right   (C..G in 4x slow motion so the frames show the motion)
+        ev.add(new TyEv(4050, () -> com.seagull.liquidglass.client.render.TypingAnim.timeScale = 0.25F));
+        ev.add(new TyEv(4100, () -> box.moveCursorTo(1, false)));
+        ev.add(new TyEv(4200, () -> box.insertText("X")));
+        tyShots(ev, client, "c", 4215, 60, 12);
+        // D: backspace at the end -> exit (float up / blur / fade)
+        ev.add(new TyEv(5600, () -> box.moveCursorToEnd(false)));
+        ev.add(new TyEv(5700, () -> box.deleteChars(-1)));
+        tyShots(ev, client, "d", 5715, 60, 12);
+        // E: whole-string replacement (history / tab-complete) -> odometer roll
+        ev.add(new TyEv(6600, () -> box.setValue("/gamemode creative")));
+        tyShots(ev, client, "e", 6615, 60, 14);
+        // F: select all -> highlight grows from the anchor
+        ev.add(new TyEv(7700, () -> { box.moveCursorToEnd(false); box.setHighlightPos(0); }));
+        tyShots(ev, client, "f", 7715, 60, 12);
+        // G: wider than the box, keep typing at the end -> eased horizontal scroll
+        ev.add(new TyEv(8700, () -> {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 16; i++) sb.append("liquid glass ");
+            box.setValue(sb.toString());
+            box.moveCursorToEnd(false);
+        }));
+        for (int i = 0; i < 4; i++) ev.add(new TyEv(9300 + 300L * i, () -> box.insertText("W")));
+        tyShots(ev, client, "g", 9300, 60, 24);
+        ev.add(new TyEv(11000, () -> {
+            com.seagull.liquidglass.client.render.TypingAnim.debugLog = false;
+            com.seagull.liquidglass.client.render.TypingAnim.timeScale = 1F;
+        }));
+        ev.sort(java.util.Comparator.comparingLong(TyEv::t));
+        return ev;
+    }
+
+    private static java.util.List<TyEv> chSchedule(Minecraft client) {
+        java.util.List<TyEv> ev = new java.util.ArrayList<>();
+        java.util.function.Consumer<String> say = m -> client.gui.hud.getChat().addClientSystemMessage(net.minecraft.network.chat.Component.literal(m));
+        ev.add(new TyEv(200, () -> say.accept("S1mp1e 聊天動畫測試:第一則")));
+        tyShots(ev, client, "cha", 215, 30, 12);
+        ev.add(new TyEv(1500, () -> { say.accept("第二則:舊訊息往上滑"); say.accept("第三則:新訊息從底部升起淡入"); }));
+        tyShots(ev, client, "chb", 1515, 30, 12);
+        // suggestion popup
+        ev.add(new TyEv(2600, () -> open(client, new net.minecraft.client.gui.screens.ChatScreen("", false), "ingame chat suggest")));
+        ev.add(new TyEv(2800, () -> { Object b = chInput(client); if (b instanceof net.minecraft.client.gui.components.EditBox eb) { eb.setValue("/game"); } }));
+        tyShots(ev, client, "csi", 2815, 30, 14);
+        ev.add(new TyEv(3800, () -> chCycle(client, 1)));
+        ev.add(new TyEv(3950, () -> chCycle(client, 1)));
+        tyShots(ev, client, "css", 3805, 30, 14);
+        ev.add(new TyEv(4900, () -> { Object b = chInput(client); if (b instanceof net.minecraft.client.gui.components.EditBox eb) eb.setValue(""); }));
+        tyShots(ev, client, "cso", 4905, 30, 12);
+        // close with text -> the words lift off
+        ev.add(new TyEv(5800, () -> { Object b = chInput(client); if (b instanceof net.minecraft.client.gui.components.EditBox eb) eb.setValue("hello glass 你好"); }));
+        ev.add(new TyEv(6200, () -> close(client)));
+        tyShots(ev, client, "ccl", 6150, 30, 12);
+        ev.add(new TyEv(7200, () -> {}));
+        ev.sort(java.util.Comparator.comparingLong(TyEv::t));
+        return ev;
+    }
+
+    private static net.minecraft.core.BlockPos sbSignPos;
+
+    private static java.util.List<TyEv> sbSchedule(Minecraft client) {
+        java.util.List<TyEv> ev = new java.util.ArrayList<>();
+        ev.add(new TyEv(100, () -> {
+            sbSignPos = client.player.blockPosition().offset(0, 0, 2);
+            ingCmd(client, "execute as @p at @s run setblock ~ ~ ~2 minecraft:oak_sign");
+        }));
+        ev.add(new TyEv(900, () -> {
+            if (client.level != null && client.level.getBlockEntity(sbSignPos) instanceof net.minecraft.world.level.block.entity.SignBlockEntity sbe)
+                open(client, new net.minecraft.client.gui.screens.inventory.SignEditScreen(sbe, true, false), "sign edit");
+            else System.out.println("[DevShot] sign: no sign block entity at " + sbSignPos);
+        }));
+        ev.add(new TyEv(1300, () -> sbSignInsert(client, "S")));
+        tyShots(ev, client, "sga", 1315, 30, 10);
+        String more = "imp1e";
+        for (int i = 0; i < more.length(); i++) { final String c = String.valueOf(more.charAt(i)); ev.add(new TyEv(1800 + 90L * i, () -> sbSignInsert(client, c))); }
+        tyShots(ev, client, "sgb", 1800, 30, 18);
+        ev.add(new TyEv(2700, () -> close(client)));
+        // book & quill
+        ev.add(new TyEv(3000, () -> open(client, new net.minecraft.client.gui.screens.inventory.BookEditScreen(client.player,
+                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.WRITABLE_BOOK), net.minecraft.world.InteractionHand.MAIN_HAND,
+                net.minecraft.world.item.component.WritableBookContent.EMPTY), "book edit")));
+        ev.add(new TyEv(3400, () -> sbBookInsert(client, "Liquid glass ")));
+        tyShots(ev, client, "bka", 3415, 30, 10);
+        String wrap = "typewriter";   // long enough to push the word to the next line
+        for (int i = 0; i < wrap.length(); i++) { final String c = String.valueOf(wrap.charAt(i)); ev.add(new TyEv(4000 + 80L * i, () -> sbBookInsert(client, c))); }
+        tyShots(ev, client, "bkb", 4000, 30, 30);
+        ev.add(new TyEv(5600, () -> {}));
+        ev.sort(java.util.Comparator.comparingLong(TyEv::t));
+        return ev;
+    }
+
+    private static void sbSignInsert(Minecraft client, String text) {
+        try {
+            Screen s = currentScreen(client);
+            if (s == null) return;
+            for (Class<?> c = s.getClass(); c != null; c = c.getSuperclass())
+                for (java.lang.reflect.Field f : c.getDeclaredFields())
+                    if (f.getType() == net.minecraft.client.gui.font.TextFieldHelper.class) {
+                        f.setAccessible(true);
+                        ((net.minecraft.client.gui.font.TextFieldHelper) f.get(s)).insertText(text);
+                        return;
+                    }
+            System.out.println("[DevShot] sign: no TextFieldHelper");
+        } catch (Throwable t) { skip("sign insert", t); }
+    }
+
+    private static void sbBookInsert(Minecraft client, String text) {
+        try {
+            Screen s = currentScreen(client);
+            if (s == null) return;
+            for (Object o : s.children()) if (o instanceof net.minecraft.client.gui.components.MultiLineEditBox box) {
+                java.lang.reflect.Field f = net.minecraft.client.gui.components.MultiLineEditBox.class.getDeclaredField("textField");
+                f.setAccessible(true);
+                ((net.minecraft.client.gui.components.MultilineTextField) f.get(box)).insertText(text);
+                box.setFocused(true);
+                return;
+            }
+            System.out.println("[DevShot] book: no MultiLineEditBox");
+        } catch (Throwable t) { skip("book insert", t); }
+    }
+
+    private static int hfMoved = -1;
+
+    private static java.util.List<TyEv> hfSchedule(Minecraft client) {
+        java.util.List<TyEv> ev = new java.util.ArrayList<>();
+        ev.add(new TyEv(50, () -> { ingCmd(client, "gamemode survival @a"); ingCmd(client, "effect clear @a"); }));
+        ev.add(new TyEv(600, () -> ingCmd(client, "damage @p 6")));
+        tyShots(ev, client, "hp", 600, 40, 26);
+        ev.add(new TyEv(2000, () -> ingCmd(client, "effect give @p minecraft:instant_health 1 1")));
+        tyShots(ev, client, "hh", 2000, 40, 10);
+        ev.add(new TyEv(2690, () -> {
+            com.seagull.liquidglass.client.render.TypingAnim.debugLog = true;          // captures log their ns
+            com.seagull.liquidglass.client.render.ItemFlights.debugLog = true;
+            com.seagull.liquidglass.client.render.ItemFlights.timeScale = 0.25F;       // 4x slow motion to see the path
+        }));
+        ev.add(new TyEv(2700, () -> open(client, new net.minecraft.client.gui.screens.inventory.InventoryScreen(client.player), "inventory flights")));
+        ev.add(new TyEv(3100, () -> hfQuickMove(client, true)));
+        tyShots(ev, client, "fla", 3100, 40, 20);
+        ev.add(new TyEv(4000, () -> hfQuickMove(client, false)));
+        tyShots(ev, client, "flb", 4000, 40, 16);
+        ev.add(new TyEv(4800, () -> {
+            com.seagull.liquidglass.client.render.TypingAnim.debugLog = false;
+            com.seagull.liquidglass.client.render.ItemFlights.debugLog = false;
+            com.seagull.liquidglass.client.render.ItemFlights.timeScale = 1F;
+        }));
+        ev.sort(java.util.Comparator.comparingLong(TyEv::t));
+        return ev;
+    }
+
+    /** Shift-click (QUICK_MOVE) a hotbar stack into the inventory, or the moved stack back — through vanilla's own click path. */
+    private static void hfQuickMove(Minecraft client, boolean fromHotbar) {
+        try {
+            if (!(currentScreen(client) instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?> scr)) return;
+            java.util.List<net.minecraft.world.inventory.Slot> slots = scr.getMenu().slots;
+            int idx = -1;
+            if (fromHotbar) {
+                for (int i = 37; i <= 44 && i < slots.size(); i++) if (!slots.get(i).getItem().isEmpty()) { idx = i; break; }
+            } else {
+                for (int i = 9; i <= 35 && i < slots.size(); i++) if (!slots.get(i).getItem().isEmpty()) { idx = i; break; }
+            }
+            if (idx < 0) { System.out.println("[DevShot] flights: nothing to move"); return; }
+            java.lang.reflect.Method m = net.minecraft.client.gui.screens.inventory.AbstractContainerScreen.class.getDeclaredMethod("slotClicked",
+                    net.minecraft.world.inventory.Slot.class, int.class, int.class, net.minecraft.world.inventory.ContainerInput.class);
+            m.setAccessible(true);
+            net.minecraft.world.inventory.Slot sl = slots.get(idx);
+            System.out.println("[DevShot] flights: quick-move slot " + idx + " (" + sl.getItem() + ")");
+            m.invoke(scr, sl, sl.index, 0, net.minecraft.world.inventory.ContainerInput.QUICK_MOVE);
+        } catch (Throwable t) { skip("flights quick-move", t); }
+    }
+
+    private static java.util.List<TyEv> rbSchedule(Minecraft client) {
+        java.util.List<TyEv> ev = new java.util.ArrayList<>();
+        ev.add(new TyEv(50, () -> {
+            ingCmd(client, "gamemode survival @a");
+            // `recipe give` mutates the advancement/recipe maps the server thread iterates each tick, so it must run
+            // on the server thread (else CME in PlayerAdvancements.flushDirty). Defer it like scrollOpenRecipeBook.
+            MinecraftServer sv = client.getSingleplayerServer();
+            if (sv != null) sv.execute(() -> {
+                try { sv.getCommands().performPrefixedCommand(sv.createCommandSourceStack(), "recipe give @a *"); }
+                catch (Throwable t) { skip("recipe give (server thread)", t); }
+            });
+        }));
+        ev.add(new TyEv(600, () -> {
+            com.seagull.liquidglass.client.render.RecipeBookSlide.timeScale = 0.25F;
+            com.seagull.liquidglass.client.render.RecipeCascade.timeScale = 0.25F;
+            open(client, new net.minecraft.client.gui.screens.inventory.InventoryScreen(client.player), "recipe book slide");
+        }));
+        ev.add(new TyEv(1300, () -> rbClickBookButton(client)));                          // OPEN
+        tyShots(ev, client, "rbo", 1300, 40, 40);
+        ev.add(new TyEv(4200, () -> rbClickPage(client, true)));                          // PAGE ->
+        tyShots(ev, client, "rbp", 4200, 40, 30);
+        ev.add(new TyEv(6600, () -> rbClickTab(client, 2)));                              // TAB
+        tyShots(ev, client, "rbt", 6600, 40, 30);
+        ev.add(new TyEv(9000, () -> rbClickBookButton(client)));                          // CLOSE
+        tyShots(ev, client, "rbc", 9000, 40, 30);
+        ev.add(new TyEv(11500, () -> {
+            com.seagull.liquidglass.client.render.RecipeBookSlide.timeScale = 1F;
+            com.seagull.liquidglass.client.render.RecipeCascade.timeScale = 1F;
+        }));
+        ev.sort(java.util.Comparator.comparingLong(TyEv::t));
+        return ev;
+    }
+
+    /** Park the GUI cursor at GUI px (gx, gy) for the Sodium sweep (writes MouseHandler, like ttApplyHover). */
+    private static void sodPark(Minecraft client, double gx, double gy) {
+        try {
+            Window w = client.getWindow();
+            if (ttMouseX == null) {
+                java.lang.reflect.Field fx = net.minecraft.client.MouseHandler.class.getDeclaredField("xpos");
+                java.lang.reflect.Field fy = net.minecraft.client.MouseHandler.class.getDeclaredField("ypos");
+                fx.setAccessible(true);
+                fy.setAccessible(true);
+                ttMouseX = fx;
+                ttMouseY = fy;
+            }
+            ttMouseX.setDouble(client.mouseHandler, gx * w.getScreenWidth() / (double) w.getGuiScaledWidth());
+            ttMouseY.setDouble(client.mouseHandler, gy * w.getScreenHeight() / (double) w.getGuiScaledHeight());
+        } catch (Throwable t) { skip("sodium park cursor", t); }
+    }
+
+    /** Dev-only screen: each replaced glyph sprite drawn vanilla (bypass) and replaced, normal + highlighted. */
+    private static final class IconGallery extends Screen {
+        private static final Object[][] ROWS = {
+            {"recipe_book/page_forward", 12, 17, true}, {"recipe_book/page_backward", 12, 17, true},
+            {"recipe_book/filter_enabled", 26, 16, true}, {"recipe_book/filter_disabled", 26, 16, true},
+            {"widget/page_forward", 23, 13, true}, {"widget/page_backward", 23, 13, true},
+            {"container/beacon/confirm", 18, 18, false}, {"container/beacon/cancel", 18, 18, false},
+            {"icon/checkmark", 9, 8, false}, {"widget/cross_button", 14, 14, true},
+            {"server_list/join", 32, 32, true}, {"server_list/move_up", 32, 32, true},
+            {"server_list/move_down", 32, 32, true}, {"world_list/join", 32, 32, true},
+            {"transferable_list/move_up", 32, 32, true}, {"statistics/sort_up", 18, 18, false},
+            {"spectator/scroll_right", 16, 16, false}, {"spectator/close", 16, 16, false},
+            {"widget/checkbox", 17, 17, true}, {"widget/checkbox_selected", 17, 17, true},
+            {"world_list/join", 32, 32, true}, {"world_list/marked_join", 32, 32, true},
+            {"world_list/warning", 32, 32, true}, {"world_list/error", 32, 32, true},
+        };
+
+        IconGallery() { super(Component.literal("icons")); }
+
+        @Override
+        public void extractRenderState(net.minecraft.client.gui.GuiGraphicsExtractor g, int mouseX, int mouseY, float delta) {
+            super.extractRenderState(g, mouseX, mouseY, delta);
+            int half = ROWS.length / 2;
+            for (int i = 0; i < ROWS.length; i++) {
+                String sprite = (String) ROWS[i][0];
+                int w = (Integer) ROWS[i][1], h = (Integer) ROWS[i][2];
+                boolean hl = (Boolean) ROWS[i][3];
+                int gx = i < half ? 8 : 324;
+                int y = 6;
+                for (int k = (i < half ? 0 : half); k < i; k++) y += (Integer) ROWS[k][2] + 5;
+                String label = sprite.substring(sprite.lastIndexOf('/') + 1);
+                g.text(this.font, label, gx, y + h / 2 - 4, 0xFFFFFFFF, true);
+                int[] cx = {gx + 110, gx + 146, gx + 200, gx + 236};
+                for (int c = 0; c < 4; c++) {
+                    boolean isHl = c % 2 == 1;
+                    if (isHl && !hl) continue;
+                    com.seagull.liquidglass.client.render.SfIcons.devBypass = c < 2;
+                    g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                            net.minecraft.resources.Identifier.withDefaultNamespace(sprite + (isHl ? "_highlighted" : "")),
+                            cx[c], y, w, h);
+                    com.seagull.liquidglass.client.render.SfIcons.devBypass = false;
+                }
+            }
+        }
+    }
+
+    private static void rbClickAt(Minecraft client, double x, double y, String what) {
+        Screen s = currentScreen(client);
+        if (s == null) return;
+        net.minecraft.client.input.MouseButtonEvent ev = new net.minecraft.client.input.MouseButtonEvent(x, y, new net.minecraft.client.input.MouseButtonInfo(0, 0));
+        s.mouseClicked(ev, false);
+        s.mouseReleased(ev);
+        System.out.println("[DevShot] recipe: clicked " + what + " at " + (int) x + "," + (int) y);
+    }
+
+    private static void rbClickBookButton(Minecraft client) {
+        Screen s = currentScreen(client);
+        if (s == null) return;
+        for (Object o : s.children()) if (o instanceof net.minecraft.client.gui.components.ImageButton b) {
+            rbClickAt(client, b.getX() + b.getWidth() / 2.0, b.getY() + b.getHeight() / 2.0, "book button");
+            return;
+        }
+        System.out.println("[DevShot] recipe: no book button");
+    }
+
+    private static Object rbField(Object o, String name) throws Exception {
+        for (Class<?> c = o.getClass(); c != null; c = c.getSuperclass()) {
+            try { java.lang.reflect.Field f = c.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
+            catch (NoSuchFieldException ignored) {}
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static void rbClickPage(Minecraft client, boolean forward) {
+        try {
+            Object comp = rbField(currentScreen(client), "recipeBookComponent");
+            Object page = rbField(comp, "recipeBookPage");
+            Object btn = rbField(page, forward ? "forwardButton" : "backButton");
+            if (btn instanceof net.minecraft.client.gui.components.AbstractWidget w && w.visible)
+                rbClickAt(client, w.getX() + w.getWidth() / 2.0, w.getY() + w.getHeight() / 2.0, forward ? "next page" : "prev page");
+            else System.out.println("[DevShot] recipe: page button not visible");
+        } catch (Throwable t) { skip("recipe page", t); }
+    }
+
+    private static void rbClickTab(Minecraft client, int index) {
+        try {
+            Object comp = rbField(currentScreen(client), "recipeBookComponent");
+            java.util.List<?> tabs = (java.util.List<?>) rbField(comp, "tabButtons");
+            int seen = 0;
+            for (Object o : tabs) if (o instanceof net.minecraft.client.gui.components.AbstractWidget w && w.visible) {
+                if (seen++ == index) { rbClickAt(client, w.getX() + w.getWidth() / 2.0, w.getY() + w.getHeight() / 2.0, "tab " + index); return; }
+            }
+            System.out.println("[DevShot] recipe: tab " + index + " not found");
+        } catch (Throwable t) { skip("recipe tab", t); }
+    }
+
+    private static Object chInput(Minecraft client) {
+        Screen s = currentScreen(client);
+        return s == null ? null : ingFindEditBox(s);
+    }
+
+    /** Move the command-suggestion selection like Tab would (reflection: ChatScreen.commandSuggestions -> suggestions). */
+    private static void chCycle(Minecraft client, int dir) {
+        try {
+            Screen s = currentScreen(client);
+            if (s == null) return;
+            Object cs = null;
+            for (Class<?> c = s.getClass(); c != null && cs == null; c = c.getSuperclass())
+                for (java.lang.reflect.Field f : c.getDeclaredFields())
+                    if (f.getType() == net.minecraft.client.gui.components.CommandSuggestions.class) { f.setAccessible(true); cs = f.get(s); break; }
+            if (cs == null) { System.out.println("[DevShot] chat: no CommandSuggestions"); return; }
+            java.lang.reflect.Field lf = net.minecraft.client.gui.components.CommandSuggestions.class.getDeclaredField("suggestions");
+            lf.setAccessible(true);
+            Object list = lf.get(cs);
+            if (list == null) { System.out.println("[DevShot] chat: suggestions not shown"); return; }
+            list.getClass().getMethod("cycle", int.class).invoke(list, dir);
+            System.out.println("[DevShot] chat: cycled suggestion " + dir);
+        } catch (Throwable t) { skip("chat cycle", t); }
+    }
+
+    private static void tyShots(java.util.List<TyEv> ev, Minecraft client, String tag, long start, long step, int n) {
+        for (int k = 0; k < n; k++) {
+            final String name = String.format("ty-%s-%02d.png", tag, k + 1);
+            ev.add(new TyEv(start + step * k, () -> {
+                if (com.seagull.liquidglass.client.render.TypingAnim.debugLog)
+                    System.out.println("[DevShot] capture " + name + " ns=" + System.nanoTime());
+                capture(client, name);
+            }, true));
+        }
     }
 
     /** Point the camera steeply down (pitch 52, yaw 0) so terrain fills the whole viewport behind the open menu — a
@@ -3059,6 +4384,93 @@ public final class DevShot {
     }
 
     // ---- helpers -----------------------------------------------------------
+
+    // ---- trans sweep (S1MP1E_SHOT_MODE=trans): menu-to-menu screen switches, frame by frame -----------------
+
+    private static final int TRANS_SETTLE = 40;   // frames on each screen first, so its own open fade is long done
+    private static final int TRANS_FRAMES = 16;   // frames captured after each switch (t<N>-f01..f16)
+    private static int transStep;
+    private static Screen transTitle, transOptions, transPause;
+
+    /**
+     * Full out-of-gameplay audit. Menu part (no world): t0 Title->Options, t1 ->Video, t2 ->Options, t3 ->Title,
+     * t4 ->Singleplayer, t5 ->Title, t6 ->S1mp1e settings, t7 settings closed (its own close), t8 ->Multiplayer,
+     * t9 ->Title, t10 ->Create World, t11 its "World" tab, t12 its "More" tab, t13 ->Title. Then a world is created:
+     * t14 game->Pause, t15 ->Options, t16 ->Pause, t17 ->game, t18 game->S1mp1e settings, t19 settings closed.
+     */
+    private static void stepTrans(Minecraft client) {
+        frames++;
+        if (frames < TRANS_SETTLE) return;
+        int k = frames - TRANS_SETTLE;   // 0 = the switch frame
+        String tag = "t" + transStep;
+        if (k == 0) {
+            if (transStep == 14 && client.level == null) {   // menu part done: into a world
+                frames = 0;
+                if (createWorld(client)) {
+                    phase = P_WAIT_WORLD;
+                } else {
+                    skip("trans create world", new IllegalStateException("world creation did not start"));
+                    phase = P_DRAIN;
+                }
+                return;
+            }
+            if (transStep > 19) { frames = 0; phase = P_DRAIN; return; }
+            capture(client, tag + "-pre.png");   // the last frame before the switch
+            Screen before = client.gui.screen();
+            transAct(client, transStep);
+            System.out.println("[S1mp1e][DevShot] trans " + transStep + ": " + describe(before) + " -> (act) ");
+        } else if (k <= TRANS_FRAMES) {
+            capture(client, String.format("%s-f%02d.png", tag, k));
+            if (k == TRANS_FRAMES) System.out.println("[S1mp1e][DevShot] trans " + transStep + " now on " + describe(client.gui.screen()));
+        } else if (k >= TRANS_FRAMES + 10) {   // let the async read-backs flush, then the next switch
+            transStep++;
+            frames = 0;
+        }
+    }
+
+    private static void transAct(Minecraft client, int step) {
+        Screen cur = client.gui.screen();
+        switch (step) {
+            case 0: transTitle = cur; transOptions = new OptionsScreen(cur, client.options, false); open(client, transOptions, "t0"); break;
+            case 1: open(client, new VideoSettingsScreen(transOptions, client, client.options), "t1"); break;
+            case 2: open(client, transOptions, "t2"); break;
+            case 3: open(client, transTitle, "t3"); break;
+            case 4: open(client, new SelectWorldScreen(transTitle), "t4"); break;
+            case 5: open(client, transTitle, "t5"); break;
+            case 6: open(client, new S1mp1eConfigScreen(), "t6"); break;
+            case 7: if (cur != null) cur.onClose(); break;                    // the settings screen's own close
+            case 8: open(client, new net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen(transTitle), "t8"); break;
+            case 9: open(client, transTitle, "t9"); break;
+            case 10:
+                try {
+                    net.minecraft.client.gui.screens.worldselection.CreateWorldScreen.openFresh(client, () -> client.gui.setScreen(transTitle));
+                } catch (Throwable t) { skip("t10 create world screen", t); }
+                break;
+            case 11: transSelectTab(cur, 1); break;
+            case 12: transSelectTab(cur, 2); break;
+            case 13: open(client, transTitle, "t13"); break;
+            case 14: transPause = new PauseScreen(true); open(client, transPause, "t14"); break;
+            case 15: transOptions = new OptionsScreen(transPause, client.options, true); open(client, transOptions, "t15"); break;
+            case 16: open(client, transPause, "t16"); break;
+            case 17: close(client); break;
+            case 18: open(client, new S1mp1eConfigScreen(), "t18"); break;
+            case 19: if (cur != null) cur.onClose(); break;
+            default: break;
+        }
+    }
+
+    private static void transSelectTab(Screen screen, int index) {
+        if (screen == null) { skip("trans tab " + index, new IllegalStateException("no screen")); return; }
+        for (Object child : screen.children()) {
+            if (child instanceof net.minecraft.client.gui.components.tabs.TabNavigationBar bar) {
+                bar.selectTab(index, false);
+                return;
+            }
+        }
+        skip("trans tab " + index, new IllegalStateException("no TabNavigationBar on " + describe(screen)));
+    }
+
+    private static String describe(Screen s) { return s == null ? "(game)" : s.getClass().getSimpleName(); }
 
     private static void open(Minecraft client, Screen screen, String what) {
         try {

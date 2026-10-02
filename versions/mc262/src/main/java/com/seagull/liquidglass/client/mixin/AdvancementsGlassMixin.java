@@ -3,9 +3,13 @@ package com.seagull.liquidglass.client.mixin;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.seagull.liquidglass.client.render.GlassPipeline;
 import com.seagull.liquidglass.client.render.GlassSurface;
+import com.seagull.liquidglass.client.render.ScreenTransition;
 import dev.s1mp1e.client.gui.ScreenOpenFade;
+import java.util.Map;
+import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.advancements.AdvancementTab;
 import net.minecraft.client.gui.screens.advancements.AdvancementsScreen;
 import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
@@ -43,6 +47,23 @@ public abstract class AdvancementsGlassMixin {
    private int leftPos;
    @Shadow
    private int topPos;
+   @Shadow
+   private Map<AdvancementHolder, AdvancementTab> tabs;
+   @Shadow
+   private AdvancementTab selectedTab;
+
+   /**
+    * Switching advancement tab swaps the whole tree in one frame. Snapshot the outgoing frame and cross-dissolve it over
+    * the new tree (the glass window frame and tab row overlap, so only the tree region visibly cross-fades). HEAD, before
+    * {@code selectedTab} flips. Skips a no-op re-select of the current tab.
+    */
+   @Inject(method = "onSelectedTabChanged", at = @At("HEAD"))
+   private void lg$dissolveAdvTab(AdvancementHolder holder, CallbackInfo ci) {
+      AdvancementTab next = holder == null ? null : this.tabs.get(holder);
+      if (next != null && next != this.selectedTab) {
+         ScreenTransition.onTabSwitch();
+      }
+   }
 
    @Inject(method = "extractRenderState", at = @At("HEAD"))
    private void lg$advPanel(GuiGraphicsExtractor g, int mouseX, int mouseY, float delta, CallbackInfo ci) {

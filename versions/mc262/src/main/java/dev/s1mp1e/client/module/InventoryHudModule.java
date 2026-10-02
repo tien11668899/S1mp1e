@@ -6,6 +6,7 @@ import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.S1mp1eHudCtx;
 import dev.s1mp1e.client.Setting;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.hud.HudGlass;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -60,14 +61,20 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
         return Minecraft.getInstance().getWindow().getGuiScaledHeight() - 45 - panelH();
     }
 
+    /** Identity key for the peek (key held) fade in {@link HudFade}. */
+    private static final Object PEEK = new Object();
+
     @Override
     public void renderHud(S1mp1eHudCtx c) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudDriverMixin via HudFade
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;                 // F1 handled by HudDriverMixin
-        if (mc.gui.screen() != null) return;           // real inventory / a screen is open -> don't double up
         int k = key.intValue;
-        if (k <= 0 || !InputConstants.isKeyDown(mc.getWindow(), k)) return;
+        // Peek while the key is held (never over a real screen). Holding / releasing fades + grows the panel in and
+        // out instead of popping it; item icons can't take an alpha, so they ride the scale.
+        boolean held = k > 0 && mc.gui.screen() == null && InputConstants.isKeyDown(mc.getWindow(), k);
+        float kv = HudFade.visibility(PEEK, held);
+        if (mc.gui.screen() != null || kv <= 0.004f) return;   // real inventory / a screen is open -> don't double up
 
         GuiGraphicsExtractor g = c.g();
         float sc = sc();
@@ -75,23 +82,38 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
         lastW = pw; lastH = ph;
         int x0 = effX(), y0 = effY();
 
-        if (bg.boolValue) HudGlass.glassBox(g, x0, y0, x0 + pw, y0 + ph, 0.9f);
-
+        float saved = HudFade.alpha;
+        HudFade.alpha = saved * kv;
         g.pose().pushMatrix();
         try {
-            g.pose().translate(x0, y0);
-            g.pose().scale(sc, sc);
-            LocalPlayer p = mc.player;
-            NonNullList<ItemStack> main = p.getInventory().getNonEquipmentItems();
-            for (int i = 0; i < COLS * ROWS; i++) {
-                ItemStack st = main.get(9 + i);   // 0-8 hotbar, 9-35 the three main rows
-                if (st == null || st.isEmpty()) continue;
-                int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
-                g.item(p, st, ix, iy, 0);
-                g.itemDecorations(c.font(), st, ix, iy);
+            if (kv < 1f) {
+                float s = HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(kv);
+                float cx = x0 + pw * 0.5f, cy = y0 + ph * 0.5f;
+                g.pose().translate(cx, cy);
+                g.pose().scale(s, s);
+                g.pose().translate(-cx, -cy);
+            }
+            if (bg.boolValue) HudGlass.glassBox(g, x0, y0, x0 + pw, y0 + ph, 0.9f);
+
+            g.pose().pushMatrix();
+            try {
+                g.pose().translate(x0, y0);
+                g.pose().scale(sc, sc);
+                LocalPlayer p = mc.player;
+                NonNullList<ItemStack> main = p.getInventory().getNonEquipmentItems();
+                for (int i = 0; i < COLS * ROWS; i++) {
+                    ItemStack st = main.get(9 + i);   // 0-8 hotbar, 9-35 the three main rows
+                    if (st == null || st.isEmpty()) continue;
+                    int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
+                    g.item(p, st, ix, iy, 0);
+                    g.itemDecorations(c.font(), st, ix, iy);
+                }
+            } finally {
+                g.pose().popMatrix();
             }
         } finally {
             g.pose().popMatrix();
+            HudFade.alpha = saved;
         }
     }
 

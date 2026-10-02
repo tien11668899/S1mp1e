@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+const [,, url, out, metaOut] = process.argv;
+const targets = await (await fetch('http://127.0.0.1:9334/json/list')).json();
+const page = targets.find(t => t.type === 'page');
+const ws = new WebSocket(page.webSocketDebuggerUrl); let id = 0; const pend = new Map();
+ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } };
+await new Promise(r => ws.onopen = r);
+const send = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+const ev = async x => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result?.result?.value;
+await send('Page.navigate', { url: url + '?x=' + Date.now() });
+for (let k = 0; k < 100 && !(await ev('window.READY===true')); k++) await new Promise(r => setTimeout(r, 100));
+const d = await ev("document.getElementById('c').toDataURL('image/png')");
+fs.writeFileSync(out, Buffer.from(d.split(',')[1], 'base64'));
+fs.writeFileSync(metaOut, JSON.stringify(await ev('window.META'), null, 1));
+console.log('baked', fs.statSync(out).size); ws.close();

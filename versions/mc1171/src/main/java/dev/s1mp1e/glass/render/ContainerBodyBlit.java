@@ -46,6 +46,9 @@ public final class ContainerBodyBlit {
         active = true;
     }
 
+    /** True while a generic container's own {@code drawBackground} runs inside the window (not during the glass draw). */
+    public static boolean open() { return active; }
+
     /** Close the window; true if the body was found and replaced by glass. */
     public static boolean end() {
         active = false;

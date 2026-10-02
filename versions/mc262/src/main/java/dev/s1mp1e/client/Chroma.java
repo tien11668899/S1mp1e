@@ -23,7 +23,7 @@ public final class Chroma {
      * {@code offset} (in cycles). A positive offset makes that point run AHEAD of the base hue.
      */
     public static float hue(double speed, double offset) {
-        double t = System.nanoTime() * 1.0e-9;
+        double t = net.minecraft.util.Util.getNanos() * 1.0e-9;
         double h = t * speed / BASE_PERIOD_S + offset;
         return (float) (h - Math.floor(h));
     }
