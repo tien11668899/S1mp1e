@@ -10,7 +10,7 @@ import dev.s1mp1e.client.LayoutEditable;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
-import dev.s1mp1e.client.gui.HudText;
+import dev.s1mp1e.client.hud.HudText;
 import dev.s1mp1e.client.gui.S1mp1eHudEditScreen;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;

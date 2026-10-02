@@ -5,115 +5,123 @@ import dev.s1mp1e.client.gui.GlassGlideHost;
 import dev.s1mp1e.client.gui.GlassScrollbar;
 import dev.s1mp1e.client.gui.GlassWidgets;
 import dev.s1mp1e.glass.anim.Fade;
-import dev.s1mp1e.glass.anim.Spring;
+import dev.s1mp1e.glass.render.ContainerGlass;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.GlassTabs;
 import dev.s1mp1e.glass.render.PanelGhost;
 import dev.s1mp1e.glass.render.SceneCapture;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen;
-import net.minecraft.client.render.DiffuseLighting;
 import net.minecraft.client.render.item.ItemRenderer;
-import net.minecraft.container.Slot;
 import net.minecraft.item.ItemGroup;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.DefaultedList;
+import net.minecraft.container.Slot;
+import net.minecraft.util.math.MathHelper;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.HashSet;
 import java.util.List;
 
 /**
- * Creative inventory -> the FINAL fused liquid-glass design (26.2's fused-band tabs ported to 1.15.2, FF-Fabric):
+ * Creative inventory -> the FINAL fused liquid-glass design (26.2's fused-band tabs ported to 1.15.2, MatrixStack /
+ * legacy GL), the 1.15.2 counterpart of the verified 1.17.1 sibling:
  * <ul>
- *   <li><b>Body + tabs = ONE glass sheet (B)</b> — the item-panel body blit (ordinal 0 of {@code drawBackground}) is
- *       redirected to a glass sheet extended {@link GlassTabs#BAND} px above and below, so both tab rows are the top /
- *       bottom band of the same surface (no seam); the body corner radius is unchanged (the knob is rescaled for the
- *       taller sheet). Each tab is a cell of the band; the selected tab is a lifted glass pill that SLIDES within a row
- *       and CROSS-FADES across rows, a hovered tab a fainter pill with the slot-hover motion. Tab hit boxes
- *       ({@code isClickInTab}) move to the cells.</li>
- *   <li><b>Scrollbar (C)</b> — the item-grid scroller blit (ordinal 1) becomes the shared vertical glass slider.</li>
- *   <li><b>Silky content (D)</b> — the 45-slot grid GLIDES sub-pixel with the eased scrollbar value; vanilla keeps a
- *       row-aligned logical scroll (clicks / hit-test / tooltips correct at rest) while the eased overlay draws the
- *       visible stacks translated by the fractional offset, scissored to the window with one extra row; a click
- *       mid-glide snaps to the target row first.</li>
+ *   <li><b>Body + tabs = ONE glass sheet (B).</b> The item-panel body blit (ordinal-0 {@code drawTexture}) becomes a
+ *       glass sheet extended {@link GlassTabs#BAND} px above and below, so both tab rows are the top/bottom band of the
+ *       same surface (no seam); the body's ABSOLUTE corner radius is preserved (knob rescaled for the taller sheet, R2).
+ *       Every tab's sprite+icon draw ({@code renderTabIcon}) is intercepted and deferred; {@link GlassTabs} lays the
+ *       equal touching cells, the sliding / cross-fading selection pill, the hover pill and the centred icons. Tab hit
+ *       boxes ({@code isClickInTab}) and the tab tooltip box ({@code renderTabTooltipIfHovered}) move to the cells.</li>
+ *   <li><b>Scrollbar (C).</b> The scrollbar knob blit (ordinal-1 {@code drawTexture}) becomes the shared vertical glass
+ *       slider.</li>
+ *   <li><b>Silky content (D).</b> The 45-slot grid GLIDES sub-pixel with the eased scrollbar value; vanilla keeps a
+ *       row-aligned logical scroll (clicks / hit-test / tooltips correct) while the shared {@code HandledScreenGlassMixin}
+ *       suppresses the vanilla grid slots + their hover test and this host draws the eased overlay translated by the
+ *       fractional offset, scissored to the window with ONE extra row; a click mid-glide snaps to the target row.</li>
  * </ul>
  *
- * <p><b>1.15.2 deltas vs 1.20.1:</b> no {@code DrawContext} — the body / tabs / scroller draws are all raw
- * blit ({@code IIIIII}) invokes at pose-identity ({@code drawBackground} runs before {@code render}'s
- * {@code translate(x,y)}); tab icons draw through the item renderer; {@code selectedTab} is an {@code int} index (not an
- * {@code ItemGroup}); the tab hit box is {@code isClickInTab} (there is no {@code getTabX}); the grid glide overlay runs
- * inside {@code render}'s {@code translate(x,y)} pose, so its item draws are slot-relative while the raw
- * {@code glScissor} stays in absolute window coords — the mirror of the 26.2 double-translate trap.
+ * <h3>Seams (1.15.2 bytecode, yarn build.10)</h3>
+ * {@code drawBackground(MatrixStack,FII)}: {@code renderTabIcon} for every unselected group, then the body
+ * {@code drawTexture(MatrixStack,IIIIII)} ordinal 0 at {@code (x,y,0,0,bgW,bgH)}, the search field, the scrollbar knob
+ * {@code drawTexture} ordinal 1 at {@code (x+175, y+18+(int)(95*scrollPosition), ...)}, then {@code renderTabIcon} for
+ * the selected group (LAST). Scroll: {@code scrollPosition} 0..1, the logical top row is
+ * {@code (int)(scrollPosition*rows+0.5)}, rows = ceil(size/9) - 5. The tab hit test {@code isClickInTab} gets coords
+ * RELATIVE to {@code x/y}; the tooltip test {@code renderTabTooltipIfHovered} gets absolute coords.
  */
 @Mixin(CreativeInventoryScreen.class)
 public abstract class CreativeGlassMixin implements GlassGlideHost {
 
+    @Unique private static final int LG_GRID_X = 9, LG_GRID_Y = 18, LG_COLS = 9, LG_VIS = 5, LG_PITCH = 18;
+    /** Creative thumb 12x15 at x+175, track top y+18. Travel 97 = vanilla's DRAG divisor (mouseDragged: (y+130)-(y+18)-15),
+     *  so a held glass thumb maps the pointer exactly like vanilla's scrollPosition (the sprite itself used 95). */
+    @Unique private static final float LG_TRAVEL = 97f, LG_THUMB = 15f;
+
     @Shadow private static int selectedTab;
+
+    /**
+     * Switching the creative category swaps the whole item grid in one frame: snapshot the outgoing frame and
+     * cross-dissolve it over the new category (the fused tab sheet overlaps, so only the grid visibly fades). HEAD,
+     * before the static {@code selectedTab} flips, so the snapshot holds the old tab. Skips the re-select vanilla does
+     * in {@code init}. (1.15.2: {@code selectedTab} is the group's index.)
+     */
+    @Inject(method = "setSelectedTab", at = @At("HEAD"))
+    private void s1mp1e$dissolveTab(ItemGroup group, CallbackInfo ci) {
+        if (group != null && selectedTab != group.getIndex()) dev.s1mp1e.glass.render.ScreenDissolve.onTabSwitch();
+    }
     @Shadow private float scrollPosition;
     @Shadow private boolean scrolling;
-    @Shadow private boolean hasScrollbar() { return false; }
+    @Shadow private boolean hasScrollbar() { throw new AssertionError(); }
     @Shadow protected abstract void renderTabIcon(ItemGroup group);
-
-    // Panel geometry is inherited from ContainerScreen; read it via the accessor (no inherited-@Shadow warning).
-    @Unique private int s1mp1e$px() { return ((ContainerScreenTopAccessor) (Object) this).s1mp1e$left(); }
-    @Unique private int s1mp1e$py() { return ((ContainerScreenTopAccessor) (Object) this).s1mp1e$top(); }
-    @Unique private int s1mp1e$pw() { return ((ContainerScreenTopAccessor) (Object) this).s1mp1e$xSize(); }
-    @Unique private int s1mp1e$ph() { return ((ContainerScreenTopAccessor) (Object) this).s1mp1e$ySize(); }
-
-    // ---- item grid geometry (slot-relative): 9 cols x 5 rows of 18 px, origin (9,18) ----
-    @Unique private static final int LG_GRID_X = 9;
-    @Unique private static final int LG_GRID_Y = 18;
-    @Unique private static final int LG_COLS = 9;
-    @Unique private static final int LG_VIS_ROWS = 5;
-    @Unique private static final int LG_PITCH = 18;
 
     @Unique private Fade s1mp1e$openFade;
     @Unique private boolean s1mp1e$opened;
-    @Unique private GlassScrollbar s1mp1e$scrollbar;
+    @Unique private final GlassScrollbar s1mp1e$scrollbar = new GlassScrollbar();
+    /** Slot-separator lattice + drag + gliding hover pill on the fused sheet (26.2 draws it for creative too, S9P4). */
+    @Unique private final ContainerGlass.State s1mp1e$slotLayer = new ContainerGlass.State();
+    @Unique private int s1mp1e$mouseX, s1mp1e$mouseY;
+    @Unique private int s1mp1e$barTab = Integer.MIN_VALUE;
 
-    // glide state, recomputed once per frame (reset in the body redirect, set in the scroller redirect)
-    @Unique private boolean s1mp1e$sliding;
-    @Unique private int s1mp1e$glideBase;
-    @Unique private float s1mp1e$glideFracPx;
-    @Unique private int s1mp1e$glideRowCount;
+    // Feature D — computed each frame in the scrollbar redirect, consumed by the shared glide mixin + the edges.
+    @Unique private boolean s1mp1e$gliding, s1mp1e$wasGliding;
+    @Unique private int s1mp1e$gridBaseRow;
+    @Unique private float s1mp1e$gridFracPx;
 
-    // #4 — creative slot lattice + gliding hover pill (survival has these via HandledScreenGlassMixin, which returns
-    // early for creative). Same look/rig as that mixin: static neighbour-mask lattice + a two-axis hover spring.
-    @Unique private Spring s1mp1e$hx1, s1mp1e$hx2, s1mp1e$hy1, s1mp1e$hy2;
-    @Unique private final Fade s1mp1e$hoverFade = new Fade(0f, 100f);
-    @Unique private boolean s1mp1e$hoverActive;
-    @Unique private long s1mp1e$hoverNanos;
+    @Unique private HandledScreenAccessor s1mp1e$acc() { return (HandledScreenAccessor) (Object) this; }
+    @Unique private static boolean s1mp1e$glass() { return GlassProgram.ensureReady() && GlassProgram.usable(); }
+    @Unique private float s1mp1e$fade() { return s1mp1e$openFade == null ? 1f : s1mp1e$openFade.value(); }
 
-    // blit is inherited from DrawableHelper (public). NOT @Shadow'd (inherited-method @Shadow fails at apply); the
-    // no-glass fallbacks call it through the redirect's `self` param, whose static type publicly inherits blit.
+    /** Frame start: capture the pointer (renderTabIcon / the scroller redirect don't receive it), forget last frame's
+     *  deferred tabs, and reset the glide flag (the scroller redirect re-arms it; it only runs on scrolling groups). */
+    @Inject(method = "drawBackground", at = @At("HEAD"))
+    private void s1mp1e$frameStart(float delta, int mouseX, int mouseY, CallbackInfo ci) {
+        s1mp1e$mouseX = mouseX;
+        s1mp1e$mouseY = mouseY;
+        s1mp1e$wasGliding = s1mp1e$gliding;
+        s1mp1e$gliding = false;
+        GlassTabs.begin();
+    }
 
-    // ---- (B) body + fused tabs -------------------------------------------------------------------
+    // ---- B: the body PNG -> the FUSED sheet -----------------------------------------------------
 
     @Redirect(method = "drawBackground",
             at = @At(value = "INVOKE", ordinal = 0,
                      target = "Lnet/minecraft/client/gui/screen/ingame/CreativeInventoryScreen;blit(IIIIII)V"))
-    private void s1mp1e$body(CreativeInventoryScreen self, int x, int y, int u, int v, int w, int h) {
-        s1mp1e$sliding = false;   // reset once per frame (the body blit always runs); the scroller may set it true
-        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) {
-            GlassTabs.reset();
+    private void s1mp1e$glassItemPanel(CreativeInventoryScreen self, int x, int y, int u, int v, int w, int h) {
+        if (!s1mp1e$glass()) {
             self.blit(x, y, u, v, w, h);
             return;
         }
         if (s1mp1e$openFade == null) s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
-        // Frame-primary panel: grab a FRESH backdrop the instant before the glass draw (R4). Creative has no pre-dim
-        // grabNow to fold onto (unlike the survival inventory's InventoryGlassMixin), so it must FORCE the copy every
-        // frame: a deduped grab() could, at >333 fps, fold onto the PREVIOUS frame's tooltip forceGrab (which captured
-        // the full GUI incl. glass) and the panel would refract itself -> flicker (the 1.16.5 root cause; mc1165 uses
-        // grabNow() here for the same reason).
+        // Frame-primary sheet: fresh backdrop the instant before the glass draw (grabNow, not the deduped grab) so the
+        // sheet never samples a stale, wrong-stage snapshot at high fps (R4). Unselected-tab draws are deferred, so
+        // nothing of ours is in the copy yet.
         SceneCapture.grabNow();
         if (!s1mp1e$opened) {
             s1mp1e$opened = true;
@@ -122,257 +130,205 @@ public abstract class CreativeGlassMixin implements GlassGlideHost {
             PanelGhost.cancel();
         }
         float fade = s1mp1e$openFade.value();
-        PanelGhost.beginFrame();
-        PanelGhost.remember(x, y, w, h);
 
-        // ONE fused sheet: body + a BAND above and below. Corner rescaled so the ABSOLUTE radius equals the un-extended
-        // body's (R2/R3 — the body radius must not change): keep min(halfSide)*0.5*knob constant on the taller sheet.
+        // The fused sheet is the only glass rect this screen registers; the close ghost fades the whole extended rect.
+        PanelGhost.beginFrame();
+        PanelGhost.remember(x, y - GlassTabs.BAND, w, h + 2 * GlassTabs.BAND);
+
+        // Keep the body's ABSOLUTE corner radius on the taller sheet (R2 — existing body radius unchanged): the panel
+        // knob is 0.19 (radius = min(w,h)*0.25*0.19); rescale the knob for the extended height.
         int sheetTop = y - GlassTabs.BAND, sheetBot = y + h + GlassTabs.BAND;
-        float sheetH = sheetBot - sheetTop;
-        float corner = 0.19f * Math.min(w, h) / Math.min((float) w, sheetH);
-        GlassRenderer.glass(x, sheetTop, x + w, sheetBot, GlassRenderer.PAD_PANEL, corner, 0f, fade, GlassRenderer.FROST_PANEL);
+        int sheetH = h + 2 * GlassTabs.BAND;
+        float baseR = Math.min(w, h) * 0.25f * 0.19f;
+        float sheetKnob = Math.min(1f, baseR / (Math.min(w, sheetH) * 0.25f));
+        GlassRenderer.glass(x, sheetTop, x + w, sheetBot, GlassRenderer.PAD_PANEL, sheetKnob, 0f, fade,
+                GlassRenderer.FROST_PANEL);
+
+        // S9P4 — the container slot layer on the sheet (lattice + quick-craft drag + the gliding hover pill),
+        // the SAME faint lattice + glass hover pill the survival inventory uses (ContainerGlass, 1.17.1 look).
+        // No hover pill while the grid glides (vanilla nulls the hovered grid slot then).
+        HandledScreenAccessor a = s1mp1e$acc();
+        boolean glide = s1mp1e$wasGliding;
+        ContainerGlass.drawSlotLayer(s1mp1e$slotLayer, x, y, a.s1mp1e$handler().slots, a.s1mp1e$cursorDragSlots(),
+                a.s1mp1e$cursorDragging(), glide ? -10000 : s1mp1e$mouseX, glide ? -10000 : s1mp1e$mouseY, fade);
     }
 
-    /** Every tab -> a deferred cell of the fused band; the selected tab (extracted last) flushes pills + all icons on top. */
+    /** B — take over every tab sprite + icon: defer the (visible) tab for the fused layout and cancel vanilla's draw.
+     *  The selected tab is issued LAST (after the body), so flushing on it paints the pills + icons on top. */
     @Redirect(method = "drawBackground",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/ingame/CreativeInventoryScreen;renderTabIcon(Lnet/minecraft/item/ItemGroup;)V"))
-    private void s1mp1e$tab(CreativeInventoryScreen self, ItemGroup group, float delta, int mouseX, int mouseY) {
-        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) {
-            this.renderTabIcon(group);
+    private void s1mp1e$tab(CreativeInventoryScreen self, ItemGroup group) {
+        if (!s1mp1e$glass()) {
+            this.renderTabIcon(group);   // fallback: vanilla tabs
             return;
         }
-        int px = s1mp1e$px(), py = s1mp1e$py(), pw = s1mp1e$pw(), ph = s1mp1e$ph();
-        boolean selected = group.getIndex() == selectedTab;
+        int col = group.getColumn();
         boolean top = group.isTopRow();
-        int col = s1mp1e$cell(group);
-        float c = GlassTabs.cellW(pw);
-        float cellX0 = px + col * c;
-        int by0 = top ? py - GlassTabs.BAND : py + ph;
-        boolean hovered = !selected && mouseX >= cellX0 && mouseX < cellX0 + c
-                && mouseY >= by0 && mouseY < by0 + GlassTabs.BAND;
+        boolean selected = group.getIndex() == selectedTab;
+        HandledScreenAccessor a = s1mp1e$acc();
+        boolean hovered = !selected && GlassTabs.hitRel(col, top, s1mp1e$mouseX - a.s1mp1e$x(),
+                s1mp1e$mouseY - a.s1mp1e$y(), a.s1mp1e$backgroundWidth(), a.s1mp1e$backgroundHeight());
         GlassTabs.deferTile(col, top, selected, hovered);
         GlassTabs.deferIcon(group.getIcon(), col, top);
         if (selected) {
-            GlassTabs.flush(this, px, py, pw, ph,
-                    Math.round(s1mp1e$openFade == null ? 255f : s1mp1e$openFade.value() * 255f));
-            // #4 — the creative slot lattice + gliding hover pill (survival gets these from HandledScreenGlassMixin,
-            // which returns early for creative). No hover pill while the item grid glides.
-            List<Slot> slots = ((ContainerScreenTopAccessor) (Object) this).s1mp1e$container().slots;
-            float fade = s1mp1e$openFade == null ? 1f : s1mp1e$openFade.value();
-            s1mp1e$drawLattice(slots, px, py, fade);
-            boolean glide = s1mp1e$sliding;
-            s1mp1e$drawHover(slots, px, py, glide ? -10000 : mouseX, glide ? -10000 : mouseY, System.nanoTime());
+            MinecraftClient mc = MinecraftClient.getInstance();
+            GlassTabs.flush(this, mc.getItemRenderer(), mc.textRenderer, a.s1mp1e$x(), a.s1mp1e$y(),
+                    a.s1mp1e$backgroundWidth(), a.s1mp1e$backgroundHeight(),
+                    Math.round(s1mp1e$fade() * 255f));
         }
     }
 
-    /** Slot-separator lattice: one glass cell per slot with a 4-bit neighbour mask (E/W/S/N), like the survival grid. */
-    @Unique
-    private static void s1mp1e$drawLattice(List<Slot> slots, int gl, int gt, float fade) {
-        HashSet<Long> pos = new HashSet<Long>();
-        for (int i = 0; i < slots.size(); i++) {
-            Slot s = slots.get(i);
-            pos.add((((long) s.xPosition) << 32) | (s.yPosition & 0xffffffffL));
-        }
-        if (!GlassRenderer.beginBatch(GlassProgram.LINE)) return;
-        try {
-            for (int i = 0; i < slots.size(); i++) {
-                Slot s = slots.get(i);
-                int sx = s.xPosition, sy = s.yPosition, mask = 0;
-                if (pos.contains((((long) (sx + 18)) << 32) | (sy & 0xffffffffL))) mask |= 1; // E
-                if (pos.contains((((long) (sx - 18)) << 32) | (sy & 0xffffffffL))) mask |= 2; // W
-                if (pos.contains((((long) sx) << 32) | ((sy + 18) & 0xffffffffL)))  mask |= 4; // S
-                if (pos.contains((((long) sx) << 32) | ((sy - 18) & 0xffffffffL)))  mask |= 8; // N
-                GlassRenderer.batchQuad(gl + sx - 1, gt + sy - 1, gl + sx + 17, gt + sy + 17,
-                                        0f, 1f, 1f, fade, (mask * 17) / 255f);
-            }
-        } finally {
-            GlassRenderer.endBatch();
-        }
-    }
-
-    /** Gliding hover pill on the two-axis spring rig (lead 55 / trail 30, critically damped), the survival look. */
-    @Unique
-    private void s1mp1e$drawHover(List<Slot> slots, int gl, int gt, int mouseX, int mouseY, long now) {
-        Slot hov = null;
-        int px = mouseX - gl, py = mouseY - gt;
-        for (int i = 0; i < slots.size(); i++) {
-            Slot s = slots.get(i);
-            if (px >= s.xPosition - 1 && px < s.xPosition + 17 && py >= s.yPosition - 1 && py < s.yPosition + 17
-                    && s.doDrawHoveringEffect()) hov = s;
-        }
-        boolean hovering = hov != null;
-        float dt = (s1mp1e$hoverNanos == 0L) ? (1f / 60f) : Math.min(0.1f, (now - s1mp1e$hoverNanos) * 1.0e-9f);
-        s1mp1e$hoverNanos = now;
-        if (hovering) {
-            float cx = gl + hov.xPosition + 8f, cy = gt + hov.yPosition + 8f;
-            if (s1mp1e$hx1 == null || (!s1mp1e$hoverActive && s1mp1e$hoverFade.value() <= 0.05f)) {
-                s1mp1e$hx1 = new Spring(cx, Spring.OMEGA_SNAP, Spring.DAMPING);
-                s1mp1e$hx2 = new Spring(cx, Spring.OMEGA_MED,  Spring.DAMPING);
-                s1mp1e$hy1 = new Spring(cy, Spring.OMEGA_SNAP, Spring.DAMPING);
-                s1mp1e$hy2 = new Spring(cy, Spring.OMEGA_MED,  Spring.DAMPING);
-            } else {
-                s1mp1e$hx1.setTarget(cx); s1mp1e$hx2.setTarget(cx);
-                s1mp1e$hy1.setTarget(cy); s1mp1e$hy2.setTarget(cy);
-            }
-            s1mp1e$hoverActive = true;
-            s1mp1e$hoverFade.to(1f);
-        } else {
-            s1mp1e$hoverActive = false;
-            s1mp1e$hoverFade.to(0f);
-            if (s1mp1e$hoverFade.value() <= 0.004f || s1mp1e$hx1 == null) return;
-        }
-        s1mp1e$hx1.advance(dt); s1mp1e$hx2.advance(dt);
-        s1mp1e$hy1.advance(dt); s1mp1e$hy2.advance(dt);
-        float lox = Math.min(s1mp1e$hx1.value(), s1mp1e$hx2.value()), hix = Math.max(s1mp1e$hx1.value(), s1mp1e$hx2.value());
-        float loy = Math.min(s1mp1e$hy1.value(), s1mp1e$hy2.value()), hiy = Math.max(s1mp1e$hy1.value(), s1mp1e$hy2.value());
-        GlassRenderer.glass(lox - 10f, loy - 10f, hix + 10f, hiy + 10f,
-                            6f, 1.0f, 0.12f, s1mp1e$hoverFade.value(), GlassRenderer.FROST_NONE);
-    }
-
-    /**
-     * Tab hit boxes follow the fused band's equal cells, so clicks / tooltips match what is drawn. Vanilla calls
-     * {@code isClickInTab} with PANEL-RELATIVE coords ({@code mouseX - x}, {@code mouseY - y}) — mouseReleased then does
-     * the {@code setSelectedTab} — so the cell rect here is in the same relative space (panel left/top = 0,0).
-     */
+    /** B — the tab hit box follows the drawn fused cell. {@code isClickInTab} coords are RELATIVE to {@code x/y}. */
     @Inject(method = "isClickInTab", at = @At("HEAD"), cancellable = true)
-    private void s1mp1e$clickTab(ItemGroup group, double mx, double my, CallbackInfoReturnable<Boolean> cir) {
-        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) return;
-        int pw = s1mp1e$pw(), ph = s1mp1e$ph();
-        int col = s1mp1e$cell(group);
-        boolean top = group.isTopRow();
-        float c = GlassTabs.cellW(pw);
-        float x0 = col * c, x1 = x0 + c;              // relative to panel left
-        float y0 = top ? -GlassTabs.BAND : ph;        // relative to panel top
-        float y1 = y0 + GlassTabs.BAND;
-        cir.setReturnValue(mx >= x0 && mx < x1 && my >= y0 && my < y1);
+    private void s1mp1e$cellHit(ItemGroup group, double mouseX, double mouseY, CallbackInfoReturnable<Boolean> cir) {
+        if (!s1mp1e$glass()) return;
+        HandledScreenAccessor a = s1mp1e$acc();
+        cir.setReturnValue(GlassTabs.hitRel(group.getColumn(), group.isTopRow(), mouseX, mouseY,
+                a.s1mp1e$backgroundWidth(), a.s1mp1e$backgroundHeight()));
     }
 
-    /** Fused cell 0..6 from the vanilla tab-x (5 left-aligned cols 0..4 + 1 right-aligned special col -> cell 6). */
-    @Unique
-    private int s1mp1e$cell(ItemGroup group) {
-        int pw = s1mp1e$pw();
-        int col = group.getColumn();   // 0..5 (index % 6)
-        float tabXRel = group.isSpecial() ? (pw - 28f * (6 - col)) : (28f * col + (col > 0 ? col : 0));
-        float c = GlassTabs.cellW(pw);
-        int cell = Math.round((tabXRel + 14f) / c - 0.5f);
-        return cell < 0 ? 0 : (cell > GlassTabs.COLUMNS - 1 ? GlassTabs.COLUMNS - 1 : cell);
+    /** B — the tab name tooltip follows the fused cell too ({@code renderTabTooltipIfHovered} gets absolute coords). */
+    @Inject(method = "renderTabTooltipIfHovered", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$cellTooltip(ItemGroup group, int mouseX, int mouseY,
+                                    CallbackInfoReturnable<Boolean> cir) {
+        if (!s1mp1e$glass()) return;
+        HandledScreenAccessor a = s1mp1e$acc();
+        boolean hit = GlassTabs.hitRel(group.getColumn(), group.isTopRow(), mouseX - a.s1mp1e$x(),
+                mouseY - a.s1mp1e$y(), a.s1mp1e$backgroundWidth(), a.s1mp1e$backgroundHeight());
+        if (hit) {
+            ((net.minecraft.client.gui.screen.Screen) (Object) this)
+                    .renderTooltip(net.minecraft.client.resource.language.I18n.translate(group.getTranslationKey()), mouseX, mouseY);
+        }
+        cir.setReturnValue(hit);
     }
 
-    // ---- (C) glass scrollbar + (D) glide state --------------------------------------------------
+    // ---- C: the scrollbar knob -> the vertical glass slider; D: the per-frame glide state -------
 
     @Redirect(method = "drawBackground",
             at = @At(value = "INVOKE", ordinal = 1,
                      target = "Lnet/minecraft/client/gui/screen/ingame/CreativeInventoryScreen;blit(IIIIII)V"))
-    private void s1mp1e$scroller(CreativeInventoryScreen self, int sx, int sy, int u, int v, int w, int h,
-                                 float delta, int mouseX, int mouseY) {
-        if (!GlassProgram.ensureReady() || !GlassProgram.usable()) {
-            self.blit(sx, sy, u, v, w, h);
+    private void s1mp1e$glassScrollbar(CreativeInventoryScreen self, int tx, int ty, int u, int v, int w, int h) {
+        if (!s1mp1e$glass()) {
+            self.blit(tx, ty, u, v, w, h);
             return;
         }
-        if (s1mp1e$scrollbar == null) s1mp1e$scrollbar = new GlassScrollbar();
-        boolean active = this.hasScrollbar();
+        HandledScreenAccessor a = s1mp1e$acc();
+        boolean active = hasScrollbar();
         int rc = s1mp1e$rowCount();
-        int row = rc <= 0 ? 0 : s1mp1e$clamp(Math.round(scrollPosition * rc), 0, rc);
-        float targetRatio = rc <= 0 ? 0f : (float) row / rc;
-        float fade = s1mp1e$openFade == null ? 1f : s1mp1e$openFade.value();
-        // creative track: thumb 12x15, top at py+18, thumb-top travel 97 (vanilla mouseDragged divides by 112-15).
-        GlassScrollbar.run(s1mp1e$scrollbar, sx + w / 2f, s1mp1e$py() + 18f, 97f, 15f,
-                targetRatio, active, scrolling && active, mouseY, fade);
+        // Point the thumb at the ROW-ALIGNED logical ratio (vanilla's own scrollItems row), not the continuous
+        // scrollPosition: after a drag scrollPosition rests between rows while the grid shows the rounded row.
+        int row = rc <= 0 ? 0 : MathHelper.clamp((int) (scrollPosition * rc + 0.5f), 0, rc);
+        float ratio = rc <= 0 ? 0f : (float) row / rc;
+        float cx = a.s1mp1e$x() + 175 + 6f;       // 12-wide knob at x+175 -> centre +6
+        float trackTop = a.s1mp1e$y() + 18f;
+        GlassScrollbar.run(s1mp1e$scrollbar, cx, trackTop, LG_TRAVEL, LG_THUMB, ratio, active,
+                scrolling && active, s1mp1e$mouseY, s1mp1e$fade());
+        if (selectedTab != s1mp1e$barTab) {        // a tab switch resets vanilla's scroll: no glide across tabs
+            s1mp1e$barTab = selectedTab;
+            s1mp1e$scrollbar.snapToTarget();
+        }
         if (active && rc > 0) {
             float easedRows = s1mp1e$scrollbar.pos() * rc;
-            s1mp1e$glideRowCount = rc;
             if (Math.abs(easedRows - row) > 0.02f) {
-                s1mp1e$sliding = true;
-                s1mp1e$glideBase = s1mp1e$clamp((int) Math.floor(easedRows), 0, rc);
-                s1mp1e$glideFracPx = (easedRows - s1mp1e$glideBase) * LG_PITCH;
+                s1mp1e$gliding = true;
+                s1mp1e$gridBaseRow = MathHelper.clamp((int) Math.floor(easedRows), 0, rc);
+                s1mp1e$gridFracPx = (easedRows - s1mp1e$gridBaseRow) * LG_PITCH;
             }
         }
     }
 
-    /** A click while the grid is mid-glide snaps to the target row first (acts on the item drawn under the cursor). */
+    /** A click while the grid is mid-glide snaps the thumb to the logical row first (acts on the drawn item). */
     @Inject(method = "mouseClicked", at = @At("HEAD"))
-    private void s1mp1e$snapOnClick(double mx, double my, int button, CallbackInfoReturnable<Boolean> cir) {
-        if (s1mp1e$sliding && s1mp1e$scrollbar != null) {
+    private void s1mp1e$snapGridOnClick(double mx, double my, int button, CallbackInfoReturnable<Boolean> cir) {
+        if (s1mp1e$gliding) {
             s1mp1e$scrollbar.snapToTarget();
-            s1mp1e$sliding = false;
+            s1mp1e$gliding = false;
         }
     }
 
-    // ---- GlassGlideHost -------------------------------------------------------------------------
+    // ---- D: GlassGlideHost (HandledScreenGlassMixin's glide redirects call these) ---------------
 
     @Override
-    public boolean s1mp1e$gliding() { return s1mp1e$sliding; }
+    public boolean s1mp1e$gliding() { return s1mp1e$gliding; }
 
     @Override
     public boolean s1mp1e$isGlideSlot(Slot slot) {
-        return slot.xPosition >= LG_GRID_X && slot.xPosition < LG_GRID_X + LG_COLS * LG_PITCH
-            && slot.yPosition >= LG_GRID_Y && slot.yPosition < LG_GRID_Y + LG_VIS_ROWS * LG_PITCH;
+        // The 45 item-grid slots sit at relative (9+col*18, 18+row*18), col 0..8, row 0..4.
+        int rx = slot.xPosition - LG_GRID_X, ry = slot.yPosition - LG_GRID_Y;
+        return rx >= 0 && ry >= 0 && rx <= 8 * LG_PITCH && ry <= 4 * LG_PITCH && rx % LG_PITCH == 0 && ry % LG_PITCH == 0;
     }
 
     @Override
     public void s1mp1e$drawGlideOverlay() {
-        DefaultedList<ItemStack> items = s1mp1e$items();
+        List<ItemStack> items = s1mp1e$items();
         if (items == null) return;
-        int px = s1mp1e$px(), py = s1mp1e$py();
-        // This overlay runs inside render()'s translate(x,y) pose, so item draws stay slot-relative; the raw glScissor is
-        // in absolute window coords (unaffected by the modelview translate) — the mirror of 26.2's double-translate trap.
-        GlassWidgets.beginScissor(px + LG_GRID_X, py + LG_GRID_Y,
-                px + LG_GRID_X + LG_COLS * LG_PITCH, py + LG_GRID_Y + LG_VIS_ROWS * LG_PITCH);
-        RenderSystem.pushMatrix();
-        RenderSystem.translatef(0f, -s1mp1e$glideFracPx, 0f);
-        GlassWidgets.resetColorCache();
-        DiffuseLighting.enableGuiDepthLighting();
-        RenderSystem.enableRescaleNormal();
+        int size = items.size();
+        HandledScreenAccessor a = s1mp1e$acc();
+        int px = a.s1mp1e$x(), py = a.s1mp1e$y();
         MinecraftClient mc = MinecraftClient.getInstance();
         ItemRenderer ir = mc.getItemRenderer();
-        TextRenderer font = mc.textRenderer;
+
+        // Runs inside HandledScreen.render's RenderSystem.translatef(x,y,0) legacy model-view translate. The scissor is
+        // window-absolute (RenderSystem.enableScissor ignores the model-view) while the item draws stay slot-relative —
+        // the MatrixStack-family mirror of 26.2's double-translate trap.
+        GlassWidgets.beginScissor(px + LG_GRID_X, py + LG_GRID_Y, px + LG_GRID_X + LG_COLS * LG_PITCH,
+                py + LG_GRID_Y + LG_VIS * LG_PITCH);
+        RenderSystem.pushMatrix();
+        RenderSystem.translatef(0f, -s1mp1e$gridFracPx, 0f);
+        float savedZ = ir.zOffset;
+        ir.zOffset = 100f;                            // vanilla drawSlot item depth
         try {
-            for (int vr = 0; vr <= LG_VIS_ROWS; vr++) {
-                int rowIdx = s1mp1e$glideBase + vr;
-                int y = LG_GRID_Y + vr * LG_PITCH;
+            for (int vr = 0; vr <= LG_VIS; vr++) {     // 5 visible + ONE extra row so no edge gap shows
+                int row = s1mp1e$gridBaseRow + vr;
                 for (int col = 0; col < LG_COLS; col++) {
-                    int idx = rowIdx * LG_COLS + col;
-                    if (idx < 0 || idx >= items.size()) continue;
-                    ItemStack st = items.get(idx);
-                    if (st == null || st.isEmpty()) continue;
-                    int ix = LG_GRID_X + col * LG_PITCH;
-                    ir.renderGuiItem(st, ix, y);
-                    ir.renderGuiItemOverlay(font, st, ix, y);
+                    int idx = col + row * LG_COLS;
+                    if (idx < 0 || idx >= size) continue;
+                    ItemStack stack = items.get(idx);
+                    if (stack.isEmpty()) continue;
+                    int rx = LG_GRID_X + col * LG_PITCH, ry = LG_GRID_Y + vr * LG_PITCH;
+                    ir.renderGuiItem(stack, rx, ry);
+                    ir.renderGuiItemOverlay(mc.textRenderer, stack, rx, ry);
                 }
             }
         } finally {
-            RenderSystem.disableRescaleNormal();
-            GlassWidgets.resetColorCache();
-            RenderSystem.enableAlphaTest();
-            RenderSystem.enableBlend();
+            ir.zOffset = savedZ;
             RenderSystem.popMatrix();
             GlassWidgets.endScissor();
+        }
+
+        // Config-menu scroll-edge whisper (26.2 CreativeGlassMixin): progressive blur on the window edge where content
+        // runs off. Still inside render's translatef(x,y) model-view -> slot-relative coords (the edge shader samples by
+        // gl_FragCoord, so the translate is harmless). Fresh composite grab first: it blurs the panel + items drawn so
+        // far and never itself (R4). Depth off so the band is not rejected by the item depth just written.
+        if (GlassProgram.edgeUsable()) {
+            int rc = s1mp1e$rowCount();
+            float topK = s1mp1e$gridBaseRow > 0 || s1mp1e$gridFracPx > 0.5f ? 1f : 0f;
+            float botK = s1mp1e$gridBaseRow < rc ? 1f : 0f;
+            boolean depth = org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_DEPTH_TEST);
+            RenderSystem.disableDepthTest();
+            SceneCapture.grabNow();
+            GlassWidgets.scrollEdges(LG_GRID_X, LG_GRID_Y, LG_GRID_X + LG_COLS * LG_PITCH,
+                    LG_GRID_Y + LG_VIS * LG_PITCH, 6f, topK, botK, s1mp1e$fade());
+            if (depth) RenderSystem.enableDepthTest();
         }
     }
 
     @Unique
-    private int s1mp1e$rowCount() {
-        DefaultedList<ItemStack> items = s1mp1e$items();
-        if (items == null) return 0;
-        int rows = (items.size() + LG_COLS - 1) / LG_COLS;   // ceilDiv
-        return Math.max(0, rows - LG_VIS_ROWS);
-    }
-
-    @Unique
-    @SuppressWarnings("unchecked")
-    private DefaultedList<ItemStack> s1mp1e$items() {
+    private List<ItemStack> s1mp1e$items() {
         try {
-            Object c = ((CreativeInventoryScreen) (Object) this).getContainer();
-            if (c instanceof CreativeInventoryScreen.CreativeContainer) {
-                return ((CreativeInventoryScreen.CreativeContainer) c).itemList;
+            Object hnd = ((CreativeInventoryScreen) (Object) this).getContainer();
+            if (hnd instanceof CreativeInventoryScreen.CreativeContainer) {
+                return ((CreativeInventoryScreen.CreativeContainer) hnd).itemList;
             }
         } catch (Throwable ignored) {}
         return null;
     }
 
+    /** Off-screen rows of the current tab's item list = ceil(size/9) - 5 (vanilla's own divisor). */
     @Unique
-    private static int s1mp1e$clamp(int v, int lo, int hi) {
-        return v < lo ? lo : (v > hi ? hi : v);
+    private int s1mp1e$rowCount() {
+        List<ItemStack> items = s1mp1e$items();
+        return items == null ? 0 : Math.max(0, (items.size() + 8) / 9 - 5);
     }
 }

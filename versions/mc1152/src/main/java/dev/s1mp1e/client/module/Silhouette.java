@@ -3,29 +3,35 @@ package dev.s1mp1e.client.module;
 import java.util.ArrayList;
 import java.util.List;
 
-import dev.s1mp1e.client.gui.GlassWidgets;
+import com.mojang.blaze3d.systems.RenderSystem;
 import dev.s1mp1e.glass.mixin.SpriteImagesAccessor;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.Tessellator;
+import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.Sprite;
+import net.minecraft.client.util.math.Matrix4f;
 import net.minecraft.util.math.MathHelper;
+import org.lwjgl.opengl.GL11;
 
 /**
  * Shared "hug the icon's REAL silhouette" outline, used by both {@link ArmorHudModule} and
- * {@link PotionHudModule}. Reads a sprite's CPU-side alpha mask (via {@link SpriteImagesAccessor}), traces
- * the 1px-OUTSIDE contour ordered CLOCKWISE from the top, and draws it as a coloured outline that clings
- * to the icon's actual curve (like a text outline follows a glyph) with a flowing ripple.
+ * {@link PotionHudModule}. Reads a sprite's CPU-side alpha mask (via {@link SpriteImagesAccessor}),
+ * traces the 1px-OUTSIDE contour ordered CLOCKWISE from the top, and draws it as a coloured outline
+ * that clings to the icon's actual curve (like a text outline follows a glyph) with a flowing ripple.
  *
  * <p>The contour is computed on a 16&times;16 grid (the icon is drawn 16&times;16), so points range over
- * {@code -1..16}. Any read failure (image released / atlas quirk) yields an empty contour — callers then
+ * {@code -1..16}. Any read failure (image closed / atlas quirk) yields an empty contour — callers then
  * draw just the icon, never crash.
  *
- * <p>1.15.2 port of mc1211's {@code Silhouette}: the trace/draw maths are copied verbatim; only the alpha
- * SOURCE and the draw PRIMITIVE differ. 1.15.2's {@code Sprite} has no {@code getFramePixel}; its CPU-side
- * mip chain is the {@code protected final NativeImage[] images} field, read through {@link SpriteImagesAccessor}.
- * Mip 0 holds every animation frame, with frame 0 at the origin, so the 16&times;16 grid samples it over the
- * FRAME size {@code sprite.getWidth()/getHeight()} (not the whole image) with
- * {@code NativeImage.getPixelRgba} (ABGR, alpha = top byte). The draw primitive is immediate-mode
- * {@link GlassWidgets#drawRect} instead of {@code ctx.fill}.
+ * <p><b>1.15.2 draw path.</b> Rather than ~60 separate {@code DrawableHelper.fill} calls per icon (each its
+ * own Tessellator flush — costly, and awkward with Sodium), every contour pixel is emitted into ONE
+ * {@code POSITION_COLOR} quad draw, each quad wound TL&rarr;BL&rarr;BR&rarr;TR (the GUI cull winding). The
+ * vertices are pre-multiplied by the caller's {@link MatrixStack} model matrix, so the outline follows the
+ * caller's translate/scale exactly like the icon it hugs — whether the caller scales via the MatrixStack
+ * (Potion, drawing sprites) or via the fixed-function model-view (Armor, drawing items). Texture is disabled
+ * for the batch and re-enabled after; blend is left ON (never {@code disableBlend}); the RenderSystem
+ * colour cache is reset 0&rarr;1 so the icon drawn next is not tinted.
  */
 public final class Silhouette {
 
@@ -34,8 +40,7 @@ public final class Silhouette {
     /** Alpha above this (0..255) counts as opaque ink. */
     public static final int ALPHA_MIN = 32;
 
-    /** The 1px-outside contour of {@code sprite}'s silhouette on a 16&times;16 grid, clockwise from top;
-     *  empty on failure. */
+    /** The 1px-outside contour of {@code sprite}'s silhouette on a 16&times;16 grid, clockwise from top; empty on failure. */
     public static int[] trace(Sprite sprite) {
         try {
             NativeImage img = ((SpriteImagesAccessor) (Object) sprite).s1mp1e$images()[0];   // mip level 0
@@ -61,9 +66,7 @@ public final class Silhouette {
                     }
                 }
             }
-            list.sort(new java.util.Comparator<int[]>() {
-                public int compare(int[] p, int[] q) { return Float.compare(ang(p), ang(q)); }
-            });   // clockwise from top
+            list.sort((p, q) -> Float.compare(ang(p), ang(q)));   // clockwise from top
             int[] out = new int[list.size() * 2];
             for (int i = 0; i < list.size(); i++) { out[i * 2] = list.get(i)[0]; out[i * 2 + 1] = list.get(i)[1]; }
             return out;
@@ -77,21 +80,38 @@ public final class Silhouette {
      * {@code [0,1]} keeps that leading clockwise fraction fully opaque; the remainder fades to a faint
      * 55/255 (ArmorHUD uses it for remaining durability; pass {@code 1f} for a full outline). The base
      * colour flows a bright ripple around the contour.
-     *
-     * <p>Immediate-mode 1.15.2: cells are painted with {@link GlassWidgets#drawRect} (a front-facing quad
-     * that survives the GUI-pass cull and leaves blend enabled) instead of mc1211's {@code ctx.fill}.
      */
     public static void draw(int[] pts, int ix, int iy, float ratio, int baseRgb, float time) {
         int cnt = pts.length / 2;
         if (cnt == 0) return;
         int keep = Math.round(MathHelper.clamp(ratio, 0f, 1f) * cnt);
+
+        RenderSystem.disableTexture();
+        RenderSystem.enableBlend();
+        RenderSystem.disableAlphaTest();
+        RenderSystem.blendFuncSeparate(770, 771, 1, 0);
+        Tessellator t = Tessellator.getInstance();
+        BufferBuilder bb = t.getBuffer();
+        bb.begin(GL11.GL_QUADS, VertexFormats.POSITION_COLOR);
         for (int i = 0; i < cnt; i++) {
             int ex = pts[i * 2], ey = pts[i * 2 + 1];
             float ripple = 0.55f + 0.45f * (float) Math.sin(Math.PI * 2 * ((float) i / cnt * 2f - time));
             int a = i < keep ? 255 : 55;
-            int col = (a << 24) | scaleRgb(baseRgb, ripple);
-            GlassWidgets.drawRect(ix + ex, iy + ey, ix + ex + 1, iy + ey + 1, col);
+            int col = scaleRgb(baseRgb, ripple);
+            int r = (col >> 16) & 0xFF, g = (col >> 8) & 0xFF, b = col & 0xFF;
+            float px = ix + ex, py = iy + ey;
+            // one 1px quad, wound TL -> BL -> BR -> TR (GUI cull winding)
+            bb.vertex(px,        py,        0f).color(r, g, b, a).next();
+            bb.vertex(px,        py + 1f,   0f).color(r, g, b, a).next();
+            bb.vertex(px + 1f,   py + 1f,   0f).color(r, g, b, a).next();
+            bb.vertex(px + 1f,   py,        0f).color(r, g, b, a).next();
         }
+        t.draw();
+        RenderSystem.enableAlphaTest();
+        RenderSystem.enableTexture();
+        // Blend stays ENABLED (MC's baseline). Reset the colour cache so the icon drawn next is untinted.
+        RenderSystem.color4f(0f, 0f, 0f, 0f);
+        RenderSystem.color4f(1f, 1f, 1f, 1f);
     }
 
     private static boolean op(boolean[][] op, int x, int y) { return x >= 0 && x < 16 && y >= 0 && y < 16 && op[x][y]; }

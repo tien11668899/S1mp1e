@@ -1,64 +1,56 @@
 package dev.s1mp1e.glass.render;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import dev.s1mp1e.client.gui.GlassWidgets;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.anim.Spring;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.DiffuseLighting;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.item.ItemRenderer;
 import net.minecraft.item.ItemStack;
 
 import java.util.ArrayList;
 
 /**
- * Creative-inventory category tabs as part of the inventory's ONE glass piece (user: category row joined to the bag, no
- * seam between). The 1.15.2 (FF-Fabric, immediate-mode) port of 1.20.1 / 26.2's {@code render/GlassTabs}.
+ * Creative-inventory category tabs as part of the inventory's ONE glass piece (user: fused分類跟背包連在一起, no seam).
+ * The 1.15.2 (immediate-mode, {@link MatrixStack} / legacy GL) port of 26.2's
+ * {@code render/GlassTabs}.
  *
  * <p>The creative body glass is drawn as a sheet extended {@link #BAND} GUI px above and below the panel (see
  * {@code CreativeGlassMixin}), so each tab row is simply the top / bottom band of the same glass sheet — no separate
- * strips, no seam. Inside a band the row is divided into {@link #COLUMNS} equal touching cells (vanilla's 0..6 columns).
+ * strips, no seam. Inside a band the row is divided into {@link #COLUMNS} equal touching cells (1.15.2's 0..5 columns).
  * The selected tab is a lifted glass pill (hotbar look + {@link GlassCorners hotbar corner radius}) that SLIDES along its
  * row and CROSS-FADES when the selection jumps rows; a hovered tab gets a fainter pill with the container slot-hover
- * motion. {@code CreativeGlassMixin} moves vanilla's tab hit boxes ({@code isClickInTab}) to the same cells.
+ * motion. {@code CreativeGlassMixin} moves vanilla's tab hit boxes ({@code isClickInTab}) and tooltip boxes
+ * ({@code renderTabTooltipIfHovered}) to the same cells.
  *
  * <p>Immediate-mode ordering: {@code CreativeGlassMixin} defers every tab (via {@link #deferTile}/{@link #deferIcon})
- * while vanilla walks them, draws the fused body sheet, then calls {@link #flush} once (from the selected tab's redirect)
- * to paint the pills and every icon ON TOP of the body — the same "body -> pills -> icons" order 26.2 uses. Everything
- * runs at pose-identity: {@code drawBackground} is called before {@code render}'s {@code translate(x,y)}, so all coords
- * here are absolute GUI px.
+ * while vanilla walks them, draws the fused body sheet, then calls {@link #flush} once (from the selected tab's redirect,
+ * which vanilla issues LAST) to paint the pills and every icon ON TOP of the body — the "body -> pills -> icons" order.
  */
 public final class GlassTabs {
     private GlassTabs() {}
 
-    /** Depth of a tab row outside the panel edge, GUI px (vanilla's top tab starts ~28 px above the panel). */
-    public static final int BAND = 28;
-    /** Vanilla's tab grid per row: 5 left-aligned + 2 right-aligned columns. */
-    public static final int COLUMNS = 7;
-    /** Vanilla hit-box width of a tab. */
-    public static final int TAB_W = 26;
+    /** Depth of a tab row outside the panel edge, GUI px (vanilla's top tab starts 28 px above the panel). */
+    public static final int BAND = 32;   // #8 ≈ cell width (195/6=32.5): square cells → equal top/bottom/left/right spacing
+    /** 1.15.2's tab grid per row: columns 0..5 (5 left + the special/search column, right-most). */
+    public static final int COLUMNS = 6;
     private static final int ICON = 16;
     private static final int PILL_INSET = 2;
     private static final float FROST = 1.0f;                 // sharp refraction (FROST_NONE)
-    private static final int LIFT_SELECTED = 0xE0;          // G byte -> lift 0.125 (the hotbar selected pill's lift)
-    private static final int LIFT_HOVER = 0xF4;             // G byte -> lift 0.043 (fainter)
+    private static final int LIFT_SELECTED = 0xE0;           // -> lift 0.125 (the hotbar selected pill's lift)
+    private static final int LIFT_HOVER = 0xF4;              // -> lift 0.043 (fainter)
     private static final float PAD = 12f;
 
     private static final ArrayList<int[]> tiles = new ArrayList<int[]>();     // {column, top(0/1), selected(0/1), hovered(0/1)}
-    private static final ArrayList<Object[]> icons = new ArrayList<Object[]>();  // {ItemStack, column, top(0/1)}
+    private static final ArrayList<Object[]> icons = new ArrayList<Object[]>(); // {ItemStack, column, top(0/1)}
 
-    public static void reset() {
+    /** Forget last frame's deferred tabs (called at drawBackground HEAD). */
+    public static void begin() {
         tiles.clear();
         icons.clear();
     }
 
-    public static float cellW(int imageWidth) { return imageWidth / (float) COLUMNS; }
+    public static void reset() { begin(); }
 
-    /** Tab hit-box x relative to leftPos: a {@link #TAB_W}-wide box centred in the tab's cell. */
-    public static int tabX(int column, int imageWidth) {
-        float c = cellW(imageWidth);
-        return Math.round(column * c + (c - TAB_W) / 2f);
-    }
+    public static float cellW(int imageWidth) { return imageWidth / (float) COLUMNS; }
 
     public static int iconX(int leftPos, int column, int imageWidth) {
         float c = cellW(imageWidth);
@@ -68,6 +60,15 @@ public final class GlassTabs {
     public static int iconY(int topPos, int imageHeight, boolean top) {
         int bandTop = top ? topPos - BAND : topPos + imageHeight;
         return bandTop + (BAND - ICON) / 2;
+    }
+
+    /** The fused-cell hit box, in coordinates RELATIVE to the panel origin (the space {@code isClickInTab} uses). */
+    public static boolean hitRel(int column, boolean top, double mxRel, double myRel, int imageWidth, int imageHeight) {
+        float c = cellW(imageWidth);
+        float x0 = column * c, x1 = x0 + c;
+        float y0 = top ? -BAND : imageHeight;
+        float y1 = y0 + BAND;
+        return mxRel >= x0 && mxRel < x1 && myRel >= y0 && myRel < y1;
     }
 
     public static void deferTile(int column, boolean top, boolean selected, boolean hovered) {
@@ -80,8 +81,8 @@ public final class GlassTabs {
 
     // ---- motion (selected pill: hotbar slide lead 55 / trail 30 within a row, cross-fade across rows;
     //              hover pill: slot-hover motion, fade in 100 / out 150 ms) ----
-    private static final float LEAD_W = 55f;
-    private static final float TRAIL_W = 30f;
+    private static final float LEAD_W = Spring.OMEGA_SNAP;   // 55
+    private static final float TRAIL_W = Spring.OMEGA_MED;   // 30
     private static final float STEP = 1f / 120f;
     private static Object owner;
     private static long lastNanos;
@@ -97,7 +98,7 @@ public final class GlassTabs {
     private static final Fade hoverFade = new Fade(0f, 100f);
 
     /** Draw the (animated) selected and hovered pills, then every tab icon, on top of the already-drawn body glass. */
-    public static void flush(Object screenOwner, int leftPos, int topPos,
+    public static void flush(Object screenOwner, ItemRenderer ir, TextRenderer tr, int leftPos, int topPos,
                              int imageWidth, int imageHeight, int fadeByte) {
         try {
             long now = System.nanoTime();
@@ -114,12 +115,15 @@ public final class GlassTabs {
             }
             float c = cellW(imageWidth);
             // S9P6 — the selected/hover pill is a SQUARE centred on the tab icon: side = min(cell width, band
-            // depth) - 2*inset, so width == height. The slide still stretches it horizontally between lead/trail.
+            // depth) - 2*inset, so width == height (the icon is centred in both the cell and the band, so a
+            // square on the cell/band centre is concentric with it). The slide / cross-fade / hover motion is
+            // unchanged: only the resting half-extents become equal.
             float half = (Math.min(c, (float) BAND) - 2f * PILL_INSET) / 2f;
             float hw = half;
             float hh = half;
             int[] sel = null, hov = null;
-            for (int[] t : tiles) {
+            for (int i = 0; i < tiles.size(); i++) {
+                int[] t = tiles.get(i);
                 if (t[2] != 0) sel = t;
                 else if (t[3] != 0) hov = t;
             }
@@ -193,56 +197,25 @@ public final class GlassTabs {
                 float cy = bandCy(topPos, imageHeight, selTop);
                 pill(lo - hw, cy - hh, hi + hw, cy + hh, LIFT_SELECTED, Math.round(fb * selFade.value()));
             }
-            drawIcons(leftPos, topPos, imageWidth, imageHeight);
-        } finally {
-            reset();
-        }
-    }
-
-    /** Paint every deferred tab icon on top of the pills, with the version's verified GUI-item lighting recipe. */
-    private static void drawIcons(int leftPos, int topPos, int imageWidth, int imageHeight) {
-        if (icons.isEmpty()) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        ItemRenderer ir = mc.getItemRenderer();
-        // Sort the icons above the glass body (vanilla renderTabIcon uses blit offset / zOffset 100).
-        int savedBlit = 0;
-        try { savedBlit = getBlitOffset(); } catch (Throwable ignored) {}
-        setBlitOffset(100);
-        ir.zOffset = 100f;
-        GlassWidgets.resetColorCache();
-        DiffuseLighting.enableGuiDepthLighting();
-        RenderSystem.enableRescaleNormal();
-        try {
-            for (Object[] ic : icons) {
-                int col = ((Integer) ic[1]).intValue();
-                boolean top = ((Integer) ic[2]).intValue() != 0;
-                int ix = iconX(leftPos, col, imageWidth);
-                int iy = iconY(topPos, imageHeight, top);
-                ItemStack st = (ItemStack) ic[0];
-                ir.renderGuiItem(st, ix, iy);
-                ir.renderGuiItemOverlay(mc.textRenderer, st, ix, iy);
+            // icons ON TOP of the pills (vanilla drew tab icons at zOffset 100).
+            float savedZ = ir.zOffset;
+            ir.zOffset = 100f;
+            try {
+                for (int i = 0; i < icons.size(); i++) {
+                    Object[] icn = icons.get(i);
+                    int col = (Integer) icn[1];
+                    boolean top = (Integer) icn[2] != 0;
+                    ItemStack st = (ItemStack) icn[0];
+                    int ix = iconX(leftPos, col, imageWidth), iy = iconY(topPos, imageHeight, top);
+                    ir.renderGuiItem(st, ix, iy);
+                    ir.renderGuiItemOverlay(tr, st, ix, iy);
+                }
+            } finally {
+                ir.zOffset = savedZ;
             }
         } finally {
-            RenderSystem.disableRescaleNormal();
-            ir.zOffset = 0f;
-            setBlitOffset(savedBlit);
-            // Restore MC's baseline (never leave a GUI path with blend off); defeat the colour cache.
-            GlassWidgets.resetColorCache();
-            RenderSystem.enableAlphaTest();
-            RenderSystem.enableBlend();
+            begin();
         }
-    }
-
-    // DrawableHelper.setBlitOffset / getBlitOffset are static on the client's shared cursor; the item renderer reads the
-    // same z as the vanilla tab icons through it. Reflect off the screen singleton so no Screen import is needed here.
-    private static int getBlitOffset() {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        return mc.currentScreen == null ? 0 : mc.currentScreen.getBlitOffset();
-    }
-
-    private static void setBlitOffset(int z) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.currentScreen != null) mc.currentScreen.setBlitOffset(z);
     }
 
     private static void retarget(float cx, float cy) {
@@ -258,7 +231,7 @@ public final class GlassTabs {
         int x0 = Math.round(fx0), y0 = Math.round(fy0), x1 = Math.round(fx1), y1 = Math.round(fy1);
         if (x1 <= x0 || y1 <= y0 || (fadeByte & 0xFF) == 0) return;
         if (!GlassProgram.usable() || !SceneCapture.hasBackdrop()) return;
-        float corner = GlassCorners.cornerKnob(x1 - x0, y1 - y0);   // hotbar corner radius (R2)
+        float corner = GlassCorners.hotbarCorner(x1 - x0, y1 - y0);   // hotbar corner radius (R2)
         float lift = 1f - (liftByte & 0xFF) / 255f;
         float opacity = (fadeByte & 0xFF) / 255f;
         GlassRenderer.glass(x0, y0, x1, y1, PAD, corner, lift, opacity, FROST);

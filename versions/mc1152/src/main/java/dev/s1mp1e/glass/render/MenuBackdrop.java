@@ -86,12 +86,9 @@ public final class MenuBackdrop {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
         }
         GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
-        // The raw binds above bypass RenderSystem's texture-unit cache. Restore
-        // through RenderSystem so its cache matches actual GL again — bind 0 first
-        // to defeat its no-op-on-equal-cache short circuit (bytecode-verified on
-        // 1.15.2), else MC keeps sampling our backdrop texture and the whole
-        // screen goes white. (mc189/mc1165 fix; missing from the mc1144 form.)
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
+        // Resync RenderSystem's texture cache after the raw restore, else MC
+        // samples our capture texture everywhere and the screen goes white.
         RenderSystem.bindTexture(0);
         RenderSystem.bindTexture(prevTex);
         hasFrame = true;
@@ -100,41 +97,50 @@ public final class MenuBackdrop {
     /** The captured panorama texture id (0 if none captured yet). */
     public static int panoramaTex() { return texture; }
 
-    /** Draw the blurred backdrop full-screen. False -> caller draws the dirt. */
+    /** Draw the blurred panorama backdrop full-screen. False -> caller draws the dirt. */
     public static boolean draw() {
         refreshLive();          // keep the panorama moving; no-op once it has failed
         if (!ready()) return false;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        drawTexture(texture, RADIUS, DIM, 0f, mc.getWindow().getScaledHeight());
+        float h = MinecraftClient.getInstance().getWindow().getScaledHeight();
+        drawTexture(texture, RADIUS, DIM, 0f, h);
         return true;
     }
 
     /**
-     * Draw the current framebuffer (the world + the screen's darken gradient),
-     * blurred, as the backdrop behind a non-container in-world screen. Grabs a
-     * fresh composite first. False -> caller keeps whatever it drew.
+     * Draw the current framebuffer (the world + the screen's darken gradient), blurred, as the
+     * backdrop behind a non-container in-world screen (mc189 V-4). Grabs a fresh composite first
+     * ({@link SceneCapture#grabNow()} — force, so the deduped world grab a base layer may have taken
+     * this frame does not shadow it). False -> caller keeps whatever it drew.
      */
     public static boolean drawLive(float radius, float dim) {
         if (!GlassProgram.ensureReady() || !GlassProgram.blurUsable()) return false;
         SceneCapture.grabNow();
         int tex = SceneCapture.texture();
         if (tex == 0) return false;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        drawTexture(tex, radius, dim, 0f, mc.getWindow().getScaledHeight());
+        float h = MinecraftClient.getInstance().getWindow().getScaledHeight();
+        drawTexture(tex, radius, dim, 0f, h);
         return true;
     }
 
     /**
-     * Blit {@code tex} through the BLUR program over the full-width band
-     * {@code [y0, y1)} in GUI pixels. The shader derives its UV from
-     * {@code gl_FragCoord}, so a sub-rect quad samples the matching screen region
-     * unchanged — used for the whole screen and for list header/footer strips.
-     * Vertices wound TL->BL->BR->TR (front-facing under the GUI cull).
+     * Blit {@code tex} through the BLUR program over the full-width band {@code [y0, y1)} in GUI
+     * pixels (mc189 V-4). The shader derives its UV from {@code gl_FragCoord}, so a sub-rect quad
+     * samples the matching screen region unchanged — used for the whole screen and for the
+     * EntryListWidget header/footer strips. Vertices wound TL→BL→BR→TR (front-facing under the GUI
+     * cull). Keeps mc1152's GL conventions: glPushAttrib/glPopAttrib around the raw state, the program
+     * bound and {@code setBlur} set BEFORE {@code glBegin}, then the RenderSystem texture/colour cache
+     * resync so MC does not keep sampling this texture (white screen); blend is never left disabled.
      */
     public static void drawTexture(int tex, float radius, float dim, float y0, float y1) {
+        drawTexture(tex, radius, dim, 0f, y0, MinecraftClient.getInstance().getWindow().getScaledWidth(), y1);
+    }
+
+    /**
+     * The same blit confined to the rectangle {@code [x0, x1) x [y0, y1)} (a list that does not span the screen).
+     * With {@code radius 0, dim 0} it is a 1:1 copy of that region of {@code tex}.
+     */
+    public static void drawTexture(int tex, float radius, float dim, float x0, float y0, float x1, float y1) {
         if (tex == 0) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        float w = mc.getWindow().getScaledWidth();
 
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT
                         | GL11.GL_CURRENT_BIT | GL11.GL_TEXTURE_BIT);
@@ -150,14 +156,14 @@ public final class MenuBackdrop {
         GlassProgram.bind(GlassProgram.BLUR);
         GlassProgram.setBlur(radius, dim);
 
-        // capture is framebuffer space (origin bottom-left); GUI space is
-        // top-left, but the shader derives its UV from gl_FragCoord, so the
-        // texcoords are cosmetic — only the quad's screen extent matters.
+        // capture is framebuffer space (origin bottom-left); GUI space is top-left, but the shader
+        // derives its UV from gl_FragCoord, so the texcoords are cosmetic — only the quad's screen
+        // extent matters.
         GL11.glBegin(GL11.GL_QUADS);
-        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, y0);   // TL
-        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, y1);   // BL
-        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(w,  y1);   // BR
-        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(w,  y0);   // TR
+        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(x0, y0);   // TL
+        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(x0, y1);   // BL
+        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(x1, y1);   // BR
+        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(x1, y0);   // TR
         GL11.glEnd();
 
         GlassProgram.unbind();
@@ -166,12 +172,7 @@ public final class MenuBackdrop {
         GL11.glPopAttrib();
         RenderSystem.bindTexture(0);
         RenderSystem.color4f(1f, 1f, 1f, 1f);
-        // ...and INVALIDATE the cache (hard rule 5). The line above can itself be a cached
-        // no-op: glPopAttrib(GL_CURRENT_BIT) has already reverted the REAL colour to whatever
-        // it was at push time, which RenderSystem never saw. If its cache still reads white,
-        // color4f(white) issues nothing and a non-white colour survives to tint every later
-        // draw. clearCurrentColor forces the next colour write through, whoever makes it.
-        RenderSystem.clearCurrentColor();
+        RenderSystem.clearCurrentColor();   // 1.15.2: force the next colour write through (raw glColor4f above)
     }
     // =======================================================================
     // V-5: live (animated) panorama behind world-less screens
@@ -202,7 +203,7 @@ public final class MenuBackdrop {
      *
      * <p>Throttled by the shared {@link #CAPTURE_GAP_NS} capture gap, which also bounds this to at
      * most one panorama pass per rendered frame: a screen can ask for the backdrop several times per
-     * frame ({@code renderDirtBackground}, then {@code EntryListWidget}'s interior), and every such
+     * frame ({@code renderBackgroundTexture}, then {@code EntryListWidget}'s interior), and every such
      * call blits the blur over the full screen straight afterwards, so a re-render can never leave the
      * raw panorama showing.
      *
@@ -238,9 +239,9 @@ public final class MenuBackdrop {
             return false;
         } finally {
             RenderSystem.enableBlend();
-            RenderSystem.defaultBlendFunc();
+            RenderSystem.blendFuncSeparate(770, 771, 1, 0);
             RenderSystem.enableAlphaTest();
-            RenderSystem.defaultAlphaFunc();
+            RenderSystem.alphaFunc(516, 0.1F);
             RenderSystem.enableDepthTest();
             RenderSystem.depthMask(true);
             RenderSystem.color4f(1f, 1f, 1f, 1f);

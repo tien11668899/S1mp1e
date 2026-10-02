@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.module;
 
+import dev.s1mp1e.client.hud.HudText;
 import java.util.ArrayDeque;
 
 import dev.s1mp1e.client.HudBounds;
@@ -8,7 +9,6 @@ import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
 import dev.s1mp1e.client.gui.GlassWidgets;
-import dev.s1mp1e.client.gui.HudText;
 import net.minecraft.client.MinecraftClient;
 
 /**
@@ -36,7 +36,9 @@ public final class CpsModule extends Module implements HudBounds, HudRenderer {
     public final Setting posY      = add(Setting.integer("PosY", 4, 0, 2000));
     public final Setting showRight = add(Setting.bool("Show right CPS", false));
     public final Setting color     = add(Setting.color("Colour", 0xFFFFFFFF));
-    public final Setting shadow    = add(Setting.bool("Shadow", true));
+    // Text carries no drop shadow anywhere any more (TextShadowMixin), so this switch would do nothing: kept for the
+    // saved config, not shown.
+    public final Setting shadow    = add(Setting.bool("Shadow", true).hide());
     public int lastW = 40, lastH = 10;
 
     private final ArrayDeque<Long> leftClicks  = new ArrayDeque<Long>();

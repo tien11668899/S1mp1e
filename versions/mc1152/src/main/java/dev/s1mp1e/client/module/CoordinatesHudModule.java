@@ -6,7 +6,7 @@ import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
-import dev.s1mp1e.client.gui.HudText;
+import dev.s1mp1e.client.hud.HudText;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;

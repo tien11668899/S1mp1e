@@ -18,7 +18,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *
  * <p>Fabric target: {@code TitleScreen.render(int, int, float)} at the
  * {@code INVOKE} of the panorama renderer,
- * {@code RotatingCubeMapRenderer.render(float, float)} ({@code method_3317},
+ * {@code RotatingCubeMapRenderer.render(float, float)} ({@code render},
  * descriptor {@code (FF)V}), {@code shift = AFTER}. Verified against the mapped
  * 1.15.2 jar: {@code TitleScreen.render} invokes {@code RotatingCubeMapRenderer.
  * render(FF)V} at bytecode offset 75; at that instruction the framebuffer holds
@@ -37,10 +37,7 @@ public abstract class TitleScreenBackdropCaptureMixin {
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/RotatingCubeMapRenderer;render(FF)V",
                      shift = At.Shift.AFTER))
-    private void s1mp1e$capturePanorama(int mouseX, int mouseY,
-                                        float delta, CallbackInfo ci) {
-        // V-5: remember the live title screen so its panorama can be stepped and re-rendered
-        // behind the world-less screens layered on top of it (Options, Multiplayer, …).
+    private void s1mp1e$capturePanorama(int mouseX, int mouseY, float delta, CallbackInfo ci) {
         MenuBackdrop.rememberTitle((TitleScreen) (Object) this);
         MenuBackdrop.capture();
     }

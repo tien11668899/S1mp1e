@@ -1,6 +1,6 @@
 package dev.s1mp1e.glass.mixin;
 
-import dev.s1mp1e.glass.render.ScreenFade;
+import dev.s1mp1e.glass.render.ScreenDissolve;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,13 +15,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <p>Forge counterpart: {@code GlassScreenFadeHandler#onGuiOpen(GuiOpenEvent,
  * priority = LOWEST)}. That handler compared {@code mc.currentScreen} (the
  * outgoing screen) against {@code e.getGui()} (the incoming one) and only fired
- * {@link ScreenFade#trigger()} on a real change — MC re-sets the SAME screen on
+ * the dissolve on a real change — MC re-sets the SAME screen on
  * a window resize and that must not flash.
  *
  * <p>Fabric target: {@code MinecraftClient.openScreen(Screen)} — intermediary
- * {@code method_1507}, descriptor
+ * {@code openScreen}, descriptor
  * {@code (Lnet/minecraft/client/gui/screen/Screen;)V}. At {@code @At("HEAD")} the
- * {@code currentScreen} field ({@code field_1755}) still holds the OUTGOING
+ * {@code currentScreen} field ({@code currentScreen}) still holds the OUTGOING
  * screen, so the byte-for-byte equivalent of the Forge guard is
  * {@code this.currentScreen == screen}.
  *
@@ -38,6 +38,8 @@ public abstract class MinecraftClientFadeMixin {
     private void s1mp1e$fadeOnScreenChange(Screen screen, CallbackInfo ci) {
         // resize re-sets the identical instance -> no dissolve (matches Forge)
         if (this.currentScreen == screen) return;
-        ScreenFade.trigger();
+        // The dissolve is live (ScreenDissolve, the core-profile port of 26.2's ScreenTransition). At HEAD the main
+        // framebuffer still holds the last finished frame of the outgoing screen — that is what gets snapshot.
+        ScreenDissolve.onSetScreen(this.currentScreen, screen);
     }
 }

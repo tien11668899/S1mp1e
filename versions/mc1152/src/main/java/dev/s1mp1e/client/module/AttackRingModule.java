@@ -59,6 +59,8 @@ public final class AttackRingModule extends Module {
     /** Displayed radius / width, eased toward the charging or ready size so a state change morphs, not jumps. */
     private float curR = -1f, curW = -1f;
     private long lastNanos;
+    /** The progress the arc was last drawn at (read by the dev capture harness to check the sweep is continuous). */
+    public static float lastProgress;
 
     public AttackRingModule() {
         super("AttackRing", "Combat");
@@ -85,7 +87,10 @@ public final class AttackRingModule extends Module {
         lastNanos = now;
         if (p == null || mc.options.hudHidden || mc.options.perspective != 0) { vis = 0f; return; }
 
-        float strength = p.getAttackCooldownProgress(0f);           // what vanilla's indicator reads
+        // The cooldown advances once per game tick (20 Hz); with a partial tick it is continuous, so the arc sweeps
+        // every frame instead of stepping (vanilla's own indicator passes 0 and steps — fine for its 16 px sprite).
+        // 1.15.2 has no RenderTickCounter on the client API: MinecraftClient.getTickDelta() is the frame's partial tick.
+        float strength = p.getAttackCooldownProgress(mc.getTickDelta());
         boolean charging = strength < 0.999f;
         boolean full = !charging && ready.boolValue && p.getAttackCooldownProgressPerTick() > 5.0f
                 && mc.targetedEntity instanceof LivingEntity && mc.targetedEntity.isAlive();
@@ -133,6 +138,7 @@ public final class AttackRingModule extends Module {
         int a = Math.round(((argb >>> 24) & 0xFF) * vis);
         int fill = (a << 24) | (argb & 0xFFFFFF);
         float progress = charging ? strength : 1f;
+        lastProgress = progress;
 
         if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
         RenderSystem.disableDepthTest();

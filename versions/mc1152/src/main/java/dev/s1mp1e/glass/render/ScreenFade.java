@@ -41,6 +41,9 @@ public final class ScreenFade {
     private static final long CAPTURE_INTERVAL_NS = 50_000_000L;
     private static long lastCaptureNanos = 0L;
 
+    /** The pre-port per-frame capture; off since {@link ScreenDissolve} took over the screen-change dissolve. */
+    private static final boolean LEGACY_CAPTURE = false;
+
     private ScreenFade() {}
 
     /**
@@ -114,6 +117,10 @@ public final class ScreenFade {
      * that is the whole point. Frozen while a dissolve is in flight.
      */
     public static void captureFrame() {
+        // Superseded by ScreenDissolve (2026-10 port of the 1.21.1 feature set): the screen-change trigger now
+        // snapshots the main framebuffer at the switch itself, so nothing calls trigger() any more and this 20 Hz
+        // end-of-frame copy would be pure cost. Kept (with draw()) as the dormant pre-port path.
+        if (!LEGACY_CAPTURE) return;
         if (holding) return;
         // THROTTLED. This copy exists only so a snapshot is ready the instant a
         // screen changes, but at 1080p it is ~6 MB of GPU copy and it was
