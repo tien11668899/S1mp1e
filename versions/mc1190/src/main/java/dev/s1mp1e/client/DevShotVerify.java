@@ -1737,11 +1737,15 @@ final class DevShotVerify {
         add(action(c -> { gamemode(c, GameMode.CREATIVE); lookDown(c, 18f); }));
         add(waitMs(500));
         add(shot("sd-open", DevShotVerify::openSodiumOptions, 1400));
-        // hover the first row (a slider): the slider slides out, the value moves aside, then the description card
+        // hover the first row (a slider, always shown: label | track | value): the row highlight, then the description card
         add(burst("sd-slider-in", 8, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 47 + 9; }, null));
         add(shot("sd-hover-slider", null, 1100));
         // a boolean row + its description
         add(shot("sd-hover-bool", null, 1100, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 47 + 54 + 8 + 18 + 9; }));
+        // drag the first row's slider (press on bare track, ride the pointer, release), then Undo
+        add(dragSodium("sd-drag", 47 + 9, 0.47, 0.92, 12));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() - 16 - 3 * 65 - 16 + 30, c.getWindow().getScaledHeight() - 29)));
+        add(waitMs(400));
         // flip a switch (group 3, row 1): the knob travels, the label goes italic, Undo appears, Done dims
         add(burst("sd-toggle", 10, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, 47 + 54 + 8 + 36 + 9), null));
         add(shot("sd-changed", null, 700, c -> { hx = 30; hy = 300; }));
@@ -1750,6 +1754,10 @@ final class DevShotVerify {
         // the next page: the capsule slides, the rows cascade in
         add(burst("sd-page", 12, c -> sodiumClick(c, 60, 47 + 20 + 18 + 9), null));
         add(shot("sd-page2", null, 900));
+        // a cycling row (the page's first): its value rolls, then Undo
+        add(burst("sd-roll", 12, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, 47 + 9), null));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() - 16 - 3 * 65 - 16 + 30, c.getWindow().getScaledHeight() - 29)));
+        add(waitMs(400));
         add(shot("sd-page3", c -> sodiumClick(c, 60, 47 + 20 + 36 + 9), 900));
         add(shot("sd-page4", c -> sodiumClick(c, 60, 47 + 20 + 54 + 9), 900));
         // a short window: the page no longer fits and scrolls
@@ -1778,6 +1786,11 @@ final class DevShotVerify {
         add(shot("st-main-hover", null, 900));
         add(burst("st-to-sound", 10, c -> shellTab(c, 2), null));
         add(shot("st-sound", null, 900, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = shellRowY(0); }));
+        // Master Volume: press ON the pill (the grab offset is kept), drag left; press on the pill again, drag right;
+        // then past the right end (rubber band) — which also leaves the volume where it was, at 100%
+        add(dragRow("st-drag", shellRowY(0), Double.NaN, 0.36, 14));
+        add(dragRow("st-drag-back", shellRowY(0), Double.NaN, 0.77, 8));
+        add(dragRow("st-drag-end", shellRowY(0), Double.NaN, 1.25, 6));
         if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
             // vanilla Video Settings (Sodium replaces that page with its own screen, see the sodium mode)
             add(shot("st-video", c -> shellTab(c, 3), 900));
@@ -1789,6 +1802,10 @@ final class DevShotVerify {
             add(waitMs(700));
         }
         add(shot("st-skin", c -> shellTab(c, 1), 900));
+        // a cycle row (Main Hand): the value rolls; a second click puts it back
+        add(burst("st-roll", 12, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(7)), null));
+        add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(7))));
+        add(waitMs(400));
         add(burst("st-skin-toggle", 10, c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(0)), null));
         add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(0))));
         add(shot("st-controls", c -> shellTab(c, 4), 900));
@@ -1803,19 +1820,14 @@ final class DevShotVerify {
         add(shot("st-keys-capture", c -> keyRowClick(c, 0, false), 500));
         add(shot("st-keys-bound", c -> { if (c.currentScreen != null) c.currentScreen.keyPressed(82, 0, 0); }, 500));
         add(shot("st-keys-reset", c -> keyRowClick(c, 0, true), 500));
-        // a REAL drag on a slider row (Mouse Settings > Sensitivity): press on the track, drag left, release
+        // a slider row pressed on BARE track (Mouse Settings > Sensitivity): the pill glides to the pointer, then rides it
         add(action(c -> { shellTab(c, 0); }));
         add(waitMs(400));
         add(action(c -> shellTab(c, 4)));
         add(waitMs(500));
         add(action(c -> sodiumClick(c, c.getWindow().getScaledWidth() * 0.6, shellRowY(0))));
         add(waitMs(600));
-        add(action(c -> { hx = c.getWindow().getScaledWidth() - 16 - 50; hy = shellRowY(0); }));
-        add(waitMs(500));
-        add(action(c -> { Screen s = c.currentScreen; if (s != null) s.mouseClicked(hx, hy, 0); }));
-        add(burst("st-slider-drag", 8, c -> { Screen s = c.currentScreen;
-            if (s != null) { hx -= 30; s.mouseDragged(hx, hy, 0, -30, 0); } }, c -> sliderProbe(c)));
-        add(action(c -> { Screen s = c.currentScreen; if (s != null) { s.mouseDragged(hx + 30, hy, 0, 30, 0); s.mouseReleased(hx + 30, hy, 0); } }));
+        add(dragRow("st-track-drag", shellRowY(0), 0.85, 0.15, 10));
         // the drag is in pixels, so it does not land on the starting value: put the default back exactly
         add(action(c -> { c.options.getMouseSensitivity().setValue(0.5); c.options.write(); }));
         add(waitMs(300));
@@ -1824,10 +1836,10 @@ final class DevShotVerify {
         add(shot("st-access", c -> shellTab(c, 8), 900));
         add(shot("st-access-scrolled", c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = 150;
             if (c.currentScreen != null) c.currentScreen.mouseScrolled(hx, hy, -4); }, 1100));
-        // over the right end of the row: a slider row's widget is only its track, and the tooltip belongs to the widget
-        // 1.19.2: only some options carry a tooltip. Row 10 = Distortion Effects (a slider: its widget is only the
-        // track at the right end), row 13 = Hide Lightning Flashes (a switch: the whole row).
-        add(shot("st-access-tooltip", null, 1600, c -> { hx = c.getWindow().getScaledWidth() - 16 - 50; hy = shellRowY(10); }));
+        // over the track: a slider row's widget is only its track (+ the pill's overhang), and the tooltip belongs to
+        // the widget. 1.19.2: only some options carry a tooltip. Row 10 = Distortion Effects (a slider), row 13 = Hide
+        // Lightning Flashes (a switch: the whole row).
+        add(shot("st-access-tooltip", null, 1600, c -> hoverSliderRow(c, shellRowY(10))));
         add(shot("st-access-tooltip2", null, 1600, c -> { hx = c.getWindow().getScaledWidth() * 0.6; hy = shellRowY(13); }));
         add(shot("st-online", c -> open(c, new net.minecraft.client.gui.screen.option.OnlineOptionsScreen(
                 new net.minecraft.client.gui.screen.option.OptionsScreen(
@@ -1841,6 +1853,129 @@ final class DevShotVerify {
         add(shot("st-small", c -> shellTab(c, 6), 900));
         add(action(c -> { close(c); hx = hy = -1; DevShot.setTarget(1280, 720); }));
         add(waitMs(600));
+        // regression: a vanilla slider OUTSIDE the settings pages keeps the normal glass skin and its own pointer
+        // mapping (the scripted drag cannot hold the physical button, so the pill glides instead of lifting)
+        add(shot("st-plain", c -> open(c, plainSliderScreen()), 900, c -> { hx = 40; hy = 40; }));
+        add(drag("st-plain-drag", 300, 380, 110, 10));
+        add(action(c -> { close(c); hx = hy = -1; }));
+        add(waitMs(400));
+    }
+
+    /** A bare screen (no settings shell) with two vanilla sliders, the second one stepped. */
+    private static Screen plainSliderScreen() {
+        return new Screen(Text.literal("Plain sliders")) {
+            @Override protected void init() {
+                addDrawableChild(new net.minecraft.client.gui.widget.SliderWidget(245, 100, 150, 20, Text.literal("Value: 50%"), 0.5) {
+                    @Override protected void updateMessage() { setMessage(Text.literal("Value: " + Math.round(this.value * 100.0) + "%")); }
+                    @Override protected void applyValue() { }
+                });
+                addDrawableChild(new net.minecraft.client.gui.widget.SliderWidget(245, 130, 150, 20, Text.literal("Steps: 2"), 0.25) {
+                    @Override protected void updateMessage() { setMessage(Text.literal("Steps: " + (1 + Math.round(this.value * 4.0)))); }
+                    @Override protected void applyValue() { this.value = Math.round(this.value * 4.0) / 4.0; }
+                });
+            }
+            @Override public void render(net.minecraft.client.util.math.MatrixStack matrices, int mx, int my, float delta) {
+                this.renderBackground(matrices);
+                super.render(matrices, mx, my, delta);
+            }
+        };
+    }
+
+    /** The vanilla slider whose widget covers the row at {@code y} (a settings-row slider's widget is its track). */
+    private static net.minecraft.client.gui.widget.SliderWidget sliderAt(MinecraftClient c, double y) {
+        try {
+            for (net.minecraft.client.gui.Element e : c.currentScreen.children()) {
+                if (e instanceof net.minecraft.client.gui.widget.SliderWidget sw && sw.visible && y >= sw.y && y < sw.y + sw.getHeight()) return sw;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /** Virtual cursor onto the middle of the track of the slider row at {@code y}. */
+    private static void hoverSliderRow(MinecraftClient c, double y) {
+        net.minecraft.client.gui.widget.SliderWidget sw = sliderAt(c, y);
+        hx = sw != null ? sw.x + sw.getWidth() / 2.0 : c.getWindow().getScaledWidth() - 16 - 6 - 34 - 14 - 66;
+        hy = y;
+    }
+
+    private static String sliderText(MinecraftClient c, double y) {
+        net.minecraft.client.gui.widget.SliderWidget sw = sliderAt(c, y);
+        return sw == null ? "" : " [" + sw.getMessage().getString() + " v="
+                + fmt((float) ((dev.s1mp1e.client.gui.SettingsShell.SliderAccess) sw).s1mp1e$value()) + "]";
+    }
+
+    /** A scripted slider drag: press at (xa, y), move to xb over {@code n} frames (one capture each), release, settle. */
+    private static Scene drag(final String name, final double xa, final double xb, final double y, final int n) {
+        return (c, fr, ms) -> {
+            Screen s = c.currentScreen;
+            if (s == null) return true;
+            if (fr == 1) { hx = xa; hy = y; return false; }
+            if (fr < 4) return false;
+            if (fr == 4) {
+                dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown = true;
+                s.mouseClicked(xa, y, 0);
+                say("drag " + name + " press x=" + fmt(xa) + sliderText(c, y));
+                return false;
+            }
+            int k = fr - 5;
+            if (k < n) {
+                double x = xa + (xb - xa) * (k + 1) / n;
+                hx = x;
+                s.mouseDragged(x, y, 0, 0, 0);
+                capture(c, String.format("%s-%02d.png", name, k));
+                say("drag " + name + " " + k + " x=" + fmt(x) + sliderText(c, y));
+                return false;
+            }
+            if (k == n) {
+                s.mouseReleased(xb, y, 0);
+                dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown = false;
+                say("drag " + name + " release x=" + fmt(xb) + sliderText(c, y));
+                return false;
+            }
+            if (k <= n + 8) { capture(c, String.format("%s-r%02d.png", name, k - n)); return false; }
+            return true;
+        };
+    }
+
+    /**
+     * {@link #drag} on the settings-row slider at {@code y}, in fractions of its track (the widget is the track plus the
+     * pill's 9 px overhang on either side). {@code f0 = NaN}: press on the pill, wherever it is.
+     */
+    private static Scene dragRow(final String name, final double y, final double f0, final double f1, final int n) {
+        final Scene[] inner = new Scene[1];
+        return (c, fr, ms) -> {
+            if (fr == 1) {
+                net.minecraft.client.gui.widget.SliderWidget sw = sliderAt(c, y);
+                if (sw == null) { say("drag " + name + ": no slider row at y=" + fmt(y)); return true; }
+                double tx0 = sw.x + 9, tx1 = sw.x + sw.getWidth() - 9;
+                double v = ((dev.s1mp1e.client.gui.SettingsShell.SliderAccess) sw).s1mp1e$value();
+                say("drag " + name + " track " + fmt(tx0) + ".." + fmt(tx1) + " value=" + fmt((float) v));
+                inner[0] = drag(name, tx0 + (tx1 - tx0) * (Double.isNaN(f0) ? v : f0), tx0 + (tx1 - tx0) * f1, y, n);
+            }
+            return inner[0] == null || inner[0].run(c, fr, ms);
+        };
+    }
+
+    /** {@link #drag} on the Sodium slider row at {@code y}, in fractions of its track (= its {@code sliderBounds}). */
+    private static Scene dragSodium(final String name, final double y, final double f0, final double f1, final int n) {
+        final Scene[] inner = new Scene[1];
+        return (c, fr, ms) -> {
+            if (fr == 1) {
+                net.minecraft.client.util.math.Rect2i b = null;
+                try {
+                    for (net.minecraft.client.gui.Element e : c.currentScreen.children()) {
+                        if (e instanceof dev.s1mp1e.glass.compat.SodiumGlass.SliderRow sr) {
+                            net.minecraft.client.util.math.Rect2i r = sr.s1mp1e$bounds();
+                            if (y >= r.getY() && y < r.getY() + r.getHeight()) { b = r; break; }
+                        }
+                    }
+                } catch (Throwable t) { skip("sodium slider row", t); }
+                if (b == null) { say("drag " + name + ": no sodium slider row at y=" + fmt(y)); return true; }
+                say("drag " + name + " track " + b.getX() + ".." + (b.getX() + b.getWidth()));
+                inner[0] = drag(name, b.getX() + b.getWidth() * f0, b.getX() + b.getWidth() * f1, y, n);
+            }
+            return inner[0] == null || inner[0].run(c, fr, ms);
+        };
     }
 
     /** Click the edit (or reset) button of the {@code i}-th key-binding row of the open Key Binds page. */
@@ -1862,18 +1997,6 @@ final class DevShotVerify {
             s.mouseReleased(mx, my, 0);
             say("key row " + i + (reset ? " reset" : " edit") + " -> " + edit.getMessage().getString());
         } catch (Throwable t) { skip("key row click", t); }
-    }
-
-    /** The first slider of the open screen: its 0..1 value and message (the drag must move it with the pointer). */
-    private static String sliderProbe(MinecraftClient c) {
-        try {
-            for (net.minecraft.client.gui.Element e : c.currentScreen.children()) {
-                if (e instanceof net.minecraft.client.gui.widget.SliderWidget sw) {
-                    return "slider " + sw.getMessage().getString() + " x=" + sw.x + " w=" + sw.getWidth() + " cursor=" + fmt(hx);
-                }
-            }
-        } catch (Throwable ignored) {}
-        return "no slider";
     }
 
     private static void sodiumClick(MinecraftClient c, double x, double y) {

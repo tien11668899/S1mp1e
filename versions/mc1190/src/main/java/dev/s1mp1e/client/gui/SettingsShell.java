@@ -45,7 +45,7 @@ import net.minecraft.util.Formatting;
 /**
  * One layout for every vanilla settings page — the look of the Video Settings page ({@code SodiumGlass}, itself the
  * 26.2 settings screen): a glass sidebar of the settings categories with a sliding selection capsule, the page's
- * options as rows in grouped glass cards (label left; iOS switch / value / slide-out slider right), the page title
+ * options as rows in grouped glass cards (label left; iOS switch / value / track + value right), the page title
  * top left and the page's own buttons (Done, …) as capsules bottom right. Same 8 px grid.
  *
  * <p><b>Nothing of vanilla's behaviour is replaced.</b> The widgets are the screen's own (so every option, tooltip,
@@ -137,8 +137,8 @@ public final class SettingsShell {
 
         boolean s1mp1e$held();
 
-        /** The shell drew this slider as a row: the pointer maps onto the widget (= the track) the vanilla way. */
-        void s1mp1e$rowDrawn();
+        /** Paint the config-menu slider on the track {@code tx0..tx1} (also arms the pointer mapping for it). */
+        void s1mp1e$paintRow(MatrixStack matrices, float tx0, float tx1, float cy, float alpha);
     }
 
     /** A key-binds list entry: the binding's name and its two buttons. */
@@ -186,11 +186,10 @@ public final class SettingsShell {
         boolean groupStart;
         int gy;                                              // top in content space
         final Fade hover = new Fade(0.0F, 110.0F);
-        final Fade reveal = new Fade(0.0F, 160.0F);
         final Motion.Spring travel = new Motion.Spring(Motion.TRAVEL_S, 0.0F);
         final Motion.Spring lift = new Motion.Spring(0.085F, 0.0F);
-        final Motion.Spring knob = new Motion.Spring(Motion.MORPH_IN_S, 0.0F);
         boolean placed, lifted;
+        dev.s1mp1e.glass.render.TypingAnim roll;             // cycle rows: the value rolls (old up and out, new in)
 
         Row(ClickableWidget w, int kind) {
             this.w = w;
@@ -219,6 +218,8 @@ public final class SettingsShell {
         int contentH;
         float scroll, scrollTarget, maxScroll;
         boolean centerOnChoice;
+        float valueCol, valueShown;                                  // slider rows: widest value on the page / eased
+        boolean clipOn;                                              // the content scissor is set (a scrolling page)
         boolean sideChecked;
         boolean hasList;                                             // the page had an option / entry list
         Text footNote;                                               // a line vanilla's render drew by hand
@@ -676,9 +677,10 @@ public final class SettingsShell {
 
     private static void drawRows(MatrixStack ctx, TextRenderer tr, State st, int mx, int my, float delta, float a, float dt) {
         boolean clip = st.maxScroll > 0.5F;
+        st.clipOn = clip;
         if (clip) {
             GuiFlush.flush();
-            DrawableHelper.enableScissor(Math.round(st.contX0) - 14, Math.round(st.bodyY0), Math.round(st.contX1) + 14, Math.round(st.bodyY1));
+            contentScissor(st);
         }
         int off = Math.round(st.bodyY0) - Math.round(st.scroll);
         int x0 = Math.round(st.contX0), x1 = Math.round(st.contX1);
@@ -704,6 +706,16 @@ public final class SettingsShell {
             i = j;
         }
 
+        // one value column for every slider on the page (their tracks line up); it only ever widens, eased
+        for (Row r : st.rows) {
+            if (r.kind != K_SLIDER) continue;
+            String m = r.w.getMessage().getString();
+            int c = colon(m);
+            st.valueCol = Math.max(st.valueCol, Math.max(34.0F, tr.getWidth(c >= 0 ? m.substring(c + 1).trim() : m)));
+        }
+        st.valueShown = st.valueShown <= 0.0F ? st.valueCol
+                : st.valueShown + (st.valueCol - st.valueShown) * (1.0F - (float) Math.exp(-dt / 0.08F));
+
         boolean inView = mx >= x0 && mx < x1 && my >= st.bodyY0 && my < st.bodyY1;
         for (Row r : st.rows) {
             int y = off + r.gy;
@@ -714,6 +726,7 @@ public final class SettingsShell {
             boolean over = inView && my >= y && my < y + r.h;
             drawRow(ctx, tr, st, r, x0, x1, y, over, mx, my, delta, a, dt);
         }
+        st.clipOn = false;
         if (clip) {
             GuiFlush.flush();
             DrawableHelper.disableScissor();
@@ -774,7 +787,7 @@ public final class SettingsShell {
             case K_CYCLE -> {
                 place(w, x1 - x0, r.h, x0, y);
                 if (isSwitch) drawSwitch(ctx, r, on, right, cy, active ? a : a * 0.4F, dt);
-                else text(ctx, tr, value, right - tr.getWidth(value), cy - 4.0F, active ? TEXT : TEXT_OFF, a);
+                else rollValue(ctx, tr, st, r, y, value, right, cy, x0 + 7 + tr.getWidth(label) + 8, x1, active ? TEXT : TEXT_OFF, a);
                 own = false;
             }
             case K_NAV -> {
@@ -794,18 +807,15 @@ public final class SettingsShell {
                 own = false;
             }
             case K_SLIDER -> {
-                // the widget IS the track: vanilla maps the pointer onto x+4 .. x+width-4, so a click on the label
-                // does nothing and a drag follows the drawn knob exactly
-                float sx0 = right - 90.0F;
-                place(w, 98, r.h, Math.round(sx0) - 4, y);
-                ((SliderAccess) w).s1mp1e$rowDrawn();
-                r.reveal.to(active && (over || held || w.isFocused()) ? 1.0F : 0.0F);
-                float v = r.reveal.value(), show = v * v * (3.0F - 2.0F * v);
+                // the config-menu slider: label | track | value. The value column eases to the widest value seen, so
+                // the track does not jump while the number changes under a drag. The widget is the track plus the
+                // pill's overhang: a click on the label does nothing, a drag follows the drawn pill exactly.
                 int vw = tr.getWidth(value);
-                text(ctx, tr, value, lerp(right - vw, sx0 - 6.0F - vw, show), cy - 4.0F, active ? TEXT : TEXT_OFF, a);
-                if (show > 0.02F) {
-                    drawSlider(ctx, r, sx0, right, cy, (float) ((SliderAccess) w).s1mp1e$value(), held, a * show, dt);
-                }
+                float tx1 = right - st.valueShown - 14.0F;
+                float tw = clamp((x1 - x0) * 0.30F, 64.0F, 132.0F), tx0 = tx1 - tw;
+                place(w, Math.round(tw) + 18, r.h, Math.round(tx0) - 9, y);
+                text(ctx, tr, value, right - vw, cy - 4.0F, active ? TEXT : TEXT_OFF, a);
+                ((SliderAccess) w).s1mp1e$paintRow(ctx, tx0, tx1, cy, a);
                 own = false;
             }
             case K_LOCK -> {
@@ -840,7 +850,7 @@ public final class SettingsShell {
             suppressed = null;
         }
         if (r.extra != null) r.extra.render(ctx, mx, my, delta);
-        if (w.isFocused() && !own) focusRing(ctx, x0, y, x1, y + r.h, a);
+        if (w.isFocused() && !own && !over && !held) focusRing(ctx, x0, y, x1, y + r.h, a);   // keyboard focus only
     }
 
     /**
@@ -966,15 +976,45 @@ public final class SettingsShell {
                 Float.NaN, band, band, alpha);
     }
 
-    private static void drawSlider(MatrixStack ctx, Row r, float x0, float x1, float cy, float frac, boolean held,
-                                   float alpha, float dt) {
-        r.knob.retarget(held ? 1.0F : 0.0F).update(dt);
-        float th = 4.0F, kx = x0 + (x1 - x0) * clamp(frac, 0.0F, 1.0F);
-        int a = Math.round(alpha * 255.0F);
-        GlassWidgets.fillRound(ctx, x0, cy - th / 2.0F, x1, cy + th / 2.0F, ((int) (a * 0.30F) << 24) | 0xFFFFFF, th / 2.0F);
-        GlassWidgets.fillRound(ctx, x0, cy - th / 2.0F, Math.max(x0 + th, kx), cy + th / 2.0F, (a << 24) | BLUE, th / 2.0F);
-        GlassWidgets.knobLens(ctx, clamp(kx, x0 + 3.0F, x1 - 3.0F), cy, 6.5F, 4.0F, Motion.clamp01(r.knob.x), 1.5F, 1.6F, 0.9F,
-                x0, x1, th / 2.0F, kx, 0xFF000000 | BLUE, 0x4DFFFFFF, alpha);
+    /** The content area's scissor (a scrolling page): rows are clipped on the scrolling axis only. */
+    private static void contentScissor(State st) {
+        DrawableHelper.enableScissor(Math.round(st.contX0) - 14, Math.round(st.bodyY0), Math.round(st.contX1) + 14, Math.round(st.bodyY1));
+    }
+
+    /**
+     * A cycle row's value: when it changes, the old value leaves upward and the new one rises in (the same roll the
+     * glass cycle buttons have), right-aligned at {@code right}. Any failure falls back to plain text for good.
+     *
+     * <p>1.19.2: there is no scissor stack — the roll sets a scissor of its own and then switches scissoring off. On a
+     * scrolling page the content scissor is therefore put back afterwards, and a row that is cut by the page's edge is
+     * drawn as plain text under the content scissor (its roll starts afresh once the row is whole again).
+     */
+    private static void rollValue(MatrixStack ctx, TextRenderer tr, State st, Row r, int rowY, String value, float right,
+                                  float cy, float clipX0, float clipX1, int rgb, float alpha) {
+        int a = Math.round(clamp(alpha, 0.0F, 1.0F) * 255.0F);
+        if (a < 8 || value.isEmpty()) return;
+        int w = tr.getWidth(value);
+        boolean cut = st.clipOn && (rowY < st.bodyY0 || rowY + r.h > st.bodyY1);
+        if (cut) {
+            r.roll = null;
+        } else {
+            if (r.roll == null) r.roll = new dev.s1mp1e.glass.render.TypingAnim();
+            if (!r.roll.broken) {
+                try {
+                    r.roll.extractLabel(ctx, tr, value, Text.literal(value).asOrderedText(), Math.round(right) - w + w / 2,
+                            Math.round(cy - 4.0F), Math.round(clipX0), Math.round(clipX1), (a << 24) | (rgb & 0xFFFFFF), false);
+                    if (st.clipOn) contentScissor(st);
+                    return;
+                } catch (Throwable t) {
+                    r.roll.broken = true;
+                    if (st.clipOn) {
+                        GuiFlush.flush();
+                        contentScissor(st);
+                    }
+                }
+            }
+        }
+        tr.draw(ctx, value, (float) (Math.round(right) - w), (float) Math.round(cy - 4.0F), (a << 24) | (rgb & 0xFFFFFF));
     }
 
     private static void text(MatrixStack ctx, TextRenderer tr, String s, float x, float y, int rgb, float alpha) {
@@ -987,10 +1027,6 @@ public final class SettingsShell {
         int a = Math.round(clamp(alpha, 0.0F, 1.0F) * 255.0F);
         if (a < 8) return;
         tr.draw(ctx, s, (float) Math.round(x), (float) Math.round(y), (a << 24) | (rgb & 0xFFFFFF));
-    }
-
-    private static float lerp(float a, float b, float t) {
-        return a + (b - a) * t;
     }
 
     private static float clamp(float v, float lo, float hi) {

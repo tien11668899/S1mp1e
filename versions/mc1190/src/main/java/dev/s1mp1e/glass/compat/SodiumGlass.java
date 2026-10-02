@@ -57,7 +57,8 @@ import net.minecraft.util.Identifier;
  * <p><b>Sodium 0.4.4</b> (javap-read): its widgets draw through a {@code MatrixStack} and have no keyboard focus yet
  * (so no focus ring here), {@code FlatButtonWidget} has no label getter (exposed by the mixin), a slider element has
  * no "held" flag (tracked by the mixin from its {@code mouseClicked} + the mouse button state), the value formatter
- * returns a {@code String}, and there is no donation prompt.
+ * returns a {@code String}, and there is no donation prompt. Its {@code sliderBounds} is a {@code Rect2i} (as in
+ * 0.5), and its {@code mouseDragged} follows the pointer without a bounds test, so a drag keeps going off the track.
  *
  * <p>Sodium has no scrolling. A page taller than the viewport scrolls here by re-placing the rows (the widgets'
  * rectangles are immutable, and their hit-tests use them): {@link #tickScroll} reports when the eased offset moved by
@@ -102,9 +103,11 @@ public final class SodiumGlass {
         Text s1mp1e$label();
     }
 
-    /** The integer slider element: is its thumb being dragged? */
+    /** The integer slider element: is its thumb being dragged, and the rectangle its mouse mapping uses. */
     public interface SliderRow {
         boolean s1mp1e$held();
+
+        net.minecraft.client.util.math.Rect2i s1mp1e$bounds();
     }
 
     /** {@code SliderControl}'s private range + value formatter. */
@@ -112,6 +115,8 @@ public final class SodiumGlass {
         int s1mp1e$min();
 
         int s1mp1e$max();
+
+        int s1mp1e$interval();
 
         Text s1mp1e$format(int value);
     }
@@ -147,9 +152,12 @@ public final class SodiumGlass {
     private Option<?> tipShown;
 
     private final WeakHashMap<Object, Fade> hovers = new WeakHashMap<>();
-    private final WeakHashMap<Object, Fade> reveals = new WeakHashMap<>();
+    private final WeakHashMap<Object, dev.s1mp1e.client.gui.VanillaSliderSkin> sliders = new WeakHashMap<>();
+    private final WeakHashMap<Object, Integer> valueCols = new WeakHashMap<>();
+    private int pageCol = 34;
+    private boolean clipOn;                                    // the content scissor is set (a scrolling page)
+    private final WeakHashMap<Object, dev.s1mp1e.glass.render.TypingAnim> rolls = new WeakHashMap<>();
     private final WeakHashMap<Object, SwitchAnim> switches = new WeakHashMap<>();
-    private final WeakHashMap<Object, Motion.Spring> knobs = new WeakHashMap<>();
 
     public static boolean usable() {
         return GlassProgram.ensureReady() && GlassProgram.usable() && GlassProgram.roundUsable();
@@ -332,10 +340,10 @@ public final class SodiumGlass {
 
     private Option<?> drawContent(MatrixStack ctx, TextRenderer tr, Host host, int mx, int my, float a) {
         boolean clip = maxScroll > 0.5F;
+        clipOn = clip;
         if (clip) {
             GuiFlush.flush();
-            // the glass shadow reaches a little past a card, so only the scrolling axis is clipped tight
-            DrawableHelper.enableScissor(Math.round(contX0) - 14, Math.round(bodyY0), Math.round(contX1) + 14, Math.round(bodyY1));
+            contentScissor();
         }
         float pageIn = pageNs == 0L ? 1.0F : enter((System.nanoTime() - pageNs) / 1.0e9F, 0.05F);
         float off = bodyY0 - scroll;
@@ -348,6 +356,13 @@ public final class SodiumGlass {
                 GlassWidgets.fill(ctx, contX0 + 7.0F, y - 0.5F, contX1 - 7.0F, y + 0.5F, div);
             }
         }
+
+        // one value column for every slider on the page: as wide as the widest value any of them can show
+        pageCol = 34;
+        for (Option<?> po : host.s1mp1e$page().getOptions()) {
+            if (po.getControl() instanceof SliderInfo psi) pageCol = Math.max(pageCol, valueCols.computeIfAbsent(po, k -> widest(tr, psi)));
+        }
+        pageCol = Math.min(pageCol, Math.round((contX1 - contX0) * 0.22F));
 
         boolean inView = mx >= contX0 && mx <= contX1 && my >= bodyY0 && my <= bodyY1;
         float sub = builtScroll - scroll;                       // sub-pixel remainder: rows sit on whole pixels
@@ -364,6 +379,7 @@ public final class SodiumGlass {
             drawRow(ctx, tr, e, o, d, over, a * in, sub + 8.0F * (1.0F - in));
         }
         if (pageNs != 0L && (System.nanoTime() - pageNs) / 1.0e9F > 0.024F * 40 + 0.6F) pageNs = 0L;
+        clipOn = false;
         if (clip) {
             GuiFlush.flush();
             DrawableHelper.disableScissor();
@@ -394,19 +410,30 @@ public final class SodiumGlass {
         if (c instanceof TickBoxControl) {
             drawSwitch(ctx, o, avail && Boolean.TRUE.equals(o.getValue()), right, cy, avail ? a : a * 0.4F);
         } else if (c instanceof SliderControl && c instanceof SliderInfo si) {
+            // the config-menu slider: label | track | value. Sodium maps the pointer onto its sliderBounds, so those
+            // are moved onto our track every frame; the value column is as wide as the option's widest value.
             int v = (Integer) o.getValue();
             Text label = si.s1mp1e$format(v);
             int lw = tr.getWidth(label);
-            // Sodium shows the slider only on the row in use; here it slides out and the value moves aside for it
-            float show = reveal(o, avail && (over || held));
-            float sx0 = right - 90.0F, sx1 = right;             // = Sodium's sliderBounds (its hit-test)
-            float tx = lerp(right - lw, sx0 - 6.0F - lw, show);
-            text(ctx, tr, label, tx, cy - 4.0F, avail ? TEXT : TEXT_OFF, a);
-            if (show > 0.02F) {
-                int range = Math.max(1, si.s1mp1e$max() - si.s1mp1e$min());
-                float f = clamp((v - si.s1mp1e$min()) / (float) range, 0.0F, 1.0F);
-                drawSlider(ctx, o, sx0, sx1, cy, f, held, a * show);
+            float tx1 = right - pageCol - 14.0F;
+            float tw = clamp((x1 - x0) * 0.30F, 64.0F, 132.0F), tx0 = tx1 - tw;
+            text(ctx, tr, label, right - lw, cy - 4.0F, avail ? TEXT : TEXT_OFF, a);
+            if (e instanceof SliderRow sr) {
+                net.minecraft.client.util.math.Rect2i b = sr.s1mp1e$bounds();
+                b.setX(Math.round(tx0));
+                b.setWidth(Math.round(tw));
+                b.setY(d.y() + 2);
+                b.setHeight(ROW_H - 4);
             }
+            MinecraftClient mc = MinecraftClient.getInstance();
+            long window = mc.getWindow().getHandle();
+            boolean down = org.lwjgl.glfw.GLFW.glfwGetMouseButton(window, org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT)
+                    == org.lwjgl.glfw.GLFW.GLFW_PRESS || dev.s1mp1e.client.gui.VanillaSliderSkin.devMouseDown;
+            double pointerX = mc.mouse.getX() * mc.getWindow().getScaledWidth() / Math.max(1, mc.getWindow().getWidth());
+            int range = Math.max(1, si.s1mp1e$max() - si.s1mp1e$min());
+            float f = clamp((v - si.s1mp1e$min()) / (float) range, 0.0F, 1.0F);
+            sliders.computeIfAbsent(o, k -> new dev.s1mp1e.client.gui.VanillaSliderSkin())
+                    .paintRow(ctx, Math.round(tx0), Math.round(tx0) + Math.round(tw), cy, f, held && down && avail, pointerX, avail, a);
         } else {
             Text value = null;
             if (c instanceof CyclingControl && c instanceof CycleInfo ci && o.getValue() instanceof Enum<?> en) {
@@ -414,7 +441,7 @@ public final class SodiumGlass {
                 if (en.ordinal() < names.length) value = names[en.ordinal()];
             }
             if (value == null) value = Text.literal(String.valueOf(o.getValue()));
-            text(ctx, tr, value, right - tr.getWidth(value), cy - 4.0F, avail ? TEXT : TEXT_OFF, a);
+            rollValue(ctx, tr, o, d, value.getString(), right, cy, x0 + 7 + tr.getWidth(name) + 8, x1, avail ? TEXT : TEXT_OFF, a);
         }
     }
 
@@ -541,17 +568,59 @@ public final class SodiumGlass {
                 Float.NaN, band, band, alpha);
     }
 
-    /** The glass slider of the config screen: white track, blue fill, a knob that becomes a lens while held. */
-    private void drawSlider(MatrixStack ctx, Object key, float x0, float x1, float cy, float frac, boolean held,
-                            float alpha) {
-        Motion.Spring lift = knobs.computeIfAbsent(key, k -> new Motion.Spring(Motion.MORPH_IN_S, 0.0F));
-        lift.retarget(held ? 1.0F : 0.0F).update(Math.min(0.05F, lastDt));
-        float th = 4.0F, kx = x0 + (x1 - x0) * frac;
-        int a = Math.round(alpha * 255.0F);
-        GlassWidgets.fillRound(ctx, x0, cy - th / 2.0F, x1, cy + th / 2.0F, ((int) (a * 0.30F) << 24) | 0xFFFFFF, th / 2.0F);
-        GlassWidgets.fillRound(ctx, x0, cy - th / 2.0F, Math.max(x0 + th, kx), cy + th / 2.0F, (a << 24) | BLUE, th / 2.0F);
-        GlassWidgets.knobLens(ctx, clamp(kx, x0 + 3.0F, x1 - 3.0F), cy, 6.5F, 4.0F, Motion.clamp01(lift.x), 1.5F, 1.6F, 0.9F,
-                x0, x1, th / 2.0F, kx, 0xFF000000 | BLUE, 0x4DFFFFFF, alpha);
+    /** The content area's scissor (a scrolling page): the glass shadow reaches a little past a card, so only the
+     *  scrolling axis is clipped tight. */
+    private void contentScissor() {
+        DrawableHelper.enableScissor(Math.round(contX0) - 14, Math.round(bodyY0), Math.round(contX1) + 14, Math.round(bodyY1));
+    }
+
+    /** Width of the widest text this slider can show (so its track never moves while the number changes). */
+    private static int widest(TextRenderer tr, SliderInfo si) {
+        int w = 34, min = si.s1mp1e$min(), max = si.s1mp1e$max(), step = Math.max(1, si.s1mp1e$interval());
+        int n = Math.max(1, (max - min) / step);
+        if (n > 400) step = Math.max(step, (max - min) / 400);
+        try {
+            for (int v = min; v <= max; v += step) w = Math.max(w, tr.getWidth(si.s1mp1e$format(v)));
+            w = Math.max(w, tr.getWidth(si.s1mp1e$format(max)));
+        } catch (Throwable ignored) {
+        }
+        return w;
+    }
+
+    /**
+     * A cycling row's value: when it changes, the old value leaves upward and the new one rises in (the roll the glass
+     * cycle buttons have), right-aligned at {@code right}. Any failure falls back to plain text for good.
+     *
+     * <p>1.19.2: there is no scissor stack — the roll sets a scissor of its own and then switches scissoring off. On a
+     * scrolling page the content scissor is therefore put back afterwards, and a row that is cut by the page's edge is
+     * drawn as plain text under the content scissor (its roll starts afresh once the row is whole again).
+     */
+    private void rollValue(MatrixStack ctx, TextRenderer tr, Object key, Dim2i row, String value, float right, float cy,
+                           float clipX0, float clipX1, int rgb, float alpha) {
+        int a = Math.round(clamp(alpha, 0.0F, 1.0F) * 255.0F);
+        if (a < 8 || value.isEmpty()) return;
+        int w = tr.getWidth(value);
+        boolean cut = clipOn && (row.y() < bodyY0 || row.getLimitY() > bodyY1);
+        if (cut) {
+            rolls.remove(key);
+        } else {
+            dev.s1mp1e.glass.render.TypingAnim roll = rolls.computeIfAbsent(key, k -> new dev.s1mp1e.glass.render.TypingAnim());
+            if (!roll.broken) {
+                try {
+                    roll.extractLabel(ctx, tr, value, Text.literal(value).asOrderedText(), Math.round(right) - w + w / 2,
+                            Math.round(cy - 4.0F), Math.round(clipX0), Math.round(clipX1), (a << 24) | (rgb & 0xFFFFFF), false);
+                    if (clipOn) contentScissor();
+                    return;
+                } catch (Throwable t) {
+                    roll.broken = true;
+                    if (clipOn) {
+                        GuiFlush.flush();
+                        contentScissor();
+                    }
+                }
+            }
+        }
+        tr.draw(ctx, value, (float) (Math.round(right) - w), (float) Math.round(cy - 4.0F), (a << 24) | (rgb & 0xFFFFFF));
     }
 
     private static float hover(WeakHashMap<Object, Fade> map, Object key, boolean over) {
@@ -562,17 +631,6 @@ public final class SodiumGlass {
         }
         f.to(over ? 1.0F : 0.0F);
         return f.value();
-    }
-
-    private float reveal(Object key, boolean on) {
-        Fade f = reveals.get(key);
-        if (f == null) {
-            f = new Fade(0.0F, 160.0F);
-            reveals.put(key, f);
-        }
-        f.to(on ? 1.0F : 0.0F);
-        float v = f.value();
-        return v * v * (3.0F - 2.0F * v);
     }
 
     private static int indexOf(OptionPage page, Option<?> o) {
@@ -604,10 +662,6 @@ public final class SodiumGlass {
         int a = Math.round(clamp(alpha, 0.0F, 1.0F) * 255.0F);
         if (a < 8) return;
         tr.draw(ctx, s, (float) Math.round(x), (float) Math.round(y), (a << 24) | (rgb & 0xFFFFFF));
-    }
-
-    private static float lerp(float a, float b, float t) {
-        return a + (b - a) * t;
     }
 
     private static float clamp(float v, float lo, float hi) {
