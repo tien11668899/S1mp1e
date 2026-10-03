@@ -2,6 +2,7 @@ package dev.s1mp1e.glass.mixin;
 
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
+import net.minecraft.class_3257;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -51,8 +52,13 @@ public abstract class RecipeToggleGlassMixin {
     @Redirect(method = "method_891",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/class_3257;drawTexture(IIIIII)V"))
-    private void s1mp1e$glassToggle(net.minecraft.class_3257 self,
-                                    int x, int y, int u, int v, int w, int h) {
+    private void s1mp1e$glassToggle(class_3257 self, int x, int y, int u, int v, int w, int h) {
+        // SF Symbols first (26.2 / 1.21.1 parity): the recipe-book page arrows become bare chevrons and the "craftable
+        // only" filter a glass pill with the filter glyph. This redirect replaces the atlas blit, so SfIconMixin's
+        // hook never sees it — ask SfIcons directly (the glyph is a region of the BOUND atlas, mapped to the sprite
+        // name it has from 1.20.2 on). Without this the toggle was an EMPTY capsule: no arrow, no filter glyph.
+        String sprite = dev.s1mp1e.glass.render.SfIcons.atlasSpriteBound(u, v, w, h, 256);
+        if (sprite != null && dev.s1mp1e.glass.render.SfIcons.draw(sprite, x, y, w, h)) return;
         if (!GlassProgram.ensureReady() || !GlassProgram.btnUsable()) {
             self.drawTexture(x, y, u, v, w, h);
             return;

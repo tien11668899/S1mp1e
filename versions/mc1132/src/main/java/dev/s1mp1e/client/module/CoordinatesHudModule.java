@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.module;
 
+import dev.s1mp1e.client.hud.HudText;
 import com.mojang.blaze3d.platform.GlStateManager;
 import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
@@ -64,8 +65,8 @@ public final class CoordinatesHudModule extends Module implements HudBounds, Hud
         try {
             GlStateManager.translate((float) x0, (float) y0, 0f);
             GlStateManager.scale(sc, sc, 1f);
-            GlassFont.drawARGB(l1, PAD, PAD, color.colorValue, true);
-            if (l2 != null) GlassFont.drawARGB(l2, PAD, PAD + LINE, color.colorValue, true);
+            HudText.draw(l1, PAD, PAD, color.colorValue, true);
+            if (l2 != null) HudText.draw(l2, PAD, PAD + LINE, color.colorValue, true);
         } finally {
             GlStateManager.popMatrix();
         }

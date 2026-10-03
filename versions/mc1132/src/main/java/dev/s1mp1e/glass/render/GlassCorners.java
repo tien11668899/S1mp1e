@@ -1,0 +1,87 @@
+package dev.s1mp1e.glass.render;
+
+/**
+ * One corner radius for every NEW liquid-glass surface: the HUD hotbar's (user rule "圓角都要一樣" / R2).
+ *
+ * <p>The 1.13.2 Fabric port of LiquidGlass26's {@code GlassCorners}. The glass shader
+ * ({@code glass.fsh}) computes {@code radius = min(halfW, halfH) * 0.5 * cornerKnob}, so the same
+ * corner knob gives a different absolute radius on every element size. This helper turns the hotbar's
+ * radius into the corner knob a given rectangle needs, so any surface built through it has exactly the
+ * hotbar corner radius in GUI px.
+ *
+ * <p>Unlike 26.2 (whose glass quad packs the corner into a colour BYTE) this line's
+ * {@link GlassRenderer#glass} takes the corner knob directly as a {@code float} in {@code [0,1]} (the
+ * vertex RED channel), so this helper returns that float — {@link #hotbarCorner} is the analogue of
+ * 26.2's {@code knobByte}/{@code withHotbarCorner}.
+ *
+ * <p>The hotbar strip on 1.13.2 is 22 GUI px tall, drawn under the {@link HudLayout#SCALE} (1.15x) pose
+ * scale about its bottom-centre with corner knob 1.0 ({@code InGameHudMixin}):
+ * {@code (22 * 1.15 / 2) * 0.5 * 1.0 = 6.325} GUI px absolute. Rectangles whose short side is below
+ * {@code 4 * HOTBAR_RADIUS} cannot reach that radius geometrically and become capsules (knob clamped
+ * to 1.0) — exactly as in 26.2.
+ *
+ * <p><b>Do NOT apply this to surfaces that already exist</b> (hotbar, inventory/creative panel, config
+ * panel, buttons, sliders, tooltip): their radius is already correct and must not change (R2). Use it
+ * only for new pieces (the status-effect strip, and later the creative tab pills / boss-bar capsule).
+ */
+public final class GlassCorners {
+
+    private GlassCorners() {}
+
+    /** The hotbar glass strip's corner radius in GUI px (22 px tall * 1.15 pose scale / 4). */
+    public static final float HOTBAR_RADIUS = 22.0f * HudLayout.SCALE / 4.0f;
+
+    /**
+     * The corner knob (vertex RED, {@code [0,1]}) that gives a {@code w x h} glass rect drawn at
+     * identity pose the hotbar corner radius. Clamped to 1.0 (full capsule) for rects too small to
+     * reach it, matching 26.2's {@code knobByte} clamp.
+     */
+    public static float hotbarCorner(float w, float h) {
+        float m = Math.min(w, h);
+        if (m <= 0.0f) return 1.0f;
+        return Math.min(1.0f, 4.0f * HOTBAR_RADIUS / m);
+    }
+
+    /** Alias of {@link #hotbarCorner} — the corner knob a {@code w x h} rect needs for the hotbar radius.
+     *  Named to match the BATCH-B HUD helpers ({@code HudGlass.glassBoxHotbar}) 1:1 across versions. */
+    public static float knob(float w, float h) {
+        return hotbarCorner(w, h);
+    }
+
+    /** {@link #knob} under the name the 1.21.1 / 26.2 lines use (shared code is written against that name). */
+    public static float hotbarCornerFrac(float w, float h) {
+        return cornerFrac(w, h, HOTBAR_RADIUS);
+    }
+
+    /** Corner knob that gives a {@code w x h} glass rect the absolute {@code radiusPx} radius (clamped 0..1). */
+    public static float cornerFrac(float w, float h, float radiusPx) {
+        float m = Math.max(1.0f, Math.min(w, h));
+        float f = 4.0f * radiusPx / m;   // invert radius = (m/2) * 0.5 * f  ->  f = 4*radius/m
+        return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+    }
+
+    /** {@link #radiusPx} under the 1.21.1 / 26.2 name. */
+    public static float hotbarRadiusPx(float w, float h) {
+        return Math.min(HOTBAR_RADIUS, Math.min(w, h) / 2.0f);
+    }
+
+    /**
+     * The ABSOLUTE hotbar corner radius in GUI px a {@code w x h} rect ends up with — the hotbar radius,
+     * clamped to a full capsule ({@code min(w,h)/4}) when the rect is too small to reach it. Used by the
+     * flat-fallback {@code roundRect} paths so a fallback matches the glass corner exactly.
+     */
+    public static float radiusPx(float w, float h) {
+        float m = Math.min(w, h);
+        if (m <= 0.0f) return HOTBAR_RADIUS;
+        return Math.min(HOTBAR_RADIUS, m / 4.0f);
+    }
+
+    /** 1.13.2 line's older names (kept for its existing callers): the corner knob that renders the hotbar radius. */
+    public static float cornerKnob(float w, float h) {
+        return knobFor(HOTBAR_RADIUS, w, h);
+    }
+
+    public static float knobFor(float radiusPx, float w, float h) {
+        return cornerFrac(w, h, radiusPx);
+    }
+}

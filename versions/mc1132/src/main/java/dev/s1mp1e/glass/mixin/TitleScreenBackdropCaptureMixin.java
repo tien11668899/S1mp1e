@@ -36,6 +36,7 @@ public abstract class TitleScreenBackdropCaptureMixin {
                      target = "Lnet/minecraft/class_4227;method_19176(F)V",
                      shift = At.Shift.AFTER))
     private void s1mp1e$capturePanorama(int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        MenuBackdrop.rememberTitle((TitleScreen) (Object) this);
         MenuBackdrop.capture();
     }
 }

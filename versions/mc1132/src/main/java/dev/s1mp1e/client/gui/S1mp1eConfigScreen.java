@@ -17,22 +17,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * In-game liquid-glass config screen: category tabs → module list → per-module settings.
- *
- * <p>1.13.2 port of the mc1144 screen. The behaviour is the canonical mc1211 screen:
- * three-stage cross-fades (page / detail / close), sliding tab + selection highlights,
- * exponential-smooth scroll, hidden-setting skip, precise double-coordinate routing, the
- * '編輯 HUD' / '重置全部' header chips and the '編輯排版' chip shown only for
- * {@link LayoutEditable} modules, and no footer bind chips (there is no per-module toggle
- * key nor a menu-key chip here). The rendering is the immediate-mode {@link GlassWidgets}
- * pass, including the chips' hover-fade + drop-shadow flourish.
- *
- * <p>Legacy-yarn 1.13.2 Screen API deltas vs 1.14.4: the no-arg {@code Screen()} constructor,
- * {@code client} instead of {@code minecraft}, {@code shouldPauseGame()} instead of
- * {@code isPauseScreen()}, {@code setScreen} instead of {@code openScreen}, the close hook is
- * the unmapped {@code method_18608()} (1.14.4's {@code onClose()}), and
- * {@code mouseScrolled(double)} takes ONE argument (no pointer position), so the scroll
- * routing reads the scaled cursor from the {@link Mc1132} bridge.
+ * In-game liquid-glass config screen for 1.13.2 (compatibility-profile, immediate-mode glass).
+ * Rounded fills go through the ROUND/BTN batch programs over vanilla's dimmed screen
+ * background captured by {@link SceneCapture}; lists are scissor-clipped to the panel and
+ * scroll with exponential smoothing. Port of the 1.20.1 screen: DrawContext -> MatrixStack,
+ * ctx.enableScissor -> GlassWidgets.beginScissor, close() -> onClose(), setScreen -> openScreen;
+ * no ctx.draw() because 1.13.2 draws are immediate.
  */
 public final class S1mp1eConfigScreen extends Screen {
 
@@ -46,49 +36,48 @@ public final class S1mp1eConfigScreen extends Screen {
     private static final float HAIR = 4f;    // 1·GRID  fine inset (row edge / hairline offset)
     private static final float RAIL_W    = 160f; // 40·GRID  left module-rail width
     private static final float TAB_H     = 28f;  // 7·GRID
-    private static final float CHIP_H    = 18f;  // header chips
+    private static final float CHIP_H    = 18f;   // header chips (smaller so the header spacing reads right)
     private static final float LABEL_COL = 96f;  // 24·GRID  setting-name column width
     private static final float ROW_MOD = 32f, ROW_SET = 28f;   // 8·GRID / 7·GRID
-    private static final float TOGGLE_W = 40f, TOGGLE_H = 18f;  // track ~2.25:1 (wide/flat, matched to iOS-26)
+    private static final float TOGGLE_W = 40f, TOGGLE_H = 18f;  // track ~2.25:1 (wide/flat, matched to the iOS-26 clips)
     private static final float ROW_PILL_M = 6f;                // module-row highlight margin (uniform L/R + inter-row gap)
     private static final float TAB_PILL_H = 20f;               // highlight pill height (centred in the 28px tab row)
 
-    // header chip hover-fade ids (footer bind chips are gone on this line)
-    private static final int CHIP_EDIT_HUD = 0, CHIP_RESET = 1, CHIP_LAYOUT = 2;
-
     private final Fade openFade = new Fade(0f, 150f);
-    private final Fade pageFade = new Fade(1f, 130f);    // content cross-fade on tab switch
-    private final Fade detailFade = new Fade(1f, 120f);  // detail cross-fade on MODULE switch (name + settings + 編輯排版)
-    private Module pendingSelect = null;                 // module to select once the detail has faded out
-    private final Anim tabSlide = new Anim(0f);          // sliding tab-highlight (banks between tabs)
-    private final Anim selSlide = new Anim(0f);          // sliding module-selection highlight
-    // smooth hover animation for the remaining chips: editHUD, resetAll, layout
-    private final Fade[] chipFade = { new Fade(0f, 120f), new Fade(0f, 120f), new Fade(0f, 120f) };
+    private final Fade pageFade = new Fade(1f, 130f);   // content cross-fade on tab switch
+    private final Fade detailFade = new Fade(1f, 120f); // detail cross-fade on MODULE switch (name + settings + 編輯排版)
+    private Module pendingSelect = null;                // module to select once the detail has faded out
+    private final Anim tabSlide = new Anim(0f);
+    private final Anim selSlide = new Anim(0f);
     private int tab = 0;
-    private int pendingTab = -1;                         // tab to apply once the page has faded out
-    private boolean closing;                             // close fade-out in progress
+    private int pendingTab = -1;                        // tab to apply once the page has faded out
+    private boolean closing;                            // close fade-out in progress
     private final List<Module> modules = new ArrayList<Module>();
     private final List<ToggleWidget> moduleToggles = new ArrayList<ToggleWidget>();
     private Module selected;
     private final List<Widget> settingWidgets = new ArrayList<Widget>();
-    /** The settings that actually have a visible row, parallel to {@link #settingWidgets}
-     *  (hidden settings are skipped, so this is NOT the same as {@code selected.settings}). */
+    /** The settings that actually have a visible row, parallel to {@link #settingWidgets} (hidden
+     *  settings are skipped, so this is NOT the same as {@code selected.settings}). */
     private final List<Setting> shownSettings = new ArrayList<Setting>();
-    private float modScroll, setScroll;                 // eased (displayed) scroll offsets
-    private float modScrollTarget, setScrollTarget;     // wheel targets; scroll eases toward these
-    private long  lastScrollNanos;
+    private float modScroll, setScroll, modScrollTarget, setScrollTarget;
+    private long lastScrollNanos;
 
-    // geometry (filled by layout())
     private float px0, py0, px1, py1, railX1, listY0, listY1, detailX0, setY0, setY1;
     private final float[][] tabRect = new float[3][4];
     private final float[][] modRowRect = new float[64][4];
-    private final float[] editHudRect = new float[4], resetAllRect = new float[4],
-                          layoutRect  = new float[4];   // "編輯排版" — only for LayoutEditable modules
+    private final float[] resetAllRect = new float[4];
+    private final float[] editHudRect  = new float[4];
+    private final float[] layoutRect   = new float[4];   // "編輯排版" — only for LayoutEditable modules
 
     public S1mp1eConfigScreen() { super(); }
 
+    @Override protected void init() {
+        // A cross-dissolve is covering the switch: be complete underneath from the first frame (else the world dims,
+        // the HUD vanishes and only then the settings fade in — a skeleton). Without one, run our own open fade.
+        if (ScreenOpenFade.held()) { openFade.snap(1f); } else { openFade.snap(0f); openFade.to(1f); }
+        rebuildTab();
+    }
     @Override public boolean shouldPauseGame() { return true; }
-    @Override protected void init() { openFade.snap(0f); openFade.to(1f); rebuildTab(); }
 
     private void rebuildTab() {
         modules.clear(); moduleToggles.clear();
@@ -109,7 +98,7 @@ public final class S1mp1eConfigScreen extends Screen {
         if (selected == null || m == selected) {        // first pick / re-pick: no fade
             applySelect(m); detailFade.snap(1f); pendingSelect = null;
         } else {
-            pendingSelect = m; detailFade.to(0f);       // fade the detail out; render() swaps once faded
+            pendingSelect = m; detailFade.to(0f);        // fade the detail out; render() swaps once faded
         }
     }
 
@@ -124,6 +113,23 @@ public final class S1mp1eConfigScreen extends Screen {
             if (w != null) { settingWidgets.add(w); shownSettings.add(s); }
         }
         setScroll = setScrollTarget = 0;
+    }
+
+    private void easeScroll() {
+        long now = System.nanoTime();
+        float dt = lastScrollNanos == 0L ? 0f : (now - lastScrollNanos) / 1.0e9f;
+        lastScrollNanos = now;
+        if (dt > 0.1f) dt = 0.1f;
+        float k = 1f - (float) Math.exp(-dt / 0.09f);
+        modScroll += (modScrollTarget - modScroll) * k;
+        setScroll += (setScrollTarget - setScroll) * k;
+        if (Math.abs(modScrollTarget - modScroll) < 0.25f) modScroll = modScrollTarget;
+        if (Math.abs(setScrollTarget - setScroll) < 0.25f) setScroll = setScrollTarget;
+    }
+
+    private static float clampScroll(float v, float content, float view) {
+        float max = Math.max(0f, content - view);
+        return v < 0 ? 0 : (v > max ? max : v);
     }
 
     private void layout() {
@@ -143,16 +149,15 @@ public final class S1mp1eConfigScreen extends Screen {
             modRowRect[i][0] = px0 + HAIR; modRowRect[i][1] = r0; modRowRect[i][2] = railX1 - HAIR; modRowRect[i][3] = r1;
             float cy = (r0 + r1) / 2f;
             // toggle pulled in by ROW_PILL_M so its right edge sits inside the highlight pill (aligns with the tab band)
-            moduleToggles.get(i).setBounds(railX1 - PAD - ROW_PILL_M - TOGGLE_W, cy - TOGGLE_H / 2f,
-                                           railX1 - PAD - ROW_PILL_M, cy + TOGGLE_H / 2f);
+            moduleToggles.get(i).setBounds(railX1 - PAD - ROW_PILL_M - TOGGLE_W, cy - TOGGLE_H / 2f, railX1 - PAD - ROW_PILL_M, cy + TOGGLE_H / 2f);
         }
 
         detailX0 = railX1 + PAD;
-        // detail header row: chips CENTRED in the same TAB_H band as the left tabs (header + tabs same height)
+        // detail header row: chips CENTRED in the same TAB_H band as the left tabs (so header + tabs are same height)
         float chipY = py0 + PAD + (TAB_H - CHIP_H) / 2f;
         resetAllRect[0] = px1 - PAD - chipW("重置全部"); resetAllRect[1] = chipY; resetAllRect[2] = px1 - PAD; resetAllRect[3] = chipY + CHIP_H;
-        editHudRect[0]  = resetAllRect[0] - GAP - chipW("編輯 HUD"); editHudRect[1] = chipY; editHudRect[2] = resetAllRect[0] - GAP; editHudRect[3] = chipY + CHIP_H;
-        layoutRect[0]   = editHudRect[0] - GAP - chipW("編輯排版"); layoutRect[1] = chipY; layoutRect[2] = editHudRect[0] - GAP; layoutRect[3] = chipY + CHIP_H;
+        editHudRect[0] = resetAllRect[0] - GAP - chipW("編輯 HUD"); editHudRect[1] = resetAllRect[1]; editHudRect[2] = resetAllRect[0] - GAP; editHudRect[3] = resetAllRect[3];
+        layoutRect[0] = editHudRect[0] - GAP - chipW("編輯排版"); layoutRect[1] = editHudRect[1]; layoutRect[2] = editHudRect[0] - GAP; layoutRect[3] = editHudRect[3];
         // detail list starts level with the module list (both = tabs bottom + GAP) so the two dividers line up
         setY0 = py0 + PAD + TAB_H + GAP; setY1 = py1 - PAD;
         for (int i = 0; i < settingWidgets.size(); i++) {
@@ -169,11 +174,10 @@ public final class S1mp1eConfigScreen extends Screen {
 
     private float chipW(String s) { return GlassWidgets.strW(s) + 12f; }
 
-    @Override
-    public void render(int mouseX, int mouseY, float delta) {
-        // Close fade-out: method_18608() starts the fade; once it reaches 0 we actually dismiss.
+    @Override public void render(int mouseX, int mouseY, float delta) {
+        // Close fade-out: onClose() starts the fade; once it reaches 0 we actually dismiss.
         if (closing) {
-            if (openFade.value() <= 0.02f) { if (this.client != null) this.client.setScreen(null); return; }
+            if (openFade.value() <= 0.02f) { super.method_18608(); return; }
         } else {
             openFade.to(1f);
         }
@@ -188,10 +192,11 @@ public final class S1mp1eConfigScreen extends Screen {
             applySelect(pendingSelect); pendingSelect = null; detailFade.to(1f);
         }
         float da = pa * detailFade.value();   // detail alpha (name + settings + 編輯排版; shared chips stay at pa)
-
-        // Vanilla background dim (P3 later swaps in the live in-world blur), then grab the
-        // finished framebuffer deterministically so the GLASS panel refracts it without flicker.
-        this.renderBackground();
+        this.renderBackground();   // 1.13.2: Screen.renderBackground(MatrixStack) — single arg
+        // Flush vanilla's blur + darkening into the framebuffer, then capture it so the
+        // GLASS panel refracts the dimmed background. Deterministic every frame (grabNow,
+        // not the time-deduped grab) → the panel never flickers between stages. Draws are
+        // immediate on 1.13.2, so no ctx.draw() flush is needed before the grab.
         SceneCapture.grabNow();
         easeScroll();
         layout();
@@ -200,10 +205,9 @@ public final class S1mp1eConfigScreen extends Screen {
         // a is openFade 0..1 (a FLOAT) — must scale to a 0..255 alpha byte, else
         // round(a*0.15) is 0 for all a and the dividers never render.
         int div = (Math.round(a * 0.15f * 255f) << 24) | 0xFFFFFF;
-        GlassWidgets.drawRect(railX1, py0 + PAD, railX1 + 1, py1 - PAD, div);                    // vertical rail
-        GlassWidgets.drawRect(px0 + PAD, listY0 - GAP, railX1 - PAD, listY0 - GAP + 1, div);     // under tabs
-        GlassWidgets.drawRect(detailX0, setY0 - GAP, px1 - PAD, setY0 - GAP + 1, div);           // under detail title
-        GlassWidgets.resetColorCache();
+        GlassWidgets.fill(railX1, py0 + PAD, railX1 + 1, py1 - PAD, div);            // vertical rail
+        GlassWidgets.fill(px0 + PAD, listY0 - GAP, railX1 - PAD, listY0 - GAP + 1, div); // under tabs
+        GlassWidgets.fill(detailX0, setY0 - GAP, px1 - PAD, setY0 - GAP + 1, div);       // under detail title
 
         // tabs — sliding highlight (a pill vertically CENTRED in the tab row, not the
         // full row height, so it doesn't sit low against the divider) + label cross-fade
@@ -219,13 +223,18 @@ public final class S1mp1eConfigScreen extends Screen {
                     (r[1] + r[3]) / 2f - GlassWidgets.fontH() / 2f, lerpRGB(0x9A9AA0, 0xFFFFFF, prox), a);
         }
 
-        // module list — sliding selection highlight; content at pa so the page cross-fades on a tab switch
+        // module list (scissor-clipped, sliding selection highlight) — content at pa so
+        // the whole page cross-fades on a tab switch
         GlassWidgets.beginScissor(px0, listY0, railX1, listY1);
         float sp = selSlide.value();
         if (!modules.isEmpty()) {
-            // Pill centred in the pitch cell with a UNIFORM margin (L/R = ROW_PILL_M, inter-row = ROW_PILL_M).
+            // Pill centred in the pitch cell with a UNIFORM margin: left/right = ROW_PILL_M
+            // and inter-row gap = ROW_PILL_M (height = ROW_MOD - M, inset M/2 top+bottom),
+            // so the spacing looks the same horizontally and vertically, and it stays
+            // centred on the row's label/toggle (cell centre).
             float rowTop = listY0 - modScroll + sp * ROW_MOD;
             float sr0 = rowTop + ROW_PILL_M / 2f, sr1 = rowTop + ROW_MOD - ROW_PILL_M / 2f;
+            // pill L/R aligned with the tab band (px0+PAD .. railX1-PAD), same as the tabs above
             GlassWidgets.capsule(px0 + PAD, sr0, railX1 - PAD, sr1, 0.4f, 0.5f, pa, true);
         }
         int rows = Math.min(modules.size(), modRowRect.length);
@@ -240,16 +249,15 @@ public final class S1mp1eConfigScreen extends Screen {
         }
         GlassWidgets.endScissor();
 
-        // detail (page content at pa; module-specific detail at da)
+        // detail (page content at pa)
         if (selected != null) {
             GlassWidgets.label(Lang.module(selected.name), detailX0,
                     py0 + PAD + TAB_H / 2f - GlassWidgets.fontH() / 2f, 0xF5F5F7, da);
             // shared header chips persist (drawn at pa) so they don't flicker when the module changes...
-            drawChip("重置全部", resetAllRect, mouseX, mouseY, pa, 0xFFFFFF, CHIP_RESET);
-            drawChip("編輯 HUD", editHudRect, mouseX, mouseY, pa, 0x0A84FF, CHIP_EDIT_HUD);
+            drawChip("重置全部", resetAllRect, mouseX, mouseY, pa, 0xFFFFFF);
+            drawChip("編輯 HUD", editHudRect, mouseX, mouseY, pa, 0x0A84FF);
             // ...but 編輯排版 is module-specific, so it fades in/out with the detail (da).
-            if (selected instanceof LayoutEditable) drawChip("編輯排版", layoutRect, mouseX, mouseY, da, 0x30D158, CHIP_LAYOUT);
-
+            if (selected instanceof LayoutEditable) drawChip("編輯排版", layoutRect, mouseX, mouseY, da, 0x30D158);
             GlassWidgets.beginScissor(detailX0, setY0, px1 - PAD, setY1);
             for (int i = 0; i < settingWidgets.size(); i++) {
                 Setting s = shownSettings.get(i);
@@ -261,9 +269,12 @@ public final class S1mp1eConfigScreen extends Screen {
             GlassWidgets.endScissor();
         }
 
-        // iOS-26 scroll-edge: re-grab the finished UI, then lay a progressive blur + faint dim
-        // over each list's top/bottom, each fading in with how far that end can still scroll.
+        // iOS-26 scroll-edge: the list content is already in the framebuffer (immediate
+        // draws), grab the composite, then lay the feathered progressive-blur bands over
+        // each list's top/bottom. Each end fades in with how far that end can still scroll.
         SceneCapture.grabNow();
+        // EXT = 2× the panel corner radius (~14) so edge.fsh's rounded-corner mask
+        // (radius = band height / 2) curves the fade's outer corners to match the panel.
         final float EXT = 28f;
         float modMax = Math.max(0f, modules.size() * ROW_MOD - (listY1 - listY0));
         GlassWidgets.scrollEdges(px0 + HAIR, listY0, railX1 - HAIR, listY1, EXT,
@@ -274,23 +285,18 @@ public final class S1mp1eConfigScreen extends Screen {
                                      setScroll / EXT, (setMax - setScroll) / EXT, a);
         }
 
-        // widget overlays (colour-picker popup) LAST + unclipped, so they sit on top.
-        if (selected != null) for (int i = 0; i < settingWidgets.size(); i++) settingWidgets.get(i).drawOverlay(mouseX, mouseY, da);
+        // widget overlays (colour picker popup) LAST + unclipped, so they sit on top.
+        if (selected != null) for (Widget w : settingWidgets) w.drawOverlay(mouseX, mouseY, da);
     }
 
-    private void drawChip(String text, float[] r, int mx, int my, float a, int rgb, int id) {
+    private void drawChip(String text, float[] r, int mx, int my, float a, int rgb) {
         boolean hover = GlassWidgets.inside(mx, my, r[0], r[1], r[2], r[3]);
-        chipFade[id].to(hover ? 1f : 0f);
-        float hv = chipFade[id].value();
-        float rad = (r[3] - r[1]) / 2f;
-        GlassWidgets.dropShadow(r[0], r[1], r[2], r[3], rad, a * (0.6f + 0.4f * hv));
-        GlassWidgets.capsule(r[0], r[1], r[2], r[3], 0.5f, 0.32f + 0.38f * hv, a, true);
+        GlassWidgets.capsule(r[0], r[1], r[2], r[3], 0.5f, hover ? 0.7f : 0.3f, a, true);
         GlassWidgets.label(text, r[0] + (r[2] - r[0] - GlassWidgets.strW(text)) / 2f,
                 (r[1] + r[3]) / 2f - GlassWidgets.fontH() / 2f, rgb, a);
     }
 
-    @Override
-    public boolean mouseClicked(double mxd, double myd, int btn) {
+    @Override public boolean mouseClicked(double mxd, double myd, int btn) {
         try {
             return s1mp1e$routeClick(mxd, myd, btn);
         } finally {
@@ -304,17 +310,14 @@ public final class S1mp1eConfigScreen extends Screen {
         // Commit/close any text-editing widget (slider type-in) when clicking off it.
         for (Widget w : settingWidgets)
             if (w.editing() && !w.captures() && !GlassWidgets.inside(mx, my, w.x0, w.y0, w.x1, w.y1)) w.loseFocus();
-        // A capturing widget (open colour popup) gets first refusal.
         for (Widget w : settingWidgets) if (w.captures()) { w.mouseClickedPrecise(mxd, myd, btn); return true; }
         for (Widget w : moduleToggles) if (w.captures()) { w.mouseClickedPrecise(mxd, myd, btn); return true; }
-
-        // tabs: slide the highlight now, but fade the page out first (render() swaps once faded)
+        // Tab switch: slide the highlight now, but fade the page out first — render()
+        // swaps to the new tab once pageFade hits 0, then fades it back in.
         for (int i = 0; i < 3; i++) if (hit(tabRect[i], mx, my)) {
             if (i != tab && pendingTab != i) { tabSlide.to(i); pendingTab = i; pageFade.to(0f); }
             return true;
         }
-
-        // module rows: toggle first, else select
         if (GlassWidgets.inside(mx, my, px0, listY0, railX1, listY1)) {
             int rows = Math.min(modules.size(), modRowRect.length);
             for (int i = 0; i < rows; i++) {
@@ -323,14 +326,12 @@ public final class S1mp1eConfigScreen extends Screen {
             }
             return true;
         }
-
         if (selected != null) {
             if (selected instanceof LayoutEditable && hit(layoutRect, mx, my)) {
-                if (this.client != null) this.client.setScreen(((LayoutEditable) selected).openLayoutEditor()); return true;
+                this.client.setScreen(((LayoutEditable) selected).openLayoutEditor()); return true;
             }
-            if (hit(editHudRect, mx, my)) { if (this.client != null) this.client.setScreen(new S1mp1eHudEditScreen()); return true; }
+            if (hit(editHudRect, mx, my)) { this.client.setScreen(new S1mp1eHudEditScreen()); return true; }
             if (hit(resetAllRect, mx, my)) { for (Setting s : selected.settings) s.reset(); S1mp1eConfig.save(); return true; }
-            // settings region: route to the widgets (precise)
             if (GlassWidgets.inside(mx, my, detailX0, setY0, px1 - PAD, setY1)) {
                 for (Widget w : settingWidgets) if (w.mouseClickedPrecise(mxd, myd, btn)) return true;
                 return true;
@@ -339,17 +340,13 @@ public final class S1mp1eConfigScreen extends Screen {
         return super.mouseClicked(mxd, myd, btn);
     }
 
-    private boolean hit(float[] r, int mx, int my) { return GlassWidgets.inside(mx, my, r[0], r[1], r[2], r[3]); }
-
-    @Override
-    public boolean mouseDragged(double mxd, double myd, int btn, double dx, double dy) {
+    @Override public boolean mouseDragged(double mxd, double myd, int btn, double dx, double dy) {
         for (Widget w : settingWidgets) w.mouseDraggedPrecise(mxd, myd, btn);
         for (Widget w : moduleToggles) w.mouseDraggedPrecise(mxd, myd, btn);
         return true;
     }
 
-    @Override
-    public boolean mouseReleased(double mxd, double myd, int btn) {
+    @Override public boolean mouseReleased(double mxd, double myd, int btn) {
         for (Widget w : settingWidgets) w.mouseReleased(btn);
         for (Widget w : moduleToggles) w.mouseReleased(btn);
         return super.mouseReleased(mxd, myd, btn);
@@ -369,36 +366,15 @@ public final class S1mp1eConfigScreen extends Screen {
         return true;
     }
 
-    /** Ease the displayed scroll toward the wheel target — framerate-independent exponential
-     *  smoothing (~90ms) so the list glides instead of stepping. */
-    private void easeScroll() {
-        long now = System.nanoTime();
-        float dt = lastScrollNanos == 0L ? 0f : (now - lastScrollNanos) / 1.0e9f;
-        lastScrollNanos = now;
-        if (dt > 0.1f) dt = 0.1f;                       // clamp a lag/pause spike
-        float k = 1f - (float) Math.exp(-dt / 0.09f);
-        modScroll += (modScrollTarget - modScroll) * k;
-        setScroll += (setScrollTarget - setScroll) * k;
-        if (Math.abs(modScrollTarget - modScroll) < 0.25f) modScroll = modScrollTarget;
-        if (Math.abs(setScrollTarget - setScroll) < 0.25f) setScroll = setScrollTarget;
-    }
-
-    private static float clampScroll(float v, float content, float view) {
-        float max = Math.max(0f, content - view);
-        return v < 0 ? 0 : (v > max ? max : v);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // a widget being edited (slider number entry) gets keys first — so ESC/Enter/digits
-        // reach it instead of closing the screen
+    @Override public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // A widget in text/picker edit mode gets first dibs (Enter/Esc/Backspace) so ESC
+        // closes the editor instead of the whole screen.
         for (Widget w : settingWidgets) if (w.editing() && w.keyPressed(keyCode)) return true;
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE || keyCode == S1mp1eConfig.getMenuKey()) { method_18608(); return true; }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE || keyCode == S1mp1eConfig.getMenuKey()) { this.method_18608(); return true; }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
+    @Override public boolean charTyped(char chr, int modifiers) {
         for (Widget w : settingWidgets) if (w.editing() && w.charTyped(chr)) return true;
         return super.charTyped(chr, modifiers);
     }
@@ -409,13 +385,20 @@ public final class S1mp1eConfigScreen extends Screen {
     @Override
     public void method_18608() {
         if (closing) return;
+        // With the cross-dissolve available, switch immediately and let it carry the close (fading ourselves out first
+        // would drop to the bare dimmed world and then snap back to the sharp game). Otherwise the old self fade-out.
+        if (dev.s1mp1e.glass.render.ScreenDissolve.canDissolve()) {
+            S1mp1eConfig.save();
+            super.method_18608();
+            return;
+        }
         closing = true;
         openFade.to(0f);
         S1mp1eConfig.save();
     }
 
-    /** Blend two RGB colours; t=0 → c0, t=1 → c1. Used to cross-fade a label as the sliding
-     *  highlight passes under it (so nothing pops between selected/unselected states). */
+    private boolean hit(float[] r, int mx, int my) { return GlassWidgets.inside(mx, my, r[0], r[1], r[2], r[3]); }
+
     private static int lerpRGB(int c0, int c1, float t) {
         int r = (int) (((c0 >> 16) & 255) + (((c1 >> 16) & 255) - ((c0 >> 16) & 255)) * t);
         int g = (int) (((c0 >> 8) & 255) + (((c1 >> 8) & 255) - ((c0 >> 8) & 255)) * t);

@@ -1,5 +1,6 @@
 package dev.s1mp1e.glass.mixin;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import dev.s1mp1e.glass.anim.Fade;
 import dev.s1mp1e.glass.anim.Spring;
 import dev.s1mp1e.glass.render.GlassProgram;
@@ -79,6 +80,90 @@ public abstract class RecipeBookGlassMixin {
     private long   s1mp1e$lastNanos;
     private int    s1mp1e$lastTabY = Integer.MIN_VALUE;
 
+    /**
+     * Arm the inventory glide ({@link RecipeBookInvGlideMixin} / {@link dev.s1mp1e.glass.render.RecipeBookSlide}) the
+     * instant the book toggles, so the cascade timing knows an opening is in progress BEFORE
+     * {@code refreshResultButtons} schedules it, and re-trigger the book's own open fade so it fades in on every open
+     * (not only the first). At HEAD {@code isOpen()} still reports the pre-toggle state, so
+     * {@code opening = !isOpen()}.
+     */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "method_14587", at = @At("HEAD"))
+    private void s1mp1e$armSlide(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        boolean opening = !((RecipeBookScreen) (Object) this).method_14590();
+        dev.s1mp1e.glass.render.RecipeBookSlide.arm(this, opening);
+        if (opening && s1mp1e$openFade != null) {
+            s1mp1e$openFade.snap(0f);
+            s1mp1e$openFade.to(1f);
+        }
+    }
+
+    // ---- slide out from behind the inventory (RecipeBookSlide) -----------------------------------------------------
+
+    @Shadow private int field_16044;
+    @Shadow private int field_16043;
+    @org.spongepowered.asm.mixin.Unique private boolean s1mp1e$slideOpen;
+
+    /** While sliding shut, keep drawing although vanilla already marked the book hidden. */
+    @com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method = "method_14575",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/screen/RecipeBookScreen;method_14590()Z"))
+    private boolean s1mp1e$drawWhileClosing(RecipeBookScreen self,
+            com.llamalad7.mixinextras.injector.wrapoperation.Operation<Boolean> op) {
+        return op.call(self) || dev.s1mp1e.glass.render.RecipeBookSlide.closing(this);
+    }
+
+    /**
+     * Bracket the whole book render: shift it by {@code RecipeBookSlide.bookShift} through the GlStateManager model-view
+     * (every draw of the book honours it — immediate glass, textures, text, item models) and clip it at the
+     * inventory's animated left edge, so it reads as sliding out from underneath. 1.13.2 GUI draws are immediate, so
+     * nothing queued before leaks into the clip and nothing of the book is drawn after it is lifted.
+     */
+    @org.spongepowered.asm.mixin.injection.Inject(method = "method_14575", at = @At("HEAD"))
+    private void s1mp1e$slideBegin(int mouseX, int mouseY, float delta,
+                                   org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        s1mp1e$slideOpen = false;
+        // 1.13.2 draws the book BEFORE the inventory, so the toggle has to be noticed here already (see observe()).
+        net.minecraft.client.gui.screen.Screen s1mp1e$screen = net.minecraft.client.MinecraftClient.getInstance().currentScreen;
+        if (s1mp1e$screen instanceof net.minecraft.class_3288
+                && s1mp1e$screen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen) {
+            dev.s1mp1e.glass.render.RecipeBookSlide.observe(s1mp1e$screen, ((HandledScreenAccessor) s1mp1e$screen).s1mp1e$x());
+        }
+        if (!dev.s1mp1e.glass.render.RecipeBookSlide.slides(this)) return;
+        int bookOpenX = (this.field_16044 - 147) / 2 - this.field_16043;
+        float shift = dev.s1mp1e.glass.render.RecipeBookSlide.bookShift(bookOpenX);
+        net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+        dev.s1mp1e.glass.render.GuiFlush.flush();
+        dev.s1mp1e.client.gui.GuiScissor.enable(0, 0,
+                Math.max(0, dev.s1mp1e.glass.render.RecipeBookSlide.animatedX() + 1), mc.field_19944.method_18322());
+        com.mojang.blaze3d.platform.GlStateManager.pushMatrix();          // 1.13.2: the fixed-function model-view
+        com.mojang.blaze3d.platform.GlStateManager.translate(shift, 0f, 0f);
+        dev.s1mp1e.client.gui.GuiAlpha.push(dev.s1mp1e.glass.render.RecipeBookSlide.bookFade());
+        s1mp1e$slideOpen = true;
+    }
+
+    @org.spongepowered.asm.mixin.injection.Inject(method = "method_14575", at = @At("RETURN"))
+    private void s1mp1e$slideEnd(int mouseX, int mouseY, float delta,
+                                 org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (!s1mp1e$slideOpen) return;
+        s1mp1e$slideOpen = false;
+        dev.s1mp1e.client.gui.GuiAlpha.pop();
+        com.mojang.blaze3d.platform.GlStateManager.popMatrix();
+        dev.s1mp1e.client.gui.GuiScissor.disable();
+    }
+
+    /** The search field: its opaque black vanilla frame becomes a frosted glass scrim (see EditBoxTypingMixin, part 5). */
+    @Redirect(method = "method_14575",
+            at = @At(value = "INVOKE",
+                     target = "Lnet/minecraft/client/gui/widget/TextFieldWidget;method_18385(IIF)V"))
+    private void s1mp1e$glassSearch(net.minecraft.client.gui.widget.TextFieldWidget box, int mouseX, int mouseY, float delta) {
+        dev.s1mp1e.glass.render.EditBoxGlass.frame = true;
+        try {
+            box.method_18385(mouseX, mouseY, delta);
+        } finally {
+            dev.s1mp1e.glass.render.EditBoxGlass.frame = false;
+        }
+    }
+
     @Redirect(method = "method_14575",
             at = @At(value = "INVOKE",
                      target = "Lnet/minecraft/client/gui/screen/RecipeBookScreen;drawTexture(IIIIII)V"))
@@ -90,10 +175,9 @@ public abstract class RecipeBookGlassMixin {
             return;
         }
 
-        // Backdrop for the refraction. grab() folds duplicates within 3 ms, so if the
-        // container panel already grabbed this frame this reuses that texture. If no
-        // backdrop is available, keep the PNG so the book never vanishes.
-        SceneCapture.grab();
+        // Backdrop for the refraction. If none is available keep the PNG so the
+        // book never vanishes.
+        SceneCapture.grabNow();
         if (!SceneCapture.hasBackdrop()) {
             self.drawTexture(x, y, u, v, width, height);
             return;

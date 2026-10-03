@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.module;
 
+import dev.s1mp1e.client.hud.HudText;
 import java.util.ArrayDeque;
 
 import dev.s1mp1e.client.HudBounds;
@@ -36,7 +37,9 @@ public final class CpsModule extends Module implements HudBounds, HudRenderer {
     public final Setting posY      = add(Setting.integer("PosY", 4, 0, 2000));
     public final Setting showRight = add(Setting.bool("Show right CPS", false));
     public final Setting color     = add(Setting.color("Colour", 0xFFFFFFFF));
-    public final Setting shadow    = add(Setting.bool("Shadow", true));
+    // Text carries no drop shadow anywhere any more (TextShadowMixin), so this switch would do nothing: kept for the
+    // saved config, not shown.
+    public final Setting shadow    = add(Setting.bool("Shadow", true).hide());
     public int lastW = 40, lastH = 10;
 
     private final ArrayDeque<Long> leftClicks  = new ArrayDeque<Long>();
@@ -85,7 +88,7 @@ public final class CpsModule extends Module implements HudBounds, HudRenderer {
         // white + clearColor() cache reset, hard rule 5) so the setting's colour is what lands. TextRenderer
         // promotes an all-zero alpha to opaque, so a packed ARGB value is handed over as-is.
         GlassWidgets.resetColorCache();
-        GlassFont.drawARGB(text, posX.intValue, posY.intValue, color.colorValue, shadow.boolValue);
+        HudText.draw(text, posX.intValue, posY.intValue, color.colorValue, shadow.boolValue);
     }
 
     // ---- HudBounds (for the HUD editor) ----

@@ -1,143 +1,194 @@
 package dev.s1mp1e.client;
 
 import dev.s1mp1e.client.gui.S1mp1eConfigScreen;
-import dev.s1mp1e.glass.compat.Mc1132;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gui.hud.ChatHud;
+import net.minecraft.client.gui.screen.ChatScreen;
+import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.client.gui.screen.VideoOptionsScreen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
+import net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen;
 import net.minecraft.client.gui.screen.ingame.SurvivalInventoryScreen;
+import net.minecraft.client.gui.screen.VideoOptionsScreen;
+import net.minecraft.entity.player.ClientPlayerEntity;
 import net.minecraft.client.resource.language.LanguageDefinition;
-import net.minecraft.client.resource.language.LanguageManager;
+import net.minecraft.class_4277;
 import net.minecraft.client.util.ScreenshotUtils;
-import net.minecraft.block.Blocks;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.entity.player.ClientPlayerEntity;
-import net.minecraft.entity.player.ServerPlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.block.Blocks;
 import net.minecraft.item.Items;
+import net.minecraft.text.LiteralText;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.entity.player.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.GameMode;
 import net.minecraft.world.dimension.DimensionType;
+import net.minecraft.util.registry.Registry;
 import net.minecraft.world.level.LevelGeneratorType;
 import net.minecraft.world.level.LevelInfo;
 import net.minecraft.world.level.LevelProperties;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
-import java.util.List;
 
 /**
- * DevShot v2 — deterministic screenshot harness for cross-version visual comparison.
+ * DevShot v2 — deterministic screenshot harness for cross-version visual comparison, with an
+ * optional per-scene BURST mode for flicker diagnosis.
  *
  * <p><b>Completely inert unless the environment variable {@code S1MP1E_SHOT} names an output
- * folder</b> (the shot pipeline) or {@code S1MP1E_AUDIT} is set (the one-shot mixin audit). It
- * ships in the jar but does nothing at all when both are unset — a normal game run never touches
- * any of this. Environment variables reach the forked game JVM of {@code runClient}; a {@code -D}
- * system property on the gradle command line does not, which is why this reads {@link System#getenv}.
+ * folder</b> (the shot pipeline) or {@code S1MP1E_AUDIT} is set (the one-shot mixin audit). A normal
+ * game run never touches any of this. Environment variables reach the forked game JVM of
+ * {@code runClient}; a {@code -D} system property does not, which is why this reads
+ * {@link System#getenv}.
  *
- * <p>When the shot pipeline is active, so that every S1mp1e version renders under identical
- * conditions, on the first rendered frame it forces the framebuffer to 1280x720, GUI scale 2 and the
- * language to {@code zh_tw}, then walks a fixed script and writes six PNGs with the game's own
- * framebuffer writer ({@link ScreenshotUtils#method_18269} + {@code class_4277.method_19471}),
- * straight into the folder {@code S1MP1E_SHOT} names, overwriting:
- * <ol>
- *   <li>{@code title.png}   — the title screen, 60 frames after it is fully shown;</li>
- *   <li>{@code config.png}  — the S1mp1e settings page over the title, +90 frames;</li>
- *   <li>{@code world.png}   — a fresh flat {@code devshot} world (seed 12345, survival, peaceful,
- *       cheats) with a scripted loadout (sword / cooked beef / stone / off-hand shield / full iron
- *       armor / Speed), +60 frames after the world has settled;</li>
- *   <li>{@code config-world.png} — the settings page over that world, +90 frames;</li>
- *   <li>{@code inventory.png}    — the survival inventory, +60 frames;</li>
- *   <li>{@code options.png}      — vanilla Video Settings, +60 frames;</li>
- * </ol>
- * then leaves the world and quits cleanly ({@link MinecraftClient#scheduleStop()}).
- *
- * <p>Every step is wrapped so a failure only skips that step ("{@code [S1mp1e] DevShot skipped
- * &lt;step&gt;: &lt;reason&gt;}") and the script moves on, and a global 240 s watchdog quits the
- * game so a stuck wait can never hang the run.
- *
- * <p>Driven from a single render-frame hook ({@code DevShotMixin} at
- * {@code MinecraftClient.method_18228(Z)V} TAIL — the per-frame render method, unmapped in this
- * yarn; the frame's fbo is fully drawn there, the same buffer vanilla's F2 screenshot reads).
- *
- * <p><b>1.13.2 port of the 1.20.1 (mc1201) harness.</b> API deltas from 1.14.4/1.16.5:
+ * <h3>Burst mode (flicker diagnosis)</h3>
  * <ul>
- *   <li>{@code MinecraftClient} has no {@code Window} object and no {@code onResolutionChanged()};
- *       the window is {@code net.minecraft.class_4117} reached via {@link Mc1132#window()}, and the
- *       reference resolution is forced by reflecting its {@code framebufferWidth/Height} fields
- *       ({@code field_20043}/{@code field_20044}) and calling its public resolution-update method
- *       {@code method_18314()} (which recomputes the scaled size and resizes the GL framebuffer);</li>
- *   <li>1.13.2 has no Mojang {@code SplashOverlay}/{@code getOverlay()}, so the title gate is just
- *       {@code currentScreen instanceof TitleScreen};</li>
- *   <li>{@code setScreen} (not {@code openScreen}); {@code options.guiScale} is an {@code int} field;
- *       the language is a {@link LanguageDefinition} looked up via the unmapped {@code method_14698};</li>
- *   <li>world creation is {@code startIntegratedServer(save, name, LevelInfo)} with the legacy
- *       {@link LevelInfo}/{@link LevelGeneratorType} API (cheats via {@code enableCommands()}, flat
- *       via {@code LevelGeneratorType.FLAT}); the overworld is {@code server.method_20312(OVERWORLD)},
- *       its properties {@code world.method_3588()}; {@code setDifficulty} takes ONE arg;
- *       {@code setTimeOfDay} lives on the world; {@code addStatusEffect} is the unmapped
- *       {@code method_2654};</li>
- *   <li>{@link ServerPlayerEntity} and {@link ClientPlayerEntity} live in
- *       {@code net.minecraft.entity.player}; the player list is {@code getPlayerManager().getPlayers()};
- *       inventory writes use {@code PlayerInventory.setInvStack};</li>
- *   <li>the survival inventory is {@link SurvivalInventoryScreen} ({@link InventoryScreen} is the
- *       abstract base); {@link VideoOptionsScreen} takes {@code (Screen, GameOptions)}; 1.13.2 has no
- *       {@code ToastManager}, so only the chat line is cleared;</li>
- *   <li>the framebuffer→image helper is {@code ScreenshotUtils.method_18269(w, h, fb)} returning
- *       {@code net.minecraft.class_4277} (NativeImage is unmapped), written with {@code method_19471}.</li>
+ *   <li>{@code S1MP1E_SHOT_BURST=N} — every scene, besides its single reference PNG, also saves N
+ *       captured frames as {@code <scene>_burst_000.png ...}. That is what lets a metric compare a
+ *       glass region frame-to-frame on a held-static scene and tell real flicker apart from
+ *       legitimate animation (title panorama, held-item bob).</li>
+ *   <li>{@code S1MP1E_SHOT_BURST_GAP=G} (default 2) — number of native (un-captured) frames left to
+ *       run between two captured frames. The mc1132 glass flicker is a high-frame-rate effect (the
+ *       {@code SceneCapture} 3&nbsp;ms grab de-dup only starts folding grabs once frames are
+ *       &lt;~3&nbsp;ms apart); a {@code glReadPixels} readback stalls the pipeline and, if done every
+ *       frame, inflates the gap so the next frame's grab is NOT folded — hiding the flicker. Running
+ *       G native frames between captures keeps each captured frame's grab-gap at native timing, so
+ *       each captured frame is a faithful sample of the native-rate flicker state. G≥1 with an odd
+ *       stride (G+1) also avoids period-2 aliasing.</li>
  * </ul>
+ * Only the readback runs per captured frame; the PNG encode is deferred to the end of the burst. The
+ * per-capture delta and the pre-burst native frame time (median of a small ring) are both logged.
+ *
+ * <p>Settle waits are WALL-CLOCK, not frame counts, so a scene is equally settled at 60&nbsp;fps and
+ * at 500&nbsp;fps (a frame count would under-settle a fast scene — e.g. capture mid open-fade).
+ *
+ * <p>Scenes (in order): {@code title}, {@code config} (settings over title), {@code world},
+ * {@code config-world}, {@code pause} (GameMenuScreen over world), {@code inventory} (survival, no
+ * hover), {@code inventory-tooltip} (survival, cursor over the diamond-sword slot so the glass
+ * tooltip is up), {@code creative} (creative inventory, cursor over the first item so a tooltip is
+ * up), {@code options} (video settings), {@code social} (Social Interactions glass panel — feature A),
+ * {@code effects-wide} (survival inventory with 5 effects: the one continuous glass strip + separators —
+ * feature F) and {@code effects-tooltip} (a far-right item whose long tooltip flips left and overlaps the
+ * effect strip AND the item grid — R1: glass card on the very top, refracting the GUI beneath). Every step
+ * is guarded so a failure only skips that step, and a global watchdog quits the game so a stuck wait can
+ * never hang the run.
  */
 public final class DevShot {
     private DevShot() {}
 
-    private static final int TITLE_FRAMES   = 60;
-    private static final int CONFIG_FRAMES  = 90;
-    private static final int WORLD_SETTLE   = 100;  // frames the world renders before the loadout
-    private static final int WORLD_FRAMES   = 60;
-    private static final int INV_FRAMES     = 60;
-    private static final int OPTIONS_FRAMES = 60;
+    // Wall-clock settle durations (ms) before each capture.
+    private static final long SETTLE_MS       = 1200L;  // screens: open-fade + spring settle
+    private static final long WORLD_SETTLE_MS = 2500L;  // chunks render + loadout appears
+    private static final long TIP_SETTLE_MS   = 1300L;  // tooltip fade-in + panel morph
 
     /** Per-wait frame caps so one stuck wait skips rather than eating the whole run. */
-    private static final int WAIT_WORLD_CAP  = 2400;  // flat-world gen is quick; generous anyway
-    private static final int WAIT_SCREEN_CAP = 300;
+    private static final int WAIT_WORLD_CAP  = 4000;
+    private static final int WAIT_SCREEN_CAP = 600;
+    private static final int CREATIVE_PREP_CAP = 600;
 
     /** Global watchdog: quit no matter what after this long. */
-    private static final long WATCHDOG_MS = 240_000L;
+    private static final long WATCHDOG_MS = 900_000L;
 
-    /** Target reference resolution — forced onto the framebuffer so shots are 1280x720 even when the
-     *  desktop is smaller than that and the OS clamps the on-screen window. */
+    /** Target reference resolution forced onto the framebuffer so shots are 1280x720. */
     private static final int SHOT_W = 1280, SHOT_H = 720;
+
+    // Slot offsets (GUI px) RELATIVE to the screen's own this.x/this.y, so a status-effect side
+    // panel shifting the screen right does not throw the cursor off the slot.
+    private static final int INV_SLOT_DX = 16, INV_SLOT_DY = 150;  // survival hotbar slot 0 (sword)
+    private static final int CRE_SLOT_DX = 17, CRE_SLOT_DY = 26;   // creative grid item (0,0)
+    private static final int EFF_SLOT_DX = 160, EFF_SLOT_DY = 150; // survival hotbar slot 8 (far right)
 
     // State machine phases.
     private static final int P_INIT = 0, P_WAIT_TITLE = 1, P_TITLE = 2,
                              P_WAIT_CONFIG = 3, P_CONFIG = 4,
                              P_WAIT_WORLD = 5, P_WORLD_SETTLE = 6, P_WORLD = 7,
                              P_WAIT_CONFIG2 = 8, P_CONFIG_WORLD = 9,
-                             P_WAIT_INV = 10, P_INV = 11,
-                             P_WAIT_OPTIONS = 12, P_OPTIONS = 13,
-                             P_STOP = 14, P_DONE = 15;
+                             P_WAIT_PAUSE = 10, P_PAUSE = 11,
+                             P_WAIT_INV = 12, P_INV = 13,
+                             P_INV_TIP_SETTLE = 14, P_INV_TIP = 15,
+                             P_CREATIVE_PREP = 16, P_WAIT_CREATIVE = 17, P_CREATIVE_SETTLE = 18, P_CREATIVE = 19,
+                             P_WAIT_OPTIONS = 20, P_OPTIONS = 21,
+                             P_WAIT_SOCIAL = 22, P_SOCIAL = 23,
+                             P_EFFECTS_PREP = 24, P_WAIT_EFFECTS = 25, P_EFFECTS_SETTLE = 26, P_EFFECTS = 27,
+                             P_EFFECTS_TIP_SETTLE = 28, P_EFFECTS_TIP = 29,
+                             // BATCH-A stage 2: fused-tab / scrollbar / glide verification (B/C/D).
+                             P_CRE_SCROLL_PREP = 30, P_CRE_SCROLL_WAIT = 31, P_CRE_SCROLL = 32,
+                             P_STONE_PREP = 33, P_STONE = 34,
+                             P_LOOM_PREP = 35, P_LOOM = 36,
+                             P_MERCH_PREP = 37, P_MERCH = 38,
+                             // BATCH-B stage 3: HUD overlays (G) + modules (H).
+                             P_HUD_PREP = 39, P_HUD = 40,
+                             P_HUD_CHATIN_PREP = 41, P_HUD_CHATIN = 42,
+                             P_HUD_TAB_PREP = 43, P_HUD_TAB = 44,
+                             P_MOD_PREP = 45, P_MOD_OUTLINE8 = 46, P_MOD_OUTLINE1 = 47,
+                             P_MOD_CHROMA_A = 48, P_MOD_CHROMA_B = 49, P_MOD_FILL = 50,
+                             P_MOD_HUDCHROMA_PREP = 51, P_MOD_HUDCHROMA_A = 52, P_MOD_HUDCHROMA_B = 53,
+                             P_MOD_HUDCHROMA_FLAT = 54,
+                             P_MOD_CONFIG_BO = 55, P_MOD_CONFIG_CH = 56, P_MOD_RESTORE = 57,
+                             P_COMBAT = 9090, P_STOP = 58, P_DONE = 59,
+                             // Verifier round: clicks (D), tab motion (B), held lens (C), tooltip overlaps (E),
+                             // advancements / stats / book / lectern / death / anvil (A).
+                             P_CLICKS = 60, P_TABS = 61, P_LENS = 62, P_TIP_SCROLL = 63, P_TIP_STRIP = 64,
+                             P_SCREENS = 65,
+                             // VERIFY sweeps of the 2026-10 port round (DevShotVerify, the neighbour lines' scene
+                             // framework: settings / sodium / trans / gap / newmenu / newanim / vcombat, or any of its
+                             // sweeps behind a "v:" prefix).
+                             P_VERIFY2 = 120,
+                             // settings / sodium modes: the page over the TITLE background before the world exists
+                             P_TITLE_PAGE = 121,
+                             // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title -> world-entry
+                             // loop preview -> real world entry loop -> after-world. Inert otherwise.
+                             P_LOOPPREV = 130;
 
-    private static boolean resolved;      // env vars checked exactly once
-    private static File    outDir;        // null => shot pipeline inert
-    private static boolean auditPending;  // S1MP1E_AUDIT set and not yet run
-    private static long    startMs;       // watchdog origin
+    /** S1MP1E_SHOT_MODE, lower-cased ("" = this line's own full pipeline). */
+    private static String mode = "";
+
+    // ---- intro mode state (S1MP1E_SHOT_MODE=intro) ----
+    private static boolean introMode;     // boot brand-intro capture path active
+    private static int     introCount;    // boot overlay frame index
+    private static long    introLastMs;   // last boot-overlay capture time (ms spacing)
+    private static boolean introSeen;     // the boot SplashScreen was seen at least once
+    private static boolean introWorld;    // after boot capture: continue title -> loop -> world -> after-world
+    private static int     wlCount;       // world-entry loop (real LevelLoadingScreen) frame index
+    private static long    wlLastMs;
+    private static long    lpLastMs;      // loop-preview frame spacing
+    private static int     lpCount;       // loop-preview frame index
+    /** The framebuffer size currently forced (dev sweeps shrink it for the small-window shots, then restore). */
+    private static int curW = SHOT_W, curH = SHOT_H;
+
+    /** Change the forced framebuffer size (dev sweeps only). */
+    static void setTarget(int w, int h) { curW = w; curH = h; }
+
+    private static boolean resolved;
+    private static File    outDir;
+    private static boolean auditPending;
+    private static long    startMs;
     private static int     phase = P_INIT;
-    private static int     frames;
-    /** Re-entrancy guard: heavy actions (startIntegratedServer, reloadResources) pump the render
-     *  loop synchronously, which re-fires this render-TAIL hook. Without this, the current step would
-     *  run again mid-action (e.g. re-creating the world every pumped frame → recursion →
-     *  StackOverflow/OOM). Nested frames pumped inside a step do nothing. */
+    private static int     frames;      // for wait caps only
+    private static long    tPhase;      // wall-clock time the current settle phase was entered
     private static boolean busy;
-    /** World creation is attempted exactly once. */
     private static boolean worldTried;
+
+    // ---- burst state -------------------------------------------------------
+    private static int          burstN;       // 0 => no burst
+    private static int          burstGap = 2; // native frames between captures
+    private static boolean      burstRunning;
+    private static int          burstIdx;
+    private static int          burstGapLeft;
+    private static class_4277[] burstImgs;
+    private static String[]     burstNames;
+    private static long[]       burstNanos;
+
+    // ---- frame-timing ring (native fps probe) ------------------------------
+    private static final int   DT_RING = 16;
+    private static final long[] dtRing = new long[DT_RING];
+    private static int          dtCount;
+    private static long         lastFrameNanos;
 
     /** Called at the end of every rendered frame (render thread). No-op when both vars are unset. */
     public static void onRenderEnd(MinecraftClient client) {
@@ -149,6 +200,7 @@ public final class DevShot {
                     outDir = new File(dir.trim());
                     outDir.mkdirs();
                     startMs = System.currentTimeMillis();
+                    tPhase = startMs;
                     System.out.println("[S1mp1e][DevShot] active -> " + outDir.getAbsolutePath());
                 }
             } catch (Throwable t) {
@@ -160,9 +212,24 @@ public final class DevShot {
             } catch (Throwable t) {
                 auditPending = false;
             }
+            try {
+                String b = System.getenv("S1MP1E_SHOT_BURST");
+                if (b != null && !b.trim().isEmpty()) burstN = Math.max(0, Math.min(200, Integer.parseInt(b.trim())));
+                String g = System.getenv("S1MP1E_SHOT_BURST_GAP");
+                if (g != null && !g.trim().isEmpty()) burstGap = Math.max(0, Math.min(30, Integer.parseInt(g.trim())));
+                if (burstN > 0) System.out.println("[S1mp1e][DevShot] burst mode N=" + burstN + " gap=" + burstGap);
+            } catch (Throwable t) {
+                burstN = 0;
+            }
+            try {
+                String m = System.getenv("S1MP1E_SHOT_MODE");
+                mode = m == null ? "" : m.trim().toLowerCase(java.util.Locale.ROOT);
+                introMode = outDir != null && "intro".equals(mode);
+            } catch (Throwable t) {
+                mode = "";
+            }
         }
 
-        // One-shot mixin audit, independent of the shot pipeline.
         if (auditPending) {
             auditPending = false;
             runAudit();
@@ -170,253 +237,1708 @@ public final class DevShot {
 
         if (outDir == null || client == null) return;
 
-        // Global watchdog — never hang.
-        if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > WATCHDOG_MS) {
-            System.out.println("[S1mp1e][DevShot] watchdog fired (" + (WATCHDOG_MS / 1000)
+        // Intro mode runs before the normal state machine: it shoots the boot SplashScreen (brand intro) frame by
+        // frame, then hands off (introWorld) to the title -> loop-preview -> world-entry path below.
+        if (introMode) {
+            if (busy) return;
+            busy = true;
+            try {
+                stepIntro(client);
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e][DevShot] intro capture error: " + t);
+                introMode = false; introWorld = true; goPhase(P_INIT);
+            } finally {
+                busy = false;
+            }
+            return;
+        }
+
+        // Frame-timing ring — updated every frame BEFORE the busy guard.
+        long fnow = System.nanoTime();
+        if (lastFrameNanos != 0L) { dtRing[dtCount % DT_RING] = fnow - lastFrameNanos; dtCount++; }
+        lastFrameNanos = fnow;
+
+        long watchdog = DevShotVerify.handles(mode) ? 1_800_000L : WATCHDOG_MS;   // the verify sweeps run long
+        if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
+            System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
             try { client.scheduleStop(); } catch (Throwable ignored) {}
             phase = P_DONE;
             return;
         }
 
-        // A heavy step may re-fire this hook (nested render); ignore those re-entrant frames.
-        if (busy) return;
+        if (busy) return;   // ignore re-entrant frames pumped inside a heavy step
         busy = true;
         try {
-            // Keep the framebuffer at the reference resolution every frame (cheap no-op once set).
             forceFramebuffer(client);
-            // Suppress the vanilla advancement/recipe toasts the scripted loadout triggers, so the
-            // over-world reference frames stay clean and deterministic. 1.13.2 has no getToastManager,
-            // so the manager (class_3264, field_15868) is reached by reflection and cleared each frame
-            // while in the world (matches the ToastManager.clear() the mc1201/mc1144 references call).
-            if (client.world != null) clearToasts(client);
             switch (phase) {
-                case P_INIT:               stepInit(client);                       break;
-                case P_WAIT_TITLE:         stepWaitTitle(client);                  break;
-                case P_TITLE:              stepTitle(client);                      break;
-                case P_WAIT_CONFIG:        stepWaitConfig(client, P_CONFIG);       break;
-                case P_CONFIG:             stepConfig(client);                     break;
-                case P_WAIT_WORLD:         stepWaitWorld(client);                  break;
-                case P_WORLD_SETTLE:       stepWorldSettle(client);                break;
-                case P_WORLD:              stepWorld(client);                      break;
-                case P_WAIT_CONFIG2:       stepWaitConfig(client, P_CONFIG_WORLD); break;
-                case P_CONFIG_WORLD:       stepConfigWorld(client);                break;
-                case P_WAIT_INV:           stepWaitInventory(client);              break;
-                case P_INV:                stepInventory(client);                  break;
-                case P_WAIT_OPTIONS:       stepWaitOptions(client);                break;
-                case P_OPTIONS:            stepOptions(client);                    break;
-                case P_STOP:               stepStop(client);                       break;
-                default:                   break;
+                case P_INIT:            stepInit(client);                        break;
+                case P_WAIT_TITLE:      stepWaitTitle(client);                   break;
+                case P_TITLE:           stepTitle(client);                       break;
+                case P_WAIT_CONFIG:     stepWaitConfig(client, P_CONFIG);        break;
+                case P_CONFIG:          stepConfig(client);                      break;
+                case P_WAIT_WORLD:      stepWaitWorld(client);                   break;
+                case P_WORLD_SETTLE:    stepWorldSettle(client);                 break;
+                case P_COMBAT:          if (CombatShot.step(client)) goPhase(P_STOP);  break;
+                case P_WORLD:           stepWorld(client);                       break;
+                case P_WAIT_CONFIG2:    stepWaitConfig(client, P_CONFIG_WORLD);  break;
+                case P_CONFIG_WORLD:    stepConfigWorld(client);                 break;
+                case P_WAIT_PAUSE:      stepWaitPause(client);                   break;
+                case P_PAUSE:           stepPause(client);                       break;
+                case P_WAIT_INV:        stepWaitInventory(client);               break;
+                case P_INV:             stepInventory(client);                   break;
+                case P_INV_TIP_SETTLE:  stepInvTipSettle(client);                break;
+                case P_INV_TIP:         stepInvTip(client);                      break;
+                case P_CREATIVE_PREP:   stepCreativePrep(client);                break;
+                case P_WAIT_CREATIVE:   stepWaitCreative(client);                break;
+                case P_CREATIVE_SETTLE: stepCreativeSettle(client);              break;
+                case P_CREATIVE:        stepCreative(client);                    break;
+                case P_WAIT_OPTIONS:    stepWaitOptions(client);                 break;
+                case P_OPTIONS:         stepOptions(client);                     break;
+                case P_WAIT_SOCIAL:     stepWaitSocial(client);                  break;
+                case P_SOCIAL:          stepSocial(client);                      break;
+                case P_EFFECTS_PREP:    stepEffectsPrep(client);                 break;
+                case P_WAIT_EFFECTS:    stepWaitEffects(client);                 break;
+                case P_EFFECTS_SETTLE:  stepEffectsSettle(client);               break;
+                case P_EFFECTS:         stepEffects(client);                     break;
+                case P_EFFECTS_TIP_SETTLE: stepEffectsTipSettle(client);         break;
+                case P_EFFECTS_TIP:     stepEffectsTip(client);                  break;
+                case P_CRE_SCROLL_PREP: stepCreScrollPrep(client);              break;
+                case P_CRE_SCROLL_WAIT: stepCreScrollWait(client);              break;
+                case P_CRE_SCROLL:      stepCreScroll(client);                  break;
+                case P_STONE_PREP:      stepStonePrep(client);                  break;
+                case P_STONE:           stepStone(client);                      break;
+                case P_LOOM_PREP:       stepLoomPrep(client);                   break;
+                case P_LOOM:            stepLoom(client);                       break;
+                case P_MERCH_PREP:      stepMerchPrep(client);                  break;
+                case P_MERCH:           stepMerch(client);                      break;
+                case P_HUD_PREP:        stepHudPrep(client);                    break;
+                case P_HUD:             stepHud(client);                        break;
+                case P_HUD_CHATIN_PREP: stepHudChatInPrep(client);             break;
+                case P_HUD_CHATIN:      stepHudChatIn(client);                  break;
+                case P_HUD_TAB_PREP:    stepHudTabPrep(client);                 break;
+                case P_HUD_TAB:         stepHudTab(client);                     break;
+                case P_MOD_PREP:        stepModPrep(client);                    break;
+                case P_MOD_OUTLINE8:    stepModOutline8(client);                break;
+                case P_MOD_OUTLINE1:    stepModOutline1(client);                break;
+                case P_MOD_CHROMA_A:    stepModChromaA(client);                 break;
+                case P_MOD_CHROMA_B:    stepModChromaB(client);                 break;
+                case P_MOD_FILL:        stepModFill(client);                    break;
+                case P_MOD_HUDCHROMA_PREP: stepModHudChromaPrep(client);        break;
+                case P_MOD_HUDCHROMA_A: stepModHudChromaA(client);              break;
+                case P_MOD_HUDCHROMA_B: stepModHudChromaB(client);              break;
+                case P_MOD_HUDCHROMA_FLAT: stepModHudChromaFlat(client);        break;
+                case P_MOD_CONFIG_BO:   stepModConfigBO(client);                break;
+                case P_MOD_CONFIG_CH:   stepModConfigCH(client);                break;
+                case P_MOD_RESTORE:     stepModRestore(client);                 break;
+                case P_CLICKS:          stepClicks(client);                     break;
+                case P_TABS:            stepTabs(client);                       break;
+                case P_LENS:            stepLens(client);                       break;
+                case P_TIP_SCROLL:      stepTipScroll(client);                  break;
+                case P_TIP_STRIP:       stepTipStrip(client);                   break;
+                case P_SCREENS:         stepScreens(client);                    break;
+                case P_VERIFY2:         if (DevShotVerify.step(client)) goPhase(P_STOP); break;
+                case P_TITLE_PAGE:      stepTitlePage(client);                  break;
+                case P_LOOPPREV:        stepLoopPreview(client);                break;
+                case P_STOP:            stepStop(client);                        break;
+                default:                break;
             }
         } catch (Throwable t) {
-            // Last-resort guard: never wedge the frame loop. Individual steps already
-            // catch their own failures; anything reaching here jumps straight to quit.
             System.out.println("[S1mp1e][DevShot] fatal error at phase " + phase + ": " + t);
             t.printStackTrace();
-            phase = P_STOP;
+            goPhase(P_STOP);
         } finally {
             busy = false;
         }
     }
 
-    /**
-     * Force MC's framebuffer to {@link #SHOT_W}x{@link #SHOT_H} so every reference shot is 1280x720
-     * regardless of the desktop size. On a desktop smaller than 1280x720 the OS clamps the on-screen
-     * window, but the off-screen framebuffer we screenshot can still be full size — the frame renders
-     * into it at 1280x720 and only the (unwatched) on-screen blit is scaled.
-     *
-     * <p>1.13.2 has no {@code Window}/{@code onResolutionChanged()}; we reflect the window
-     * ({@code class_4117}) {@code framebufferWidth/Height} fields ({@code field_20043}/
-     * {@code field_20044}) and then call its public {@code method_18314()}, which recomputes the
-     * scaled GUI size from {@code options.guiScale} and resizes the GL framebuffer to match. Dev-only
-     * (DevShot runs solely under {@code S1MP1E_SHOT}), so the reflection is safe here. No-op once the
-     * size already matches, so it is cheap to call every frame and self-heals after any stray GLFW
-     * framebuffer-resize callback.
-     */
+    // ---- phase / settle helpers -------------------------------------------
+
+    private static void goPhase(int p) { phase = p; frames = 0; tPhase = System.currentTimeMillis(); }
+    private static boolean settled(long ms) { return System.currentTimeMillis() - tPhase >= ms; }
+
     private static void forceFramebuffer(MinecraftClient client) {
         try {
-            net.minecraft.class_4117 win = Mc1132.window();
-            if (win == null) return;
-            if (win.method_18317() == SHOT_W && win.method_18318() == SHOT_H) return;
+            net.minecraft.class_4117 win = client.field_19944;
+            if (win.method_18317() == curW && win.method_18318() == curH) return;
+            // 1.13.2: the window is class_4117; its framebuffer size fields are field_20043 / field_20044 and
+            // method_18314() recomputes the scaled size and resizes the GL framebuffer (no onResolutionChanged yet)
             java.lang.reflect.Field fw = net.minecraft.class_4117.class.getDeclaredField("field_20043");
             java.lang.reflect.Field fh = net.minecraft.class_4117.class.getDeclaredField("field_20044");
             fw.setAccessible(true); fh.setAccessible(true);
-            fw.setInt(win, SHOT_W); fh.setInt(win, SHOT_H);
-            win.method_18314();   // recompute scaled size + resize the GL framebuffer to the forced size
-            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + SHOT_W + "x" + SHOT_H);
+            fw.setInt(win, curW); fh.setInt(win, curH);
+            win.method_18314();
+            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + curW + "x" + curH);
         } catch (Throwable t) {
-            skip("force framebuffer " + SHOT_W + "x" + SHOT_H, t);
+            skip("force framebuffer " + curW + "x" + curH, t);
         }
     }
 
-    // ---- steps 1-2: window + title -----------------------------------------
+    // ---- title -------------------------------------------------------------
 
     private static void stepInit(MinecraftClient client) {
         try {
-            // Identical rendering conditions for every version. 1.13.2 exposes no Window helper;
-            // resize the GLFW window directly through its handle. Restore first in case the dev
-            // window came up maximized. forceFramebuffer() (run every frame) then pins the off-screen
-            // framebuffer to 1280x720 even if the OS clamps this on-screen size.
-            long handle = Mc1132.handle();
-            if (handle != 0L) {
-                GLFW.glfwRestoreWindow(handle);
-                GLFW.glfwSetWindowSize(handle, SHOT_W, SHOT_H);
-            }
-            if (client.options != null) client.options.guiScale = 2;
-            // Only pay the resource-reload cost when the language actually differs (options.txt
-            // normally already selects zh_tw). getLanguage(String) is unmapped -> method_14698.
-            LanguageManager lm = client.getLanguageManager();
-            LanguageDefinition cur = lm == null ? null : lm.getLanguage();
-            if (lm != null && (cur == null || !"zh_tw".equals(cur.getCode()))) {
-                LanguageDefinition def = lm.method_14698("zh_tw");
+            long handle = client.field_19944.method_18315();
+            GLFW.glfwRestoreWindow(handle);
+            GLFW.glfwSetWindowSize(handle, 1280, 720);
+            client.options.guiScale = 2;
+            client.options.field_19973 = false;
+            // Harness only: swap without vsync. With the display asleep (unattended night runs) a vsynced swap is
+            // throttled to ~4 frames a second, which turns every motion burst into a slide show and every frame-counted
+            // wait into minutes. Only the window's swap interval is changed - the enableVsync OPTION is left alone, so
+            // nothing is written to options.txt; the frame limiter (maxFps) still paces the loop.
+            try { GLFW.glfwSwapInterval(0); } catch (Throwable ignored) {}
+            // No tutorial hints over the shots (a fresh dev world starts the movement tutorial and its toast sits on
+            // top of every screen). Dev run directory only.
+            try { client.method_14463().method_14724(net.minecraft.class_3319.NONE); } catch (Throwable ignored) {}
+            LanguageDefinition cur = client.getLanguageManager().getLanguage();
+            if (cur == null || !"zh_tw".equals(cur.getCode())) {
+                LanguageDefinition def = client.getLanguageManager().method_14698("zh_tw");
                 if (def != null) {
-                    lm.setLanguage(def);
-                    if (client.options != null) client.options.language = "zh_tw";
+                    client.getLanguageManager().setLanguage(def);
+                    client.options.language = "zh_tw";
                     client.reloadResources();
                 }
             }
+            client.field_19944.method_18314();
         } catch (Throwable t) {
             skip("init (window/scale/language)", t);
         }
-        frames = 0;
-        phase = P_WAIT_TITLE;
+        goPhase(P_WAIT_TITLE);
     }
 
     private static void stepWaitTitle(MinecraftClient client) {
-        // Wait past the Mojang splash / any resource reload. 1.13.2 has no SplashOverlay, so the
-        // TitleScreen becoming currentScreen is the whole gate.
-        if (client.currentScreen instanceof TitleScreen) {
-            frames = 0; phase = P_TITLE;
+        if (client.currentScreen instanceof TitleScreen) {       // 1.13.2: no overlay, the boot intro is a screen
+            goPhase(P_TITLE);
         } else if (++frames > WAIT_SCREEN_CAP * 4) {
             skip("wait title screen", new IllegalStateException("title never shown"));
-            frames = 0; phase = P_TITLE;   // try to shoot whatever is on screen, then continue
+            goPhase(P_TITLE);
         }
     }
 
     private static void stepTitle(MinecraftClient client) {
-        if (++frames >= TITLE_FRAMES) {
-            capture(client, "title.png");
-            open(client, new S1mp1eConfigScreen(), "open settings (over title)");
-            frames = 0; phase = P_WAIT_CONFIG;
+        if (introWorld) {
+            if (!settled(SETTLE_MS)) return;
+            // Glass buttons must still render after the boot intro ran during the first resource reload.
+            capture(client, "after-title.png");
+            // A dev world can load too fast to see a whole loop cycle: preview the world-entry loop on its own
+            // screen first, then do the real world entry (its LevelLoadingScreen carries the same loop).
+            open(client, new LoopPreview(), "open world-entry loop preview");
+            lpLastMs = 0L; lpCount = 0; goPhase(P_LOOPPREV);
+            return;
         }
+        if (burstRunning) { if (!afterMain(client, "title")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "title.png");
+            if (!afterMain(client, "title")) return;
+        }
+        open(client, new S1mp1eConfigScreen(), "open settings (over title)");
+        goPhase(P_WAIT_CONFIG);
     }
-
-    // ---- shared config-screen wait -----------------------------------------
 
     private static void stepWaitConfig(MinecraftClient client, int next) {
         if (client.currentScreen instanceof S1mp1eConfigScreen) {
-            frames = 0; phase = next;
+            goPhase(next);
         } else if (++frames > WAIT_SCREEN_CAP) {
             skip("wait settings screen", new IllegalStateException("settings screen never opened"));
-            frames = 0; phase = next;
+            goPhase(next);
         }
     }
-
-    // ---- step 3: config over title, then create the world ------------------
 
     private static void stepConfig(MinecraftClient client) {
-        if (++frames < CONFIG_FRAMES) return;
-        capture(client, "config.png");
-        close(client);                      // back to the title
+        if (burstRunning) { if (!afterMain(client, "config")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "config.png");
+            if (!afterMain(client, "config")) return;
+        }
+        close(client);
+        if (mode.contains("settings") || mode.contains("packs")) {   // the settings shell over the title background
+            open(client, new net.minecraft.client.gui.screen.SettingsScreen(new TitleScreen(), client.options),
+                    "open options (over title)");
+            titlePageShot = "st-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        startWorld(client);
+    }
+
+    private static String titlePageShot;
+
+    private static void startWorld(MinecraftClient client) {
         if (createWorld(client)) {
-            frames = 0; phase = P_WAIT_WORLD;
+            goPhase(P_WAIT_WORLD);
         } else {
             skip("create world", new IllegalStateException("world creation did not start"));
-            phase = P_STOP;                 // no world -> skip every world-dependent shot
+            goPhase(P_STOP);
         }
     }
 
-    // ---- step 4: world load, settle, loadout, shot ------------------------
+    private static void stepTitlePage(MinecraftClient client) {
+        if (!settled(1500L)) return;
+        capture(client, titlePageShot);
+        if ("sd-title.png".equals(titlePageShot) && mode.contains("settings")) {   // both asked for: the shell page too
+            close(client);
+            open(client, new net.minecraft.client.gui.screen.SettingsScreen(new TitleScreen(), client.options),
+                    "open options (over title)");
+            titlePageShot = "st-title.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        if ("st-title.png".equals(titlePageShot)) {   // the resource pack screen (two lists) over the title
+            close(client);
+            open(client, new net.minecraft.client.gui.screen.ResourcePackScreen(new TitleScreen()),
+                    "open resource packs (over title)");
+            titlePageShot = "st-title-packs.png";
+            goPhase(P_TITLE_PAGE);
+            return;
+        }
+        close(client);
+        startWorld(client);
+    }
+
+    /** Dev-only screen that plays the world-entry loop ({@code BrandIntro.MODE_LOOP}) on pure black, exactly as
+     *  {@code LevelLoadingScreen} does under the glass mixin, for as long as it is open. */
+    private static final class LoopPreview extends Screen {
+        private final long t0 = System.nanoTime();
+        LoopPreview() { super(); }
+        @Override public void render(int mx, int my, float d) {
+            net.minecraft.client.gui.DrawableHelper.fill(0, 0, this.width, this.height, 0xFF000000);
+            DevShotVerify.loopPreview((System.nanoTime() - t0) / 1.0E9F);
+        }
+    }
+
+    /** Loop preview: ~8 s at 10 fps into {@code lp_NNN.png}, then on into the real world entry. */
+    private static void stepLoopPreview(MinecraftClient client) {
+        if (!(client.currentScreen instanceof LoopPreview)) {
+            if (++frames > WAIT_SCREEN_CAP) { skip("loop preview", new IllegalStateException("never opened")); lpCount = 80; }
+            else return;
+        }
+        long ms = System.currentTimeMillis();
+        if (lpCount < 80) {
+            if (ms - lpLastMs >= 100) { lpLastMs = ms; capture(client, String.format("lp_%03d.png", lpCount++)); }
+            return;
+        }
+        close(client);
+        startWorld(client);
+    }
+
+    /**
+     * Boot brand-intro capture: while the {@code SplashScreen} is up, shoot the framebuffer ~33 fps into
+     * {@code intro_NNN.png}; once it is gone (or it never appeared within 20 s) continue through the title (glass must
+     * still be intact after the intro ran during the reload) into the world-entry loop, shooting on the way.
+     */
+    private static void stepIntro(MinecraftClient client) {
+        forceFramebuffer(client);
+        long now = System.currentTimeMillis();
+        if (dev.s1mp1e.client.gui.BrandIntro.bootScreenUp(client.currentScreen)) {
+            introSeen = true;
+            if (now - introLastMs >= 30 && introCount < 220) {
+                introLastMs = now;
+                capture(client, String.format("intro_%03d.png", introCount++));
+            }
+            return;
+        }
+        // Overlay gone (or never showed within 20 s): boot part done. Hand off to the title -> loop -> world path.
+        if (introSeen || now - startMs > 20000) {
+            System.out.println("[S1mp1e][DevShot] intro capture done: " + introCount + " frames");
+            introMode = false;
+            introWorld = true;
+            goPhase(P_INIT);
+        }
+    }
+
+    // ---- world -------------------------------------------------------------
 
     private static void stepWaitWorld(MinecraftClient client) {
+        // Intro mode: while the real world-entry LevelLoadingScreen is up (it carries the MODE_LOOP loop under the
+        // glass mixin), grab a ~20 fps strip so the seamless loop can be judged frame by frame.
+        if (introWorld && client.currentScreen != null && client.world == null) {   // 1.13.2: the world-entry screens
+            long ms = System.currentTimeMillis();
+            if (ms - wlLastMs >= 50 && wlCount < 400) { wlLastMs = ms; capture(client, String.format("wl_%03d.png", wlCount++)); }
+        }
         if (client.world != null && client.player != null && client.getServer() != null
                 && client.currentScreen == null) {
-            frames = 0; phase = P_WORLD_SETTLE;
+            goPhase(P_WORLD_SETTLE);
         } else if (++frames > WAIT_WORLD_CAP) {
             skip("wait world load", new IllegalStateException("world never became ready"));
-            phase = P_STOP;
+            goPhase(P_STOP);
         }
     }
 
     private static void stepWorldSettle(MinecraftClient client) {
-        if (++frames < WORLD_SETTLE) return;
-        applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
-        frames = 0; phase = P_WORLD;
+        if (!settled(WORLD_SETTLE_MS)) return;
+        applyWorldSetup(client);
+        if (introWorld) {                   // glass HUD must be intact in game too after the intro; then finish
+            System.out.println("[S1mp1e][DevShot] world-entry loop frames: " + wlCount);
+            System.out.println("[S1mp1e][DevShot] world-entry loop drawn: " + dev.s1mp1e.client.gui.BrandIntro.worldEntryFrames
+                    + " frames over " + (dev.s1mp1e.client.gui.BrandIntro.worldEntryLastNs
+                    - dev.s1mp1e.client.gui.BrandIntro.worldEntryFirstNs) / 1000000L + " ms");
+            introWorld = false;
+            introAfterWorld = true;
+            goPhase(P_WORLD);
+            return;
+        }
+        if ("combat".equals(mode)) { goPhase(P_COMBAT); return; }   // 26.2 combat trio
+        if (DevShotVerify.handles(mode)) {  // the 1.21.1 feature-set sweeps (2026-10 port round)
+            DevShotVerify.init(outDir, mode);
+            goPhase(P_VERIFY2);
+            return;
+        }
+        goPhase(P_WORLD);
     }
 
+    private static boolean introAfterWorld;
+
     private static void stepWorld(MinecraftClient client) {
-        // Suppress the advancement chat line the scripted loadout can trigger, so the over-world
-        // reference frames (world / config-world / inventory) are clean and deterministic. 1.13.2 has
-        // no ToastManager to clear. Cleared every frame; no new lines appear after the loadout.
+        if (introAfterWorld) {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "after-world.png");
+            goPhase(P_STOP);
+            return;
+        }
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
         try {
             ChatHud chat = client.inGameHud.getChatHud();
             if (chat != null) chat.clear(false);
         } catch (Throwable ignored) {}
-        if (++frames >= WORLD_FRAMES) {
+        if (burstRunning) { if (!afterMain(client, "world")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
             capture(client, "world.png");
-            open(client, new S1mp1eConfigScreen(), "open settings (over world)");
-            frames = 0; phase = P_WAIT_CONFIG2;
+            if (!afterMain(client, "world")) return;
+        }
+        // S1MP1E_SHOT_FROM=<clicks|tabs|lens|tips|screens|stone|hud|mod>: dev iteration shortcut — jump straight from the
+        // world scene to that sweep (every sweep stages its own game mode / screen). Unset = the full run.
+        int from = fromPhase();
+        if (from >= 0) { goPhase(from); return; }
+        open(client, new S1mp1eConfigScreen(), "open settings (over world)");
+        goPhase(P_WAIT_CONFIG2);
+    }
+
+    private static void stepConfigWorld(MinecraftClient client) {
+        if (burstRunning) { if (!afterMain(client, "config-world")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "config-world.png");
+            if (!afterMain(client, "config-world")) return;
+        }
+        close(client);
+        open(client, new GameMenuScreen(), "open pause menu");
+        goPhase(P_WAIT_PAUSE);
+    }
+
+    // ---- pause -------------------------------------------------------------
+
+    private static void stepWaitPause(MinecraftClient client) {
+        if (client.currentScreen instanceof GameMenuScreen) {
+            goPhase(P_PAUSE);
+        } else if (++frames > WAIT_SCREEN_CAP) {
+            skip("wait pause screen", new IllegalStateException("pause menu never opened"));
+            goPhase(P_PAUSE);
         }
     }
 
-    // ---- step 5: config over world ----------------------------------------
-
-    private static void stepConfigWorld(MinecraftClient client) {
-        if (++frames < CONFIG_FRAMES) return;
-        capture(client, "config-world.png");
+    private static void stepPause(MinecraftClient client) {
+        if (burstRunning) { if (!afterMain(client, "pause")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "pause.png");
+            if (!afterMain(client, "pause")) return;
+        }
         close(client);
+        // S1MP1E_SHOT_RECIPE=1: open the inventory WITH the recipe book showing (flicker diagnosis of
+        // the recipe-book glass, which renders before the container panel in SurvivalInventoryScreen.render).
+        if (System.getenv("S1MP1E_SHOT_RECIPE") != null) {
+            try {
+                client.player.method_14675().method_21397(true);
+            } catch (Throwable t) { skip("open recipe book", t); }
+        }
         open(client, new SurvivalInventoryScreen(client.player), "open inventory");
-        frames = 0; phase = P_WAIT_INV;
+        goPhase(P_WAIT_INV);
     }
 
-    // ---- step 6: inventory -------------------------------------------------
+    // ---- inventory (no hover) ---------------------------------------------
 
     private static void stepWaitInventory(MinecraftClient client) {
-        if (client.currentScreen instanceof InventoryScreen) {
-            frames = 0; phase = P_INV;
+        if (client.currentScreen instanceof SurvivalInventoryScreen) {
+            goPhase(P_INV);
         } else if (++frames > WAIT_SCREEN_CAP) {
             skip("wait inventory screen", new IllegalStateException("inventory never opened"));
-            frames = 0; phase = P_INV;
+            goPhase(P_INV);
         }
     }
 
     private static void stepInventory(MinecraftClient client) {
-        if (++frames < INV_FRAMES) return;
-        capture(client, "inventory.png");
-        // VideoOptionsScreen's constructor dereferences parent state, so the parent must be an
-        // already-shown screen. Reuse the inventory that is still current. Build inside try because
-        // the construction runs as an argument — outside open()'s own try/catch — so any failure
-        // would otherwise escape.
+        setMouseGui(client, 4, 4);   // park OFF any slot: no tooltip (single grab site)
+        if (burstRunning) { if (!afterMain(client, "inventory")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "inventory.png");
+            if (!afterMain(client, "inventory")) return;
+        }
+        goPhase(P_INV_TIP_SETTLE);
+    }
+
+    // ---- inventory WITH tooltip -------------------------------------------
+
+    private static void stepInvTipSettle(MinecraftClient client) {
+        hoverSlot(client, INV_SLOT_DX, INV_SLOT_DY);
+        if (settled(TIP_SETTLE_MS)) goPhase(P_INV_TIP);
+    }
+
+    private static void stepInvTip(MinecraftClient client) {
+        hoverSlot(client, INV_SLOT_DX, INV_SLOT_DY);
+        if (burstRunning) { if (!afterMain(client, "inventory-tooltip")) return; }
+        else {
+            if (!settled(0)) return;
+            capture(client, "inventory-tooltip.png");
+            if (!afterMain(client, "inventory-tooltip")) return;
+        }
+        close(client);
+        // Switch to creative so the creative inventory screen stays open.
+        try { client.interactionManager.setGameMode(GameMode.CREATIVE); } catch (Throwable t) { skip("set creative mode", t); }
+        goPhase(P_CREATIVE_PREP);
+    }
+
+    // ---- creative WITH tooltip --------------------------------------------
+
+    private static void stepCreativePrep(MinecraftClient client) {
+        try { client.interactionManager.setGameMode(GameMode.CREATIVE); } catch (Throwable ignored) {}
+        boolean creative = false;
+        try { creative = client.interactionManager.method_9667() == GameMode.CREATIVE; } catch (Throwable ignored) {}
+        if ((creative && settled(300)) || ++frames > CREATIVE_PREP_CAP) {
+            try {
+                client.setScreen(new CreativeInventoryScreen(client.player));
+            } catch (Throwable t) {
+                skip("open creative inventory", t);
+            }
+            goPhase(P_WAIT_CREATIVE);
+        }
+    }
+
+    private static void stepWaitCreative(MinecraftClient client) {
+        if (client.currentScreen instanceof CreativeInventoryScreen) {
+            goPhase(P_CREATIVE_SETTLE);
+        } else if (++frames > WAIT_SCREEN_CAP) {
+            skip("wait creative screen", new IllegalStateException("creative inventory never opened"));
+            goPhase(P_CREATIVE_SETTLE);
+        }
+    }
+
+    private static void stepCreativeSettle(MinecraftClient client) {
+        hoverSlot(client, CRE_SLOT_DX, CRE_SLOT_DY);
+        if (settled(TIP_SETTLE_MS)) goPhase(P_CREATIVE);
+    }
+
+    private static void stepCreative(MinecraftClient client) {
+        hoverSlot(client, CRE_SLOT_DX, CRE_SLOT_DY);
+        if (burstRunning) { if (!afterMain(client, "creative")) return; }
+        else {
+            if (!settled(0)) return;
+            capture(client, "creative.png");
+            if (!afterMain(client, "creative")) return;
+        }
         try {
             Screen parent = client.currentScreen;
             client.setScreen(new VideoOptionsScreen(parent, client.options));
         } catch (Throwable t) {
             skip("open video settings", t);
         }
-        frames = 0; phase = P_WAIT_OPTIONS;
+        goPhase(P_WAIT_OPTIONS);
     }
 
-    // ---- step 7: video settings -------------------------------------------
+    // ---- video settings ----------------------------------------------------
 
     private static void stepWaitOptions(MinecraftClient client) {
         if (client.currentScreen instanceof VideoOptionsScreen) {
-            frames = 0; phase = P_OPTIONS;
+            goPhase(P_OPTIONS);
         } else if (++frames > WAIT_SCREEN_CAP) {
             skip("wait video settings screen", new IllegalStateException("video settings never opened"));
-            frames = 0; phase = P_OPTIONS;
+            goPhase(P_OPTIONS);
         }
     }
 
     private static void stepOptions(MinecraftClient client) {
-        if (++frames < OPTIONS_FRAMES) return;
-        capture(client, "options.png");
+        if (burstRunning) { if (!afterMain(client, "options")) return; }
+        else {
+            if (!settled(SETTLE_MS)) return;
+            capture(client, "options.png");
+            if (!afterMain(client, "options")) return;
+        }
         close(client);
-        // Step 8: leave the world and quit. scheduleStop() (in P_STOP) ends the run loop; MC's
-        // normal shutdown then stops the integrated server and saves/unloads the world — a clean
-        // leave+quit. We deliberately do NOT disconnect here: disconnect runs its own nested
-        // world-unload/"saving" render loop, and invoking that from inside this render-TAIL hook
-        // wedges the render thread (the run then only ends when the watchdog force-quits).
-        phase = P_STOP;
+        goPhase(P_EFFECTS_PREP);   // 1.13.2: no social interactions screen (1.16+) - straight on
+    }
+
+    // ---- social interactions (A) ------------------------------------------
+
+    private static void stepWaitSocial(MinecraftClient client) { goPhase(P_EFFECTS_PREP); }
+
+    private static void stepSocial(MinecraftClient client) { goPhase(P_EFFECTS_PREP); }
+
+    // ---- status-effect strip (F) + tooltip over it (E / R1) ---------------
+
+    private static void stepEffectsPrep(MinecraftClient client) {
+        // Force SURVIVAL so the survival SurvivalInventoryScreen (with the wide effect strip on its left) opens —
+        // the previous scene left the player in CREATIVE, where a survival-inventory open is redirected.
+        try { client.interactionManager.setGameMode(GameMode.SURVIVAL); } catch (Throwable ignored) {}
+        boolean survival = false;
+        try { survival = client.interactionManager.method_9667() == GameMode.SURVIVAL; } catch (Throwable ignored) {}
+        if (!((survival && settled(300)) || ++frames > CREATIVE_PREP_CAP)) return;
+
+        giveEffects(client);
+        // A far-right hotbar item with a very long name: its tooltip flips left and clamps to x=4,
+        // spanning most of the width, so a single still shows the glass tooltip overlapping BOTH the
+        // effect strip (R1c) AND the item grid + stack counts (R1a) at once.
+        try {
+            ItemStack longName = new ItemStack(Items.NETHER_STAR);
+            longName.setCount(5);
+            longName.setCustomName(new LiteralText(
+                    "左右都要一樣 Liquid Glass Tooltip Over The Effect Strip And Items"));
+            client.player.inventory.setInvStack(8, longName);   // hotbar slot 8 (far right)
+        } catch (Throwable t) { skip("give long-name item", t); }
+        open(client, new SurvivalInventoryScreen(client.player), "open inventory (effects)");
+        goPhase(P_WAIT_EFFECTS);
+    }
+
+    private static void stepWaitEffects(MinecraftClient client) {
+        if (client.currentScreen instanceof SurvivalInventoryScreen) {
+            goPhase(P_EFFECTS_SETTLE);
+        } else if (++frames > WAIT_SCREEN_CAP) {
+            skip("wait effects inventory", new IllegalStateException("inventory never opened"));
+            goPhase(P_EFFECTS_SETTLE);
+        }
+    }
+
+    private static void stepEffectsSettle(MinecraftClient client) {
+        setMouseGui(client, 4, 4);           // park off any slot: clean strip, no tooltip
+        if (settled(SETTLE_MS)) goPhase(P_EFFECTS);
+    }
+
+    private static void stepEffects(MinecraftClient client) {
+        setMouseGui(client, 4, 4);
+        if (burstRunning) { if (!afterMain(client, "effects-wide")) return; }
+        else {
+            if (!settled(0)) return;
+            capture(client, "effects-wide.png");   // F: one continuous strip + separators, no hover
+            if (!afterMain(client, "effects-wide")) return;
+        }
+        goPhase(P_EFFECTS_TIP_SETTLE);
+    }
+
+    private static void stepEffectsTipSettle(MinecraftClient client) {
+        hoverSlot(client, EFF_SLOT_DX, EFF_SLOT_DY);
+        if (settled(TIP_SETTLE_MS)) goPhase(P_EFFECTS_TIP);
+    }
+
+    private static void stepEffectsTip(MinecraftClient client) {
+        hoverSlot(client, EFF_SLOT_DX, EFF_SLOT_DY);
+        if (burstRunning) { if (!afterMain(client, "effects-tooltip")) return; }
+        else {
+            if (!settled(0)) return;
+            capture(client, "effects-tooltip.png");  // E/R1: card on top, refracts strip + items beneath
+            if (!afterMain(client, "effects-tooltip")) return;
+        }
+        close(client);
+        goPhase(P_CRE_SCROLL_PREP);
+    }
+
+    /** Give the (server + client) player a spread of effects so the strip shows several entries + separators. */
+    private static void giveEffects(MinecraftClient client) {
+        ServerPlayerEntity sp = null;
+        try {
+            MinecraftServer server = client.getServer();
+            if (server != null && !server.getPlayerManager().getPlayers().isEmpty())
+                sp = server.getPlayerManager().getPlayers().get(0);
+        } catch (Throwable ignored) {}
+        StatusEffectInstance[] fx = {
+                new StatusEffectInstance(StatusEffects.SPEED,        6000,   0, false, true,  true),  // beneficial
+                new StatusEffectInstance(StatusEffects.HASTE,        6000,   1, false, true,  true),  // beneficial
+                new StatusEffectInstance(StatusEffects.STRENGTH,     6000,   0, false, true,  true),  // beneficial
+                new StatusEffectInstance(StatusEffects.POISON,       6000,   0, false, true,  true),  // harmful
+                new StatusEffectInstance(StatusEffects.NIGHT_VISION, 999999, 0, true,  false, true),  // ambient / long
+        };
+        for (StatusEffectInstance e : fx) {
+            try { if (sp != null) sp.method_2654(new StatusEffectInstance(e)); } catch (Throwable ignored) {}
+            try { client.player.method_2654(e); } catch (Throwable ignored) {}
+        }
+    }
+
+    // ---- (B/C/D) fused tabs · glass scrollbar · sub-pixel glide verification -----------------------
+
+    private static boolean s1mp1e$sceneStill;   // per-scene: the reference still has been captured
+    private static int     s1mp1e$strip;        // filmstrip frame index
+
+    /** Open the creative screen for the glide filmstrip (its item grid is populated + scrollable). */
+    private static void stepCreScrollPrep(MinecraftClient client) {
+        try { client.interactionManager.setGameMode(GameMode.CREATIVE); } catch (Throwable ignored) {}
+        boolean creative = false;
+        try { creative = client.interactionManager.method_9667() == GameMode.CREATIVE; } catch (Throwable ignored) {}
+        if (!((creative && settled(300)) || ++frames > CREATIVE_PREP_CAP)) return;
+        try { client.setScreen(new CreativeInventoryScreen(client.player)); } catch (Throwable t) { skip("open creative (scroll)", t); }
+        s1mp1e$sceneStill = false; s1mp1e$strip = 0;
+        goPhase(P_CRE_SCROLL_WAIT);
+    }
+
+    private static void stepCreScrollWait(MinecraftClient client) {
+        if (client.currentScreen instanceof CreativeInventoryScreen) goPhase(P_CRE_SCROLL);
+        else if (++frames > WAIT_SCREEN_CAP) { skip("wait creative (scroll)", new IllegalStateException("no creative")); goPhase(P_STONE_PREP); }
+    }
+
+    /** D: one wheel step over the creative grid, then N consecutive frames showing the decelerating sub-pixel glide,
+     *  then a settled scrolled still. */
+    private static void stepCreScroll(MinecraftClient client) {
+        if (!(client.currentScreen instanceof CreativeInventoryScreen)) { goPhase(P_STONE_PREP); return; }
+        if (!s1mp1e$sceneStill) {
+            if (!settled(400)) return;
+            if (!glideStrip(client, "creative", 6, -8.0)) return;
+            s1mp1e$sceneStill = true;
+            return;
+        }
+        if (!settled(500)) return;                       // let the glide settle
+        capture(client, "creative-scrolled.png");        // C/D at rest: thumb moved, grid row-aligned
+        goPhase(P_STONE_PREP);
+    }
+
+    /** 1.13.2: no stonecutter / loom (1.14) - straight on to the merchant. */
+    private static void stepStonePrep(MinecraftClient client) { goPhase(P_MERCH_PREP); }
+    private static void stepStone(MinecraftClient client) { goPhase(P_MERCH_PREP); }
+    private static void stepLoomPrep(MinecraftClient client) { goPhase(P_MERCH_PREP); }
+    private static void stepLoom(MinecraftClient client) { goPhase(P_MERCH_PREP); }
+
+    /** Stage a villager merchant with 12 synthetic trades so the trade list scrolls. */
+    private static void stepMerchPrep(MinecraftClient client) {
+        close(client);
+        if (!openMerchant(client)) { goPhase(P_CLICKS); return; }
+        s1mp1e$sceneStill = false; s1mp1e$strip = 0;
+        goPhase(P_MERCH);
+    }
+
+    private static void stepMerch(MinecraftClient client) {
+        if (!(client.currentScreen instanceof net.minecraft.client.gui.screen.ingame.VillagerTradingScreen)) { s1mp1e$sub = 0; goPhase(P_CLICKS); return; }
+        if (!s1mp1e$sceneStill) {
+            if (!settled(600)) return;
+            capture(client, "merchant.png");             // C: trade list + glass scrollbar
+            s1mp1e$sceneStill = true;
+            return;
+        }
+        // 1.13.2: the old paged merchant GUI has no trade list - nothing to glide
+        close(client);
+        s1mp1e$sub = 0;
+        goPhase(P_CLICKS);
+    }
+
+    /** One wheel step over the list centre on the first frame, then {@code count} consecutive captured frames
+     *  {@code <base>-glide-N.png}. Returns true when the filmstrip is complete. */
+    private static boolean glideStrip(MinecraftClient client, String base, int count, double scrollAmt) {
+        if (s1mp1e$strip == 0) {
+            setMouseGui(client, 640, 360);
+            try { wheel(client, 640, 360, scrollAmt); }
+            catch (Throwable ignored) {}
+        }
+        if (s1mp1e$strip < count) {
+            capture(client, base + "-glide-" + s1mp1e$strip + ".png");
+            s1mp1e$strip++;
+            return false;
+        }
+        s1mp1e$strip = 0;
+        return true;
+    }
+
+    // ==== verifier round: staged list screens · clicks (D) · tab motion (B) · held lens (C) · tooltip overlaps (E) ·
+    //      advancements / statistics / book / lectern / death / anvil (A).  All inert without S1MP1E_SHOT. ==========
+
+    private static int s1mp1e$sub;          // sub-stage within the current sweep
+    private static int s1mp1e$subF;         // frames spent in the current sub-stage
+    private static int clkPass, clkFail;
+    private static double s1mp1e$mx, s1mp1e$my;   // virtual cursor of the lens drag
+
+    private static void subGo(int s) { s1mp1e$sub = s; s1mp1e$subF = 0; tPhase = System.currentTimeMillis(); }
+
+    /** Reference still + (S1MP1E_SHOT_BURST) the static-scene flicker burst. False while burst frames are pending. */
+    private static boolean shot(MinecraftClient client, String base) {
+        if (!burstRunning) capture(client, base + ".png");
+        return afterMain(client, base);
+    }
+
+    /** S1MP1E_SHOT_FROM → the sweep to jump to after the world scene (-1 = full run). */
+    private static int fromPhase() {
+        try {
+            String f = System.getenv("S1MP1E_SHOT_FROM");
+            if (f == null || f.trim().isEmpty()) return -1;
+            s1mp1e$sub = 0; s1mp1e$subF = 0;
+            switch (f.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "clicks":  return P_CLICKS;
+                case "tabs":    return P_TABS;
+                case "lens":    return P_LENS;
+                case "tips":    return P_TIP_SCROLL;
+                case "screens": return P_SCREENS;
+                case "stone":   return P_STONE_PREP;
+                case "hud":     return P_HUD_PREP;
+                case "mod":     return P_MOD_PREP;
+                default:        return -1;
+            }
+        } catch (Throwable t) { return -1; }
+    }
+
+    // ---- reflection helpers (dev runtime is yarn-named) ----
+
+    private static java.lang.reflect.Field fld(Class<?> c, String name) throws Exception {
+        java.lang.reflect.Field f = c.getDeclaredField(name);
+        f.setAccessible(true);
+        return f;
+    }
+
+    private static int getI(Object o, Class<?> c, String name) {
+        try { return fld(c, name).getInt(o); } catch (Throwable t) { return Integer.MIN_VALUE; }
+    }
+
+    private static boolean getZ(Object o, Class<?> c, String name) {
+        try { return fld(c, name).getBoolean(o); } catch (Throwable t) { return false; }
+    }
+
+    /** {x, y, backgroundWidth, backgroundHeight} of the open HandledScreen. */
+    private static int[] origin(Screen s) {
+        try {
+            Class<?> hs = net.minecraft.client.gui.screen.ingame.HandledScreen.class;
+            return new int[] { fld(hs, "x").getInt(s), fld(hs, "y").getInt(s),
+                    fld(hs, "backgroundWidth").getInt(s), fld(hs, "backgroundHeight").getInt(s) };   // legacy yarn names
+        } catch (Throwable t) { return new int[] { 232, 97, 176, 166 }; }
+    }
+
+    private static void gameMode(MinecraftClient client, GameMode mode) {
+        try {
+            if (client.interactionManager.method_9667() != mode) {
+                runCmd(client, "gamerule sendCommandFeedback false");   // keep "game mode changed" out of the chat
+                runCmd(client, "gamemode " + (mode == GameMode.CREATIVE ? "creative" : "survival") + " @p");
+                client.interactionManager.setGameMode(mode);
+                try { client.inGameHud.getChatHud().clear(false); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable t) { skip("game mode " + mode, t); }
+    }
+
+    private static int creativeTab() {
+        return getI(null, CreativeInventoryScreen.class, "selectedTab");
+    }
+
+    private static void selectCreativeTab(MinecraftClient client, int index) {
+        try {
+            java.lang.reflect.Method m = CreativeInventoryScreen.class.getDeclaredMethod("setSelectedTab",
+                    net.minecraft.item.itemgroup.ItemGroup.class);
+            m.setAccessible(true);
+            m.invoke(client.currentScreen, net.minecraft.item.itemgroup.ItemGroup.itemGroups[index]);
+        } catch (Throwable t) { skip("select creative tab " + index, t); }
+    }
+
+    /** Creative inventory open on tab {@code tabIndex}; true once it is the current screen on that tab. */
+    private static boolean creativeOn(MinecraftClient client, int tabIndex) {
+        gameMode(client, GameMode.CREATIVE);
+        try { if (client.interactionManager.method_9667() != GameMode.CREATIVE) return false; }
+        catch (Throwable ignored) {}
+        if (!(client.currentScreen instanceof CreativeInventoryScreen)) {
+            open(client, new CreativeInventoryScreen(client.player), "open creative");
+            return false;
+        }
+        if (creativeTab() != tabIndex) { selectCreativeTab(client, tabIndex); return false; }
+        return true;
+    }
+
+    /** Creative scroll position -> vanilla field + the handler's visible rows (keeps clicks/hit-test in sync). */
+    private static void setCreativeScroll(Screen s, float v) {
+        try {
+            fld(CreativeInventoryScreen.class, "scrollPosition").setFloat(s, v);
+            ((CreativeInventoryScreen.CreativeScreenHandler)
+                    ((CreativeInventoryScreen) s).screenHandler).scrollItems(v);
+        } catch (Throwable t) { skip("set creative scroll", t); }
+    }
+
+    /** Centre of the creative glass thumb (row-aligned ratio, like CreativeGlassMixin: x+175+6, top y+18, travel 97). */
+    private static double[] creativeThumb(Screen s) {
+        try {
+            int[] o = origin(s);
+            java.util.List<ItemStack> items = ((CreativeInventoryScreen.CreativeScreenHandler)
+                    ((CreativeInventoryScreen) s).screenHandler).field_15251;
+            int rc = Math.max(0, (items.size() + 8) / 9 - 5);
+            float sp = fld(CreativeInventoryScreen.class, "scrollPosition").getFloat(s);
+            int row = rc <= 0 ? 0 : Math.max(0, Math.min(rc, (int) (sp * rc + 0.5f)));
+            float ratio = rc <= 0 ? 0f : (float) row / rc;
+            return new double[] { o[0] + 181, o[1] + 18 + ratio * 97f + 7.5 };
+        } catch (Throwable t) { return new double[] { 413, 115 }; }
+    }
+
+    /** Centre (GUI px) of a fused-band tab cell (GlassTabs: 6 equal cells, band GlassTabs.BAND above / below the panel). */
+    private static double[] tabCell(Screen s, int col, boolean top) {
+        int[] o = origin(s);
+        double c = o[2] / 6.0;
+        double hb = dev.s1mp1e.glass.render.GlassTabs.BAND / 2.0;
+        return new double[] { o[0] + (col + 0.5) * c, top ? o[1] - hb : o[1] + o[3] + hb };
+    }
+
+    // ---- staged list screens (client-only handlers; the server ignores their syncId) ----
+
+    /** Villager merchant (1.13.2: the old paged GUI) over a client-side {@code Merchant} with 12 synthetic trades. */
+    static boolean openMerchant(MinecraftClient client) {
+        try {
+            net.minecraft.entity.player.PlayerInventory inv = client.player.inventory;
+            net.minecraft.entity.data.Merchant trader =
+                    new net.minecraft.entity.data.Merchant(client.player, new LiteralText("Villager"));
+            net.minecraft.village.TraderOfferList offers = new net.minecraft.village.TraderOfferList();
+            for (int i = 0; i < 12; i++) {
+                offers.add(new net.minecraft.village.TradeOffer(
+                        new ItemStack(Items.EMERALD, 1 + i % 9),
+                        new ItemStack(i % 2 == 0 ? Items.WHEAT : Items.BREAD, 4 + i)));
+            }
+            trader.setTraderOfferList(offers);
+            client.setScreen(new net.minecraft.client.gui.screen.ingame.VillagerTradingScreen(inv, trader, client.world));
+            return true;
+        } catch (Throwable t) { skip("open merchant", t); return false; }
+    }
+
+    /** 1.13.2: {@code Screen.mouseScrolled(double)} has no pointer - park the virtual cursor there first; a settings
+     *  page takes its wheel through {@code SettingsShell.wheel} (what the Mouse hook does for a real wheel). */
+    static boolean wheel(MinecraftClient client, double x, double y, double amount) {
+        setMouseGui(client, x, y);
+        Screen s = client.currentScreen;
+        if (s == null) return false;
+        if (dev.s1mp1e.client.gui.SettingsShell.handles(s)
+                && dev.s1mp1e.client.gui.SettingsShell.wheel(s, x, y, amount)) return true;
+        return s.mouseScrolled(amount);
+    }
+
+    // ---- (D) clicks: at rest AND mid-glide on creative / stonecutter / loom / merchant ----
+
+    private static void clickLog(String label, boolean ok, String detail) {
+        if (ok) clkPass++; else clkFail++;
+        System.out.println("[S1mp1e][DevShot][CLICKS] " + label + " " + detail + " -> " + (ok ? "PASS" : "FAIL"));
+    }
+
+    private static boolean glideFlag(Screen s) {
+        if (s instanceof dev.s1mp1e.client.gui.GlassGlideHost) return ((dev.s1mp1e.client.gui.GlassGlideHost) s).s1mp1e$gliding();
+        return s != null && getZ(s, s.getClass(), "s1mp1e$sliding");
+    }
+
+    /** Creative grid slot {@code index}: the picked cursor stack must be the item in that (row-aligned) slot; mid-glide
+     *  the glide must have been active and the click must have snapped it to rest first. */
+    private static void clickCreative(MinecraftClient client, Screen s, int index, String label, boolean midGlide) {
+        try {
+            net.minecraft.client.gui.screen.ingame.HandledScreen hs = (net.minecraft.client.gui.screen.ingame.HandledScreen) s;
+            net.minecraft.inventory.slot.Slot slot = hs.screenHandler.slots.get(index);
+            net.minecraft.item.Item expected = slot.getStack().getItem();
+            int[] o = origin(s);
+            double mx = o[0] + slot.x + 8, my = o[1] + slot.y + 8;
+            boolean before = glideFlag(s);
+            setMouseGui(client, mx, my);
+            hs.mouseClicked(mx, my, 0);
+            boolean after = glideFlag(s);
+            ItemStack cur = client.player.inventory.getCursorStack();
+            boolean ok = !cur.isEmpty() && cur.getItem() == expected && expected != Items.AIR
+                    && (!midGlide || (before && !after));
+            clickLog("creative/" + label, ok, "slot " + index + " expected=" + Registry.ITEM.getId(expected)
+                    + " got=" + Registry.ITEM.getId(cur.getItem()) + " glideBefore=" + before + " glideAfter=" + after);
+            client.player.inventory.setCursorStack(ItemStack.EMPTY);
+        } catch (Throwable t) { clickLog("creative/" + label, false, "error " + t); }
+    }
+
+    /** Sub-stages: 0-3 creative (rest / mid-glide / edge), then the report (1.13.2: no stonecutter / loom / trade list). */
+    private static void stepClicks(MinecraftClient client) {
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
+        Screen s = client.currentScreen;
+        s1mp1e$subF++;
+        switch (s1mp1e$sub) {
+            case 0:
+                if (s1mp1e$subF == 1) { clkPass = 0; clkFail = 0; close(client); }
+                if (creativeOn(client, 0)) subGo(1);                       // BUILDING_BLOCKS (scrolls)
+                else if (s1mp1e$subF > WAIT_SCREEN_CAP) { skip("clicks: creative", new IllegalStateException("no creative")); subGo(13); }
+                return;
+            case 1:                                                        // creative at REST
+                if (s1mp1e$subF == 1) setCreativeScroll(s, 0f);
+                if (!settled(700)) return;
+                clickCreative(client, s, 22, "rest", false);
+                subGo(2);
+                return;
+            case 2:                                                        // creative MID-GLIDE (one wheel step)
+                if (s1mp1e$subF == 8) {
+                    int[] o = origin(s);
+                    setMouseGui(client, o[0] + 90, o[1] + 60);
+                    wheel(client, o[0] + 90, o[1] + 60, -1.0);
+                }
+                if (s1mp1e$subF == 10) clickCreative(client, s, 22, "mid-glide", true);
+                if (s1mp1e$subF == 11) capture(client, "clicks-creative.png");
+                if (s1mp1e$subF > 30) { setCreativeScroll(s, 0f); subGo(3); }
+                return;
+            case 3:                                                        // creative EDGE cell (first grid slot) at rest
+                if (!settled(600)) return;
+                clickCreative(client, s, 0, "edge", false);
+                close(client);
+                subGo(13);
+                return;
+            default:
+                System.out.println("[S1mp1e][DevShot][CLICKS] " + clkPass + " PASS / " + clkFail + " FAIL");
+                close(client);
+                subGo(0);
+                goPhase(P_TABS);
+        }
+    }
+
+    // ---- (B) fused creative tabs: slide within a row, cross-fade across rows, hover pill glide ----
+
+    private static void stepTabs(MinecraftClient client) {
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
+        Screen s = client.currentScreen;
+        s1mp1e$subF++;
+        switch (s1mp1e$sub) {
+            case 0:
+                setMouseGui(client, 4, 4);
+                if (creativeOn(client, 0)) subGo(1);                       // BUILDING_BLOCKS = top row, cell 0
+                else if (s1mp1e$subF > WAIT_SCREEN_CAP) { skip("tabs: creative", new IllegalStateException("no creative")); subGo(9); }
+                return;
+            case 1:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "tabs-a.png");
+                selectCreativeTab(client, 3);                              // TRANSPORTATION = top row, cell 3
+                subGo(2);
+                return;
+            case 2:                                                        // SLIDE within the top row
+                setMouseGui(client, 4, 4);
+                if (s1mp1e$subF <= 6) { capture(client, String.format("tabs-slide-%02d.png", s1mp1e$subF - 1)); return; }
+                if (!settled(600)) return;
+                capture(client, "tabs-slide-rest.png");
+                selectCreativeTab(client, 7);                              // FOOD = bottom row, cell 1 -> row switch
+                subGo(3);
+                return;
+            case 3:                                                        // CROSS-FADE across rows
+                setMouseGui(client, 4, 4);
+                if (s1mp1e$subF <= 6) { capture(client, String.format("tabs-cross-%02d.png", s1mp1e$subF - 1)); return; }
+                if (!settled(600)) return;
+                capture(client, "tabs-cross-rest.png");
+                subGo(4);
+                return;
+            case 4: {                                                      // HOVER an unselected top cell -> pill fades in
+                double[] c = tabCell(s, 1, true);
+                setMouseGui(client, c[0], c[1]);
+                if (s1mp1e$subF >= 2 && s1mp1e$subF <= 5) { capture(client, String.format("tabs-hover-%02d.png", s1mp1e$subF - 2)); return; }
+                if (!settled(600)) return;
+                capture(client, "tabs-hover.png");
+                subGo(5);
+                return;
+            }
+            case 5: {                                                      // hover GLIDES to another cell
+                double[] c = tabCell(s, 4, true);
+                setMouseGui(client, c[0], c[1]);
+                if (s1mp1e$subF >= 2 && s1mp1e$subF <= 6) { capture(client, String.format("tabs-hoverglide-%02d.png", s1mp1e$subF - 2)); return; }
+                if (!settled(600)) return;
+                subGo(6);
+                return;
+            }
+            case 6:                                                        // hover OUT -> pill fades out (150 ms)
+                setMouseGui(client, 4, 4);
+                if (s1mp1e$subF < 2) return;
+                if (s1mp1e$subF >= 2 && s1mp1e$subF <= 4) { capture(client, String.format("tabs-hoverout-%02d.png", s1mp1e$subF - 2)); return; }
+                subGo(9);
+                return;
+            default:
+                selectCreativeTab(client, 0);
+                close(client);
+                subGo(0);
+                goPhase(P_LENS);
+        }
+    }
+
+    // ---- (C) vertical glass scrollbar: rest / mid / held lens / 1:1 drag / rubber band / release ----
+
+    private static void stepLens(MinecraftClient client) {
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
+        Screen s = client.currentScreen;
+        s1mp1e$subF++;
+        switch (s1mp1e$sub) {
+            case 0:
+                setMouseGui(client, 4, 4);
+                if (creativeOn(client, 0)) { setCreativeScroll(client.currentScreen, 0.35f); subGo(1); }
+                else if (s1mp1e$subF > WAIT_SCREEN_CAP) { skip("lens: creative", new IllegalStateException("no creative")); subGo(9); }
+                return;
+            case 1:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "scroll-mid.png");                         // white capsule thumb at rest, mid-track
+                {
+                    double[] th = creativeThumb(s);
+                    s1mp1e$mx = th[0]; s1mp1e$my = th[1];
+                    setMouseGui(client, s1mp1e$mx, s1mp1e$my);
+                    s.mouseClicked(s1mp1e$mx, s1mp1e$my, 0);               // press the thumb -> scrolling = true
+                }
+                subGo(2);
+                return;
+            case 2:                                                        // PRESS: pill morphs into the glass lens
+                setMouseGui(client, s1mp1e$mx, s1mp1e$my);
+                if (s1mp1e$subF <= 4) { capture(client, String.format("scroll-press-%02d.png", s1mp1e$subF - 1)); return; }
+                if (!settled(500)) return;
+                capture(client, "scroll-held.png");
+                subGo(3);
+                return;
+            case 3:                                                        // DRAG 1:1 (lens stretches with speed)
+                if (s1mp1e$subF <= 6) {
+                    s1mp1e$my += 6;
+                    setMouseGui(client, s1mp1e$mx, s1mp1e$my);
+                    s.mouseDragged(s1mp1e$mx, s1mp1e$my, 0, 0, 6);
+                    capture(client, String.format("scroll-drag-%02d.png", s1mp1e$subF - 1));
+                    return;
+                }
+                subGo(4);
+                return;
+            case 4: {                                                      // RUBBER BAND past the end of the track
+                int[] o = origin(s);
+                // Pointer below the track end; x moved just right of the panel so neither the drag nor the release
+                // lands on a fused tab cell (a release over a tab selects it in vanilla). The vertical bar ignores x.
+                s1mp1e$mx = o[0] + o[2] + 12;
+                s1mp1e$my = o[1] + 18 + 112 + 28;
+                setMouseGui(client, s1mp1e$mx, s1mp1e$my);
+                if (s1mp1e$subF == 1) s.mouseDragged(s1mp1e$mx, s1mp1e$my, 0, 0, 20);
+                if (!settled(400)) return;
+                capture(client, "scroll-rubber.png");
+                s.mouseReleased(s1mp1e$mx, s1mp1e$my, 0);                  // RELEASE -> lens back to pill, settle
+                subGo(5);
+                return;
+            }
+            case 5:
+                setMouseGui(client, s1mp1e$mx, s1mp1e$my);
+                if (s1mp1e$subF <= 4) { capture(client, String.format("scroll-release-%02d.png", s1mp1e$subF - 1)); return; }
+                if (!settled(700)) return;
+                capture(client, "scroll-settled.png");
+                subGo(9);
+                return;
+            default:
+                if (s instanceof CreativeInventoryScreen) setCreativeScroll(s, 0f);
+                close(client);
+                subGo(0);
+                goPhase(P_TIP_SCROLL);
+        }
+    }
+
+    // ---- (E / R1) tooltip card over the glass scrollbar, and across the middle of the effect strip ----
+
+    private static void stepTipScroll(MinecraftClient client) {
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
+        s1mp1e$subF++;
+        if (s1mp1e$sub == 0) {
+            setMouseGui(client, 4, 4);
+            if (creativeOn(client, 0)) { setCreativeScroll(client.currentScreen, 0f); subGo(1); }
+            else if (s1mp1e$subF > WAIT_SCREEN_CAP) { skip("tip scroll: creative", new IllegalStateException("no creative")); subGo(2); }
+            return;
+        }
+        if (s1mp1e$sub == 1) {
+            // grid row 0, col 8 (right edge): the card opens to the right, straight over the glass scrollbar thumb.
+            hoverSlot(client, 9 + 8 * 18 + 8, 18 + 8);
+            if (!settled(TIP_SETTLE_MS)) return;
+            capture(client, "tooltip-scrollbar.png");
+            subGo(2);
+            return;
+        }
+        close(client);
+        subGo(0);
+        goPhase(P_TIP_STRIP);
+    }
+
+    private static void stepTipStrip(MinecraftClient client) {
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
+        s1mp1e$subF++;
+        if (s1mp1e$sub == 0) {
+            gameMode(client, GameMode.SURVIVAL);
+            boolean survival = false;
+            try { survival = client.interactionManager.method_9667() == GameMode.SURVIVAL; } catch (Throwable ignored) {}
+            if (!(survival && settled(300)) && s1mp1e$subF < CREATIVE_PREP_CAP) return;
+            giveEffects(client);
+            try {
+                // main-inventory rows 0-1 full of counted stacks (count digits under the card) + a long-named item at
+                // the right end of row 0 whose card flips LEFT across the items AND the middle of the effect strip.
+                for (int i = 9; i < 27; i++) {
+                    if (i == 17) continue;
+                    client.player.inventory.setInvStack(i, new ItemStack(i % 3 == 0 ? Blocks.COBBLESTONE
+                            : (i % 3 == 1 ? Blocks.OAK_PLANKS : Blocks.TORCH), 5 + (i * 7) % 59));
+                }
+                ItemStack longName = new ItemStack(Items.NETHER_STAR, 7);
+                longName.setCustomName(new LiteralText("左右都要一樣 Liquid Glass Tooltip Across The Middle Of The Effect Strip"));
+                client.player.inventory.setInvStack(17, longName);
+            } catch (Throwable t) { skip("tip strip items", t); }
+            open(client, new SurvivalInventoryScreen(client.player), "open inventory (tip strip)");
+            subGo(1);
+            return;
+        }
+        if (s1mp1e$sub == 1) {
+            if (!(client.currentScreen instanceof SurvivalInventoryScreen)) {
+                if (s1mp1e$subF > WAIT_SCREEN_CAP) { skip("tip strip inventory", new IllegalStateException("no inventory")); subGo(2); }
+                return;
+            }
+            hoverSlot(client, 8 + 8 * 18 + 8, 84 + 8);                   // main inventory row 0, col 8
+            if (!settled(TIP_SETTLE_MS)) return;
+            capture(client, "tooltip-strip.png");
+            subGo(2);
+            return;
+        }
+        close(client);
+        try { for (int i = 9; i < 27; i++) client.player.inventory.setInvStack(i, ItemStack.EMPTY); } catch (Throwable ignored) {}
+        subGo(0);
+        goPhase(P_SCREENS);
+    }
+
+    // ---- (A) advancements / statistics / book / book-edit / lectern / death / anvil ----
+
+    private static ItemStack writtenBook() {
+        ItemStack book = new ItemStack(Items.WRITTEN_BOOK);
+        net.minecraft.nbt.NbtCompound tag = book.getOrCreateNbt();
+        tag.putString("title", "Liquid Glass");
+        tag.putString("author", "S1mp1e");
+        tag.putBoolean("resolved", true);
+        net.minecraft.nbt.NbtList pages = new net.minecraft.nbt.NbtList();
+        pages.add(new net.minecraft.nbt.NbtString("{\"text\":\"The page is a frosted glass plate under a light "
+                + "parchment scrim, so this dark ink stays perfectly readable.\\n\\nThe world still refracts through "
+                + "the glass frame around the page.\"}"));
+        pages.add(new net.minecraft.nbt.NbtString("{\"text\":\"Page two.\"}"));
+        tag.put("pages", pages);
+        return book;
+    }
+
+    private static ItemStack writableBook() {
+        ItemStack book = new ItemStack(Items.WRITABLE_BOOK);
+        net.minecraft.nbt.NbtList pages = new net.minecraft.nbt.NbtList();
+        pages.add(new net.minecraft.nbt.NbtString("Book & quill on liquid glass: the parchment scrim keeps the "
+                + "editable text dark and readable."));
+        book.getOrCreateNbt().put("pages", pages);
+        return book;
+    }
+
+    private static void stepScreens(MinecraftClient client) {
+        try { client.method_14462().method_14489(); } catch (Throwable ignored) {}
+        Screen s = client.currentScreen;
+        s1mp1e$subF++;
+        switch (s1mp1e$sub) {
+            case 0:
+                close(client);
+                gameMode(client, GameMode.SURVIVAL);
+                setMouseGui(client, 4, 4);
+                runCmd(client, "gamerule sendCommandFeedback false");
+                runCmd(client, "gamerule announceAdvancements false");
+                runCmd(client, "advancement grant @p only minecraft:story/root");
+                runCmd(client, "advancement grant @p only minecraft:story/mine_stone");
+                runCmd(client, "advancement grant @p only minecraft:story/upgrade_tools");
+                try { client.inGameHud.getChatHud().clear(false); } catch (Throwable ignored) {}
+                subGo(1);
+                return;
+            case 1:
+                if (!settled(600)) return;
+                open(client, new net.minecraft.client.gui.screen.AdvancementsScreen(
+                        client.player.networkHandler.method_14672()), "open advancements");
+                subGo(2);
+                return;
+            case 2:
+                setMouseGui(client, 4, 4);
+                if (!burstRunning && !settled(1300)) return;
+                if (!shot(client, "advancements")) return;                      // A: tree framed in glass, wooden frame gone
+                open(client, new net.minecraft.client.gui.screen.StatsScreen(null, client.player.getStatHandler()),
+                        "open statistics");
+                subGo(3);
+                return;
+            case 3:
+                setMouseGui(client, 4, 4);
+                if (!burstRunning && !settled(1600)) return;
+                if (!shot(client, "stats")) return;                             // A: full glass plate + grey scrim
+                try {
+                    net.minecraft.client.gui.widget.ListWidget list = (net.minecraft.client.gui.widget.ListWidget)
+                            fld(net.minecraft.client.gui.screen.StatsScreen.class, "activeList").get(s);
+                    if (list != null) list.scroll(57);
+                } catch (Throwable t) { skip("scroll stats", t); }
+                subGo(4);
+                return;
+            case 4:
+                setMouseGui(client, 4, 4);
+                if (!settled(500)) return;
+                capture(client, "stats-scrolled.png");                    // rows masked cleanly at the header band
+                try {
+                    Object items = fld(net.minecraft.client.gui.screen.StatsScreen.class, "itemStats").get(s);
+                    fld(net.minecraft.client.gui.screen.StatsScreen.class, "activeList").set(s, items);
+                } catch (Throwable t) { skip("stats item list", t); }
+                subGo(5);
+                return;
+            case 5:
+                setMouseGui(client, 4, 4);
+                if (!settled(700)) return;
+                capture(client, "stats-items.png");
+                open(client, new net.minecraft.client.gui.screen.ingame.BookEditScreen(client.player, writtenBook(), false,
+                        net.minecraft.util.Hand.MAIN_HAND), "open book");
+                subGo(6);
+                return;
+            case 6:
+                setMouseGui(client, 4, 4);
+                if (!burstRunning && !settled(900)) return;
+                if (!shot(client, "book")) return;                              // A: glass page + light parchment scrim
+                open(client, new net.minecraft.client.gui.screen.ingame.BookEditScreen(client.player, writableBook(), true,
+                        net.minecraft.util.Hand.MAIN_HAND), "open book edit");
+                subGo(7);
+                return;
+            case 7:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "book-edit.png");
+                // 1.13.2: no lectern (1.14)
+                subGo(8);
+                return;
+            case 8:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                open(client, new net.minecraft.client.gui.screen.DeathScreen(new LiteralText("S1mp1e fell")),
+                        "open death screen");
+                subGo(9);
+                return;
+            case 9:
+                setMouseGui(client, 4, 4);
+                if (!settled(1500)) return;
+                capture(client, "death.png");                             // no new panel: red vignette + glass buttons
+                try {
+                    net.minecraft.client.gui.screen.ingame.AnvilScreen as =
+                            new net.minecraft.client.gui.screen.ingame.AnvilScreen(client.player.inventory, client.world);
+                    client.setScreen(as);
+                    as.screenHandler.getSlot(0).setStack(new ItemStack(Blocks.STONE));   // input, no output
+                } catch (Throwable t) { skip("open anvil", t); }
+                subGo(10);
+                return;
+            case 10:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "anvil.png");                             // shared body-blit glass: name field + error X kept
+                openFurnace(client);
+                subGo(11);
+                return;
+            case 11:
+                setMouseGui(client, 4, 4);
+                if (!burstRunning && !settled(900)) return;
+                if (!shot(client, "furnace")) return;                           // flame + progress arrow survive on the glass
+                openBrewing(client);
+                subGo(12);
+                return;
+            case 12:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "brewing.png");                           // fuel bar, bubbles, progress kept
+                openEnchanting(client);
+                subGo(13);
+                return;
+            case 13:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "enchanting.png");                        // book model + 3 option buttons kept
+                openChest(client);
+                subGo(14);
+                return;
+            case 14:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "chest6.png");                            // two-strip body -> ONE glass panel
+                // 1.13.2: no grindstone (1.14)
+                subGo(15);
+                return;
+            case 15:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                openBeacon(client);
+                subGo(16);
+                return;
+            case 16:
+                setMouseGui(client, 4, 4);
+                if (!settled(900)) return;
+                capture(client, "beacon.png");                            // payment item icons + power buttons kept
+                subGo(17);
+                return;
+            default:
+                close(client);
+                subGo(0);
+                goPhase(P_HUD_PREP);
+        }
+    }
+
+    // ---- 1.13.2 container staging: the screens take (player inventory, a client-side inventory with properties) ----
+
+    static net.minecraft.inventory.ClientNetworkSyncedInventory syncedInv(String id, String name, int size) {
+        return new net.minecraft.inventory.ClientNetworkSyncedInventory(id, new LiteralText(name), size);
+    }
+
+    static boolean openFurnace(MinecraftClient client) {
+        try {
+            net.minecraft.inventory.ClientNetworkSyncedInventory fi = syncedInv("minecraft:furnace", "Furnace", 3);
+            fi.setProperty(0, 800); fi.setProperty(1, 1600);    // burning: flame half full
+            fi.setProperty(2, 110); fi.setProperty(3, 200);     // cooking: arrow ~half
+            fi.setInvStack(0, new ItemStack(Blocks.IRON_ORE, 12));
+            fi.setInvStack(1, new ItemStack(Items.COAL, 5));
+            client.setScreen(new net.minecraft.client.gui.screen.ingame.FurnaceScreen(client.player.inventory, fi));
+            return true;
+        } catch (Throwable t) { skip("open furnace", t); return false; }
+    }
+
+    static boolean openBrewing(MinecraftClient client) {
+        try {
+            net.minecraft.inventory.ClientNetworkSyncedInventory bi = syncedInv("minecraft:brewing_stand", "Brewing Stand", 5);
+            bi.setProperty(0, 150); bi.setProperty(1, 14);       // brewing progress + fuel
+            bi.setInvStack(3, new ItemStack(Items.NETHER_WART));
+            bi.setInvStack(4, new ItemStack(Items.BLAZE_POWDER, 3));
+            client.setScreen(new net.minecraft.client.gui.screen.ingame.BrewingStandScreen(client.player.inventory, bi));
+            return true;
+        } catch (Throwable t) { skip("open brewing", t); return false; }
+    }
+
+    static boolean openEnchanting(MinecraftClient client) {
+        try {
+            net.minecraft.client.gui.screen.ingame.EnchantingScreen es = new net.minecraft.client.gui.screen.ingame.EnchantingScreen(
+                    client.player.inventory, client.world,
+                    new net.minecraft.client.world.BlockCommunicationNameable("minecraft:enchanting_table", new LiteralText("Enchant")));
+            client.setScreen(es);
+            net.minecraft.screen.ScreenHandler eh = es.screenHandler;
+            eh.getSlot(0).setStack(new ItemStack(Items.DIAMOND_SWORD));
+            eh.getSlot(1).setStack(new ItemStack(Items.LAPIS_LAZULI, 9));
+            int sharp = Registry.ENCHANTMENT.getRawId(net.minecraft.enchantment.Enchantments.SHARPNESS);
+            eh.setProperty(0, 5); eh.setProperty(1, 15); eh.setProperty(2, 30);
+            eh.setProperty(4, sharp); eh.setProperty(5, sharp); eh.setProperty(6, sharp);
+            eh.setProperty(7, 1); eh.setProperty(8, 2); eh.setProperty(9, 4);
+            return true;
+        } catch (Throwable t) { skip("open enchanting", t); return false; }
+    }
+
+    static boolean openChest(MinecraftClient client) {
+        try {
+            net.minecraft.inventory.SimpleInventory ci = new net.minecraft.inventory.SimpleInventory(new LiteralText("Large Chest"), 54);
+            for (int i = 0; i < 54; i += 5) ci.setInvStack(i, new ItemStack(i % 2 == 0 ? Items.GOLD_INGOT : Blocks.OAK_LOG.getItem(), 1 + i));
+            client.setScreen(new net.minecraft.client.gui.screen.ingame.ChestScreen(client.player.inventory, ci));
+            return true;
+        } catch (Throwable t) { skip("open chest", t); return false; }
+    }
+
+    static boolean openBeacon(MinecraftClient client) {
+        try {
+            net.minecraft.inventory.ClientNetworkSyncedInventory bi = syncedInv("minecraft:beacon", "Beacon", 1);
+            bi.setProperty(0, 4);                                  // pyramid levels -> power buttons active
+            client.setScreen(new net.minecraft.client.gui.screen.ingame.BeaconScreen(client.player.inventory, bi));
+            return true;
+        } catch (Throwable t) { skip("open beacon", t); return false; }
+    }
+
+    // ---- BATCH-B stage 3: HUD overlays (G) + modules (H) ------------------
+
+    // Module state snapshot so the H sweep restores everything (nothing is ever written to disk).
+    private static boolean s1mp1e$modSnapTaken;
+    private static boolean s1mp1e$boEnabled, s1mp1e$chEnabled, s1mp1e$fpsEnabled, s1mp1e$coordEnabled, s1mp1e$ksEnabled;
+    private static double  s1mp1e$boWidth, s1mp1e$chWave;
+    private static int     s1mp1e$boColour, s1mp1e$boFillColour;
+    private static boolean s1mp1e$boChroma, s1mp1e$boFill, s1mp1e$chAccents;
+
+    /** Run a server command as the integrated-server source (permission 4). No-op if there is no server. */
+    private static void runCmd(MinecraftClient client, String cmd) {
+        try {
+            net.minecraft.server.MinecraftServer server = client.getServer();
+            if (server == null) return;
+            server.method_2971().method_17519(server.method_20330(), cmd);
+        } catch (Throwable t) {
+            skip("command: " + cmd, t);
+        }
+    }
+
+    private static dev.s1mp1e.client.Module mod(String name) {
+        return dev.s1mp1e.client.ModuleManager.byName(name);
+    }
+
+    private static void setModEnabled(String name, boolean on) {
+        try { dev.s1mp1e.client.Module m = mod(name); if (m != null) m.setEnabled(on); }
+        catch (Throwable t) { skip("enable " + name, t); }
+    }
+
+    private static void setD(String modName, String settingName, double v) {
+        try {
+            dev.s1mp1e.client.Module m = mod(modName);
+            if (m != null) { dev.s1mp1e.client.Setting s = m.setting(settingName); if (s != null) s.doubleValue = v; }
+        } catch (Throwable t) { skip("set " + modName + "." + settingName, t); }
+    }
+
+    private static void setB(String modName, String settingName, boolean v) {
+        try {
+            dev.s1mp1e.client.Module m = mod(modName);
+            if (m != null) { dev.s1mp1e.client.Setting s = m.setting(settingName); if (s != null) s.boolValue = v; }
+        } catch (Throwable t) { skip("set " + modName + "." + settingName, t); }
+    }
+
+    private static void setC(String modName, String settingName, int argb) {
+        try {
+            dev.s1mp1e.client.Module m = mod(modName);
+            if (m != null) { dev.s1mp1e.client.Setting s = m.setting(settingName); if (s != null) s.colorValue = argb; }
+        } catch (Throwable t) { skip("set " + modName + "." + settingName, t); }
+    }
+
+    /** Face the player level (yaw 0 = south / +Z) so a summoned name tag and a targeted block sit ahead. */
+    private static void faceLevel(MinecraftClient client, float pitch) {
+        try {
+            ClientPlayerEntity cp = client.player;
+            cp.yaw = 0f; cp.prevYaw = 0f; cp.setHeadYaw(0f); cp.setYaw(0f);
+            cp.pitch = pitch; cp.prevPitch = pitch;
+        } catch (Throwable t) { skip("face level", t); }
+    }
+
+    // ---- G: HUD overlays (chat + bossbar + action bar + name tag + toast in one world frame) ----
+
+    private static void stepHudPrep(MinecraftClient client) {
+        close(client);
+        // Clear any leftover container close-ghost (from the just-closed merchant) so the world HUD scenes are clean.
+        try { dev.s1mp1e.glass.render.PanelGhost.cancel(); } catch (Throwable ignored) {}
+        faceLevel(client, 0f);
+        // Keep command feedback OUT of chat so the chat panel shows only our own lines (not a flood of
+        // "displayed action bar" server-feedback messages).
+        runCmd(client, "gamerule sendCommandFeedback false");
+        // Chat panel (G1): several lines of varying width so the panel hugs the widest.
+        try {
+            ChatHud chat = client.inGameHud.getChatHud();
+            chat.addMessage(new LiteralText("[S1mp1e] Liquid glass HUD online."));
+            chat.addMessage(new LiteralText("<Steve> the chat panel hugs the widest line"));
+            chat.addMessage(new LiteralText("<Alex> nice frosted glass"));
+            chat.addMessage(new LiteralText("[Server] boss bar + action bar + toasts too"));
+            chat.addMessage(new LiteralText("gg"));
+        } catch (Throwable t) { skip("add chat messages", t); }
+        // Boss bar (G3): a purple bar at ~62%.
+        runCmd(client, "bossbar add s1mp1e:demo {\"text\":\"Ender Dragon\"}");
+        runCmd(client, "bossbar set s1mp1e:demo color purple");
+        runCmd(client, "bossbar set s1mp1e:demo max 100");
+        runCmd(client, "bossbar set s1mp1e:demo value 62");
+        runCmd(client, "bossbar set s1mp1e:demo players @a");
+        runCmd(client, "bossbar set s1mp1e:demo visible true");
+        // Name tag (G6): an armor stand ahead of the player.
+        runCmd(client, "execute at @p run summon armor_stand ~ ~ ~4 "
+                + "{CustomName:\"{\\\"text\\\":\\\"S1mp1e Player\\\"}\",CustomNameVisible:1b,NoGravity:1b}");   // 1.13.2 SNBT: no '..' strings
+        // Toast (G4): a system toast card (SystemToastGlassMixin path).
+        try {
+            net.minecraft.class_3260.method_14484(client.method_14462(), net.minecraft.class_3260.class_3261.NARRATOR_TOGGLE,
+                    new LiteralText("Advancement Made!"), new LiteralText("Liquid Glass"));   // 1.13.2 SystemToast
+        } catch (Throwable t) { skip("system toast", t); }
+        // Action bar (G5): issued once — it stays for ~3 s (60 ticks), well past the settle+capture.
+        runCmd(client, "title @a actionbar {\"text\":\"Picked up: Diamond x8\",\"color\":\"aqua\"}");
+        goPhase(P_HUD);
+    }
+
+    private static void stepHud(MinecraftClient client) {
+        // Keep the just-closed merchant's fading close-ghost cleared every frame (harness switches screens fast).
+        try { dev.s1mp1e.glass.render.PanelGhost.cancel(); } catch (Throwable ignored) {}
+        if (burstRunning) { if (!afterMain(client, "hud")) return; }   // R4: HUD-glass flicker burst
+        else {
+            if (!settled(700)) return;
+            capture(client, "hud.png");   // G: chat panel + boss bar + action bar + name tag + toast, all glass
+            if (!afterMain(client, "hud")) return;
+        }
+        goPhase(P_HUD_CHATIN_PREP);
+    }
+
+    private static void stepHudChatInPrep(MinecraftClient client) {
+        try { client.setScreen(new ChatScreen("")); } catch (Throwable t) { skip("open chat input", t); }
+        goPhase(P_HUD_CHATIN);
+    }
+
+    private static void stepHudChatIn(MinecraftClient client) {
+        try { dev.s1mp1e.glass.render.PanelGhost.cancel(); } catch (Throwable ignored) {}
+        if (!(client.currentScreen instanceof ChatScreen)) { goPhase(P_HUD_TAB_PREP); return; }
+        if (!settled(500)) return;
+        capture(client, "hud-chatinput.png");   // G1: glass input bar + focused chat panel
+        close(client);
+        goPhase(P_HUD_TAB_PREP);
+    }
+
+    private static void stepHudTabPrep(MinecraftClient client) {
+        close(client);
+        // A list-slot objective makes the tab list render even in a 1-player singleplayer world.
+        runCmd(client, "scoreboard objectives add s1mp1e_tl dummy \"Score\"");
+        runCmd(client, "scoreboard objectives setdisplay list s1mp1e_tl");
+        runCmd(client, "scoreboard players set @p s1mp1e_tl 42");
+        goPhase(P_HUD_TAB);
+    }
+
+    private static void stepHudTab(MinecraftClient client) {
+        try { dev.s1mp1e.glass.render.PanelGhost.cancel(); } catch (Throwable ignored) {}
+        try { pressKey(client.options.playerListKey, true); } catch (Throwable ignored) {}
+        if (!settled(500)) return;
+        capture(client, "hud-tablist.png");   // G2: glass header/list plates + softened row stripes
+        try { pressKey(client.options.playerListKey, false); } catch (Throwable ignored) {}
+        runCmd(client, "scoreboard objectives remove s1mp1e_tl");
+        runCmd(client, "bossbar remove s1mp1e:demo");
+        goPhase(P_MOD_PREP);
+    }
+
+    // ---- H: modules (Block Outline width/chroma/fill + Chroma HUD per-char/flat + config) ----
+
+    private static void snapshotModules() {
+        if (s1mp1e$modSnapTaken) return;
+        s1mp1e$modSnapTaken = true;
+        try {
+            dev.s1mp1e.client.Module bo = mod("BlockOutline"), ch = mod("ChromaHud");
+            dev.s1mp1e.client.Module fps = mod("FpsHUD"), co = mod("CoordsHUD"), ks = mod("Keystrokes");
+            s1mp1e$boEnabled = bo != null && bo.enabled;
+            s1mp1e$chEnabled = ch != null && ch.enabled;
+            s1mp1e$fpsEnabled = fps != null && fps.enabled;
+            s1mp1e$coordEnabled = co != null && co.enabled;
+            s1mp1e$ksEnabled = ks != null && ks.enabled;
+            if (bo != null) {
+                s1mp1e$boWidth = bo.setting("Line width").doubleValue;
+                s1mp1e$boColour = bo.setting("Colour").colorValue;
+                s1mp1e$boFillColour = bo.setting("Fill colour").colorValue;
+                s1mp1e$boChroma = bo.setting("Chroma").boolValue;
+                s1mp1e$boFill = bo.setting("Fill").boolValue;
+            }
+            if (ch != null) {
+                s1mp1e$chWave = ch.setting("Wave").doubleValue;
+                s1mp1e$chAccents = ch.setting("Accents").boolValue;
+            }
+        } catch (Throwable t) { skip("module snapshot", t); }
+    }
+
+    private static void stepModPrep(MinecraftClient client) {
+        close(client);
+        snapshotModules();
+        // A flat WHITE quartz floor ahead (air above it) so the targeted block contrasts with every outline colour and
+        // the translucent fill reads unambiguously (the forest grass made a green fill on green grass hard to confirm).
+        runCmd(client, "gamerule sendCommandFeedback false");
+        runCmd(client, "execute at @p run fill ~-3 ~ ~-1 ~3 ~3 ~5 minecraft:air");
+        runCmd(client, "execute at @p run fill ~-3 ~-1 ~-1 ~3 ~-1 ~5 minecraft:quartz_block");
+        faceLevel(client, 72f);   // look down-forward at a ground block so the outline always has a target
+        setModEnabled("BlockOutline", true);
+        setD("BlockOutline", "Line width", 8.0);
+        setC("BlockOutline", "Colour", 0xFF32FF96);   // bright green, custom (not vanilla black)
+        setB("BlockOutline", "Chroma", false);
+        setB("BlockOutline", "Fill", false);
+        goPhase(P_MOD_OUTLINE8);
+    }
+
+    private static void stepModOutline8(MinecraftClient client) {
+        if (!settled(600)) return;
+        capture(client, "outline-w8.png");            // H1: thick (8 px) custom-colour outline
+        setD("BlockOutline", "Line width", 1.0);
+        goPhase(P_MOD_OUTLINE1);
+    }
+
+    private static void stepModOutline1(MinecraftClient client) {
+        if (!settled(400)) return;
+        capture(client, "outline-w1.png");            // H1: thin (1 px) outline — proves the width setting
+        setB("BlockOutline", "Chroma", true);
+        goPhase(P_MOD_CHROMA_A);
+    }
+
+    private static void stepModChromaA(MinecraftClient client) {
+        if (!settled(400)) return;
+        capture(client, "outline-chroma-a.png");      // H1: chroma outline frame A
+        goPhase(P_MOD_CHROMA_B);
+    }
+
+    private static void stepModChromaB(MinecraftClient client) {
+        if (!settled(300)) return;
+        capture(client, "outline-chroma-b.png");      // H1: chroma outline frame B (hue advanced vs A)
+        setB("BlockOutline", "Chroma", false);
+        setD("BlockOutline", "Line width", 2.5);
+        setB("BlockOutline", "Fill", true);
+        setC("BlockOutline", "Fill colour", 0x99FF30C0);   // magenta on the white quartz block: unmistakable
+        goPhase(P_MOD_FILL);
+    }
+
+    private static void stepModFill(MinecraftClient client) {
+        if (!settled(500)) return;
+        capture(client, "outline-fill.png");          // H1: translucent depth-tested fill of the targeted block
+        setModEnabled("BlockOutline", false);
+        goPhase(P_MOD_HUDCHROMA_PREP);
+    }
+
+    private static void stepModHudChromaPrep(MinecraftClient client) {
+        close(client);
+        faceLevel(client, 0f);
+        setModEnabled("FpsHUD", true);
+        setModEnabled("CoordsHUD", true);
+        setModEnabled("Keystrokes", true);
+        setModEnabled("ChromaHud", true);
+        setD("ChromaHud", "Speed", 1.0);
+        setD("ChromaHud", "Saturation", 0.85);
+        setD("ChromaHud", "Wave", 0.5);        // per-character diagonal sweep
+        setB("ChromaHud", "Accents", true);    // keystroke press highlight follows the chroma too
+        goPhase(P_MOD_HUDCHROMA_A);
+    }
+
+    private static void stepModHudChromaA(MinecraftClient client) {
+        if (!settled(500)) return;
+        capture(client, "hud-chroma-a.png");          // H2: per-char rainbow HUD text, frame A
+        goPhase(P_MOD_HUDCHROMA_B);
+    }
+
+    private static void stepModHudChromaB(MinecraftClient client) {
+        if (!settled(300)) return;
+        capture(client, "hud-chroma-b.png");          // H2: frame B (hues advanced vs A)
+        setD("ChromaHud", "Wave", 0.0);               // uniform hue per string
+        goPhase(P_MOD_HUDCHROMA_FLAT);
+    }
+
+    private static void stepModHudChromaFlat(MinecraftClient client) {
+        if (!settled(400)) return;
+        capture(client, "hud-chroma-flat.png");       // H2: wave 0 — one uniform cycling hue
+        goPhase(P_MOD_CONFIG_BO);
+    }
+
+    private static boolean s1mp1e$cfgOpened;
+
+    private static void stepModConfigBO(MinecraftClient client) {
+        // Open the config screen ONCE (re-opening every frame would reset its open-fade and leave the panel invisible),
+        // then let the fade settle before capturing.
+        if (!s1mp1e$cfgOpened) { openConfigOn(client, "Visual", "BlockOutline"); s1mp1e$cfgOpened = true; return; }
+        if (!settled(600)) return;
+        capture(client, "config-blockoutline.png");   // H: zh-TW labels (方塊外框 / 線寬 / 彩虹色 / 填充 ...)
+        s1mp1e$cfgOpened = false;
+        goPhase(P_MOD_CONFIG_CH);
+    }
+
+    private static void stepModConfigCH(MinecraftClient client) {
+        if (!s1mp1e$cfgOpened) { openConfigOn(client, "HUD", "ChromaHud"); s1mp1e$cfgOpened = true; return; }
+        if (!settled(600)) return;
+        capture(client, "config-chromahud.png");      // H: zh-TW labels (彩虹 HUD / 速度 / 飽和度 / 字元波動 ...)
+        s1mp1e$cfgOpened = false;
+        goPhase(P_MOD_RESTORE);
+    }
+
+    /** Open the config screen on a category tab with a module selected (reflection into the private screen state). */
+    private static void openConfigOn(MinecraftClient client, String category, String moduleName) {
+        try {
+            S1mp1eConfigScreen screen = new S1mp1eConfigScreen();
+            client.setScreen(screen);
+            String[] tabs = { "Combat", "HUD", "Visual" };
+            int idx = 0; for (int i = 0; i < tabs.length; i++) if (tabs[i].equals(category)) idx = i;
+            java.lang.reflect.Field tabF = S1mp1eConfigScreen.class.getDeclaredField("tab");
+            tabF.setAccessible(true); tabF.setInt(screen, idx);
+            java.lang.reflect.Method rebuild = S1mp1eConfigScreen.class.getDeclaredMethod("rebuildTab");
+            rebuild.setAccessible(true); rebuild.invoke(screen);
+            dev.s1mp1e.client.Module m = mod(moduleName);
+            if (m != null) {
+                java.lang.reflect.Method sel = S1mp1eConfigScreen.class.getDeclaredMethod("selectModule", dev.s1mp1e.client.Module.class);
+                sel.setAccessible(true); sel.invoke(screen, m);
+            }
+        } catch (Throwable t) { skip("open config on " + category + "/" + moduleName, t); }
+    }
+
+    private static void stepModRestore(MinecraftClient client) {
+        close(client);
+        // Restore every module value the H sweep changed (nothing was ever written to disk).
+        try {
+            if (mod("BlockOutline") != null) {
+                setD("BlockOutline", "Line width", s1mp1e$boWidth);
+                setC("BlockOutline", "Colour", s1mp1e$boColour);
+                setC("BlockOutline", "Fill colour", s1mp1e$boFillColour);
+                setB("BlockOutline", "Chroma", s1mp1e$boChroma);
+                setB("BlockOutline", "Fill", s1mp1e$boFill);
+                setModEnabled("BlockOutline", s1mp1e$boEnabled);
+            }
+            if (mod("ChromaHud") != null) {
+                setD("ChromaHud", "Wave", s1mp1e$chWave);
+                setB("ChromaHud", "Accents", s1mp1e$chAccents);
+                setModEnabled("ChromaHud", s1mp1e$chEnabled);
+            }
+            setModEnabled("FpsHUD", s1mp1e$fpsEnabled);
+            setModEnabled("CoordsHUD", s1mp1e$coordEnabled);
+            setModEnabled("Keystrokes", s1mp1e$ksEnabled);
+        } catch (Throwable t) { skip("module restore", t); }
+        goPhase(P_STOP);
     }
 
     private static void stepStop(MinecraftClient client) {
@@ -425,11 +1947,125 @@ public final class DevShot {
         phase = P_DONE;
     }
 
+    // ---- burst -------------------------------------------------------------
+
+    /**
+     * Called right after a scene's reference PNG. Returns {@code true} when the step may proceed to
+     * its transition (no burst, or the burst just finished); {@code false} while burst frames are
+     * still being captured (the caller must return and wait for the next rendered frame). Between two
+     * captured frames it lets {@link #burstGap} native frames run un-captured so the readback does
+     * not bias the flicker state. The scene must be held STATIC across the whole burst.
+     */
+    private static boolean afterMain(MinecraftClient client, String base) {
+        if (burstN <= 0) return true;
+        if (!burstRunning) {
+            burstRunning = true;
+            burstIdx = 0;
+            burstImgs  = new class_4277[burstN];
+            burstNames = new String[burstN];
+            burstNanos = new long[burstN];
+            System.out.println("[S1mp1e][DevShot] burst start '" + base + "' nativeFrame="
+                    + String.format("%.2f", medianDtMs()) + "ms (~" + fps(medianDtMs()) + " fps)");
+            grabBurst(client, base);
+            burstIdx = 1;
+            burstGapLeft = burstGap;
+            return burstIdx < burstN ? false : finishBurst(base);
+        }
+        if (burstGapLeft > 0) { burstGapLeft--; return false; }   // native (un-captured) frame
+        grabBurst(client, base);
+        burstIdx++;
+        burstGapLeft = burstGap;
+        return burstIdx < burstN ? false : finishBurst(base);
+    }
+
+    private static void grabBurst(MinecraftClient client, String base) {
+        try {
+            Framebuffer fb = client.getFramebuffer();
+            burstImgs[burstIdx] = ScreenshotUtils.method_18269(fb.textureWidth, fb.textureHeight, fb);
+            burstNames[burstIdx] = base + "_burst_" + String.format("%03d", burstIdx) + ".png";
+            burstNanos[burstIdx] = System.nanoTime();
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e][DevShot] burst grab failed " + base + " #" + burstIdx + ": " + t);
+            burstNames[burstIdx] = null;
+        }
+    }
+
+    private static boolean finishBurst(String base) {
+        StringBuilder sb = new StringBuilder("[S1mp1e][DevShot] burst '" + base + "' capture dt(ms):");
+        for (int i = 0; i < burstN; i++) {
+            class_4277 img = burstImgs[i];
+            if (img != null && burstNames[i] != null) {
+                try { img.method_19471(new File(outDir, burstNames[i])); }
+                catch (Throwable t) { System.out.println("[S1mp1e][DevShot] burst write failed " + burstNames[i] + ": " + t); }
+                finally { try { img.close(); } catch (Throwable ignored) {} }
+            }
+            if (i > 0 && burstNanos[i] > 0 && burstNanos[i - 1] > 0)
+                sb.append(' ').append(String.format("%.2f", (burstNanos[i] - burstNanos[i - 1]) / 1e6));
+        }
+        System.out.println(sb.toString());
+        System.out.println("[S1mp1e][DevShot] wrote " + burstN + " burst frames for '" + base + "' -> "
+                + outDir.getAbsolutePath());
+        burstImgs = null; burstNames = null; burstNanos = null;
+        burstRunning = false;
+        return true;
+    }
+
+    private static double medianDtMs() {
+        int n = Math.min(dtCount, DT_RING);
+        if (n == 0) return 0.0;
+        long[] a = new long[n];
+        System.arraycopy(dtRing, 0, a, 0, n);
+        java.util.Arrays.sort(a);
+        return a[n / 2] / 1e6;
+    }
+
+    private static int fps(double ms) { return ms <= 0 ? 0 : (int) Math.round(1000.0 / ms); }
+
+    // ---- mouse (dev-only reflection) --------------------------------------
+
+    /** Park the cursor over a slot whose centre is ({@code dxGui},{@code dyGui}) GUI px from the open
+     *  {@code HandledScreen}'s own {@code x}/{@code y} origin — robust to the status-effect side panel
+     *  shifting the screen right. Falls back to a screen-centre guess if the origin can't be read. */
+    private static void hoverSlot(MinecraftClient client, int dxGui, int dyGui) {
+        int ox = 232, oy = 97;   // default centred origin (1280x720 gui-scale 2, 176x166 bg)
+        try {
+            Screen s = client.currentScreen;
+            if (s instanceof net.minecraft.client.gui.screen.ingame.HandledScreen) {
+                java.lang.reflect.Field fx = net.minecraft.client.gui.screen.ingame.HandledScreen.class.getDeclaredField("x");
+                java.lang.reflect.Field fy = net.minecraft.client.gui.screen.ingame.HandledScreen.class.getDeclaredField("y");
+                fx.setAccessible(true); fy.setAccessible(true);
+                ox = fx.getInt(s); oy = fy.getInt(s);
+            }
+        } catch (Throwable ignored) {}
+        setMouseGui(client, ox + dxGui, oy + dyGui);
+    }
+
+    static void setMouseGui(MinecraftClient client, double guiX, double guiY) {
+        try {
+            Object mouse = client.field_19945;
+            if (mouse == null) return;
+            net.minecraft.class_4117 win = client.field_19944;
+            double ww = win.method_18319(),  sw = win.method_18321();
+            double wh = win.method_18320(), sh = win.method_18322();
+            double mx = (sw <= 0) ? guiX : guiX * ww / sw;
+            double my = (sh <= 0) ? guiY : guiY * wh / sh;
+            setDouble(mouse, "field_19959", mx);
+            setDouble(mouse, "field_19960", my);
+        } catch (Throwable t) {
+            skip("set mouse", t);
+        }
+    }
+
+    private static void setDouble(Object o, String name, double v) throws Exception {
+        java.lang.reflect.Field f = o.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        f.setDouble(o, v);
+    }
+
     // ---- world creation + setup -------------------------------------------
 
-    /** Delete any previous {@code devshot} save and start a fresh flat world. Attempted once only. */
     private static boolean createWorld(MinecraftClient client) {
-        if (worldTried) return false;   // never start world creation twice
+        if (worldTried) return false;
         worldTried = true;
         try {
             File saves = new File(client.runDirectory, "saves");
@@ -438,7 +2074,8 @@ public final class DevShot {
             skip("delete previous devshot save", t);
         }
         try {
-            // seed 12345, survival, no structures, not hardcore, superflat; cheats on.
+            // seed 12345, survival, no structures, not hardcore, SUPERFLAT (a bright, level, deterministic backdrop
+            // for the glass - what this line's harness always used), cheats on.
             LevelInfo info = new LevelInfo(12345L, GameMode.SURVIVAL, false, false, LevelGeneratorType.FLAT)
                     .enableCommands();
             client.startIntegratedServer("devshot", "devshot", info);
@@ -449,30 +2086,32 @@ public final class DevShot {
         }
     }
 
-    /** Time / weather / difficulty / camera angle / scripted loadout. Each sub-part is guarded. */
+    /** 1.13.2: a key binding has no setPressed; the static setter goes through the bound key code. */
+    static void pressKey(net.minecraft.client.option.KeyBinding key, boolean down) {
+        try {
+            net.minecraft.client.option.KeyBinding.method_18168(
+                    net.minecraft.class_4107.method_18156(key.method_18176()), down);
+        } catch (Throwable t) {
+            skip("press key " + key.getTranslationKey(), t);
+        }
+    }
+
     private static void applyWorldSetup(MinecraftClient client) {
         MinecraftServer server = client.getServer();
-        // difficulty (server-authoritative; 1.13.2 setDifficulty takes one arg)
         try {
             server.setDifficulty(Difficulty.PEACEFUL);
-        } catch (Throwable t) {
-            skip("set difficulty", t);
-        }
-        // time + weather (server-authoritative, via the overworld + its level properties)
-        try {
-            ServerWorld ow = server.method_20312(DimensionType.OVERWORLD);   // getWorld(OVERWORLD)
-            ow.setTimeOfDay(6000L);
-            LevelProperties props = ow.method_3588();                        // getLevelProperties()
+            ServerWorld ow = server.method_20312(DimensionType.OVERWORLD);
+            LevelProperties props = ow.method_3588();
+            props.setDayTime(6000L);
             props.setRaining(false);
             props.setThundering(false);
             props.setClearWeatherTime(1_000_000);
         } catch (Throwable t) {
             skip("set time/weather", t);
         }
-        // loadout on the server player (auto-syncs to the client within a couple of ticks)
         try {
-            List<ServerPlayerEntity> players = server.getPlayerManager().getPlayers();
-            ServerPlayerEntity sp = players.isEmpty() ? null : players.get(0);
+            ServerPlayerEntity sp = server.getPlayerManager().getPlayers().isEmpty()
+                    ? null : server.getPlayerManager().getPlayers().get(0);
             if (sp != null) {
                 sp.inventory.setInvStack(0, new ItemStack(Items.DIAMOND_SWORD));
                 sp.inventory.setInvStack(1, new ItemStack(Items.COOKED_BEEF, 32));
@@ -482,23 +2121,19 @@ public final class DevShot {
                 sp.equipStack(EquipmentSlot.CHEST, new ItemStack(Items.IRON_CHESTPLATE));
                 sp.equipStack(EquipmentSlot.LEGS,  new ItemStack(Items.IRON_LEGGINGS));
                 sp.equipStack(EquipmentSlot.FEET,  new ItemStack(Items.IRON_BOOTS));
-                // 60 s Speed I, icon on but no particles (keeps the reference frame clean).
-                // addStatusEffect is the unmapped method_2654 on this yarn.
                 sp.method_2654(new StatusEffectInstance(StatusEffects.SPEED, 1200, 0, false, false, true));
-                // Fixed spot, facing yaw 0 / pitch 15 (looking slightly down at the flat plain).
                 sp.refreshPositionAndAngles(sp.x, sp.y, sp.z, 0f, 15f);
                 sp.networkHandler.requestTeleport(sp.x, sp.y, sp.z, 0f, 15f);
             }
         } catch (Throwable t) {
             skip("give loadout", t);
         }
-        // mirror the loadout + camera on the client player so the very next frame already shows it
         try {
             ClientPlayerEntity cp = client.player;
             cp.inventory.setInvStack(0, new ItemStack(Items.DIAMOND_SWORD));
             cp.inventory.setInvStack(1, new ItemStack(Items.COOKED_BEEF, 32));
             cp.inventory.setInvStack(2, new ItemStack(Blocks.STONE, 64));
-            cp.inventory.selectedSlot = 0;                    // hold the sword
+            cp.inventory.selectedSlot = 0;
             cp.equipStack(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
             cp.equipStack(EquipmentSlot.HEAD,  new ItemStack(Items.IRON_HELMET));
             cp.equipStack(EquipmentSlot.CHEST, new ItemStack(Items.IRON_CHESTPLATE));
@@ -509,30 +2144,6 @@ public final class DevShot {
         } catch (Throwable t) {
             skip("mirror loadout on client", t);
         }
-    }
-
-    // ---- toast suppression -------------------------------------------------
-
-    /** Cached reflective handle to {@code MinecraftClient.field_15868} (the ToastManager). */
-    private static java.lang.reflect.Field toastField;
-
-    /**
-     * Clear the queued + visible vanilla toasts. 1.13.2 has no {@code getToastManager()}; the manager
-     * is the private final {@code class_3264 field_15868}, and its {@code method_14489()} empties both
-     * the display slots and the pending Deque. Dev-only (DevShot runs solely under {@code S1MP1E_SHOT}),
-     * so the reflection is safe here; fully guarded so a mappings surprise only skips the suppression.
-     */
-    private static void clearToasts(MinecraftClient client) {
-        try {
-            if (toastField == null) {
-                toastField = MinecraftClient.class.getDeclaredField("field_15868");
-                toastField.setAccessible(true);
-            }
-            Object tm = toastField.get(client);
-            if (tm instanceof net.minecraft.class_3264) {
-                ((net.minecraft.class_3264) tm).method_14489();
-            }
-        } catch (Throwable ignored) {}
     }
 
     // ---- mixin audit -------------------------------------------------------
@@ -550,17 +2161,11 @@ public final class DevShot {
     // ---- helpers -----------------------------------------------------------
 
     private static void open(MinecraftClient client, Screen screen, String what) {
-        try {
-            client.setScreen(screen);
-        } catch (Throwable t) {
-            skip(what, t);
-        }
+        try { client.setScreen(screen); } catch (Throwable t) { skip(what, t); }
     }
 
     private static void close(MinecraftClient client) {
-        try {
-            client.setScreen(null);
-        } catch (Throwable ignored) {}
+        try { client.setScreen(null); } catch (Throwable ignored) {}
     }
 
     private static void skip(String step, Throwable t) {
@@ -575,24 +2180,19 @@ public final class DevShot {
         f.delete();
     }
 
-    /** Capture the current framebuffer to {@code outDir/name}, overwriting. */
-    private static void capture(MinecraftClient client, String name) {
-        net.minecraft.class_4277 img = null;
+    static void capture(MinecraftClient client, String name) {
+        class_4277 img = null;
         try {
             Framebuffer fb = client.getFramebuffer();
-            // ScreenshotUtils.method_18269(width, height, fb): framebuffer -> class_4277 (NativeImage,
-            // unmapped on legacy-yarn 1.13.2+build.604), written with method_19471(File).
             img = ScreenshotUtils.method_18269(fb.textureWidth, fb.textureHeight, fb);
             File out = new File(outDir, name);
             img.method_19471(out);
             System.out.println("[S1mp1e][DevShot] wrote " + out.getAbsolutePath()
-                    + " (" + fb.textureWidth + "x" + fb.textureHeight + ")");
+                    + " (" + img.method_19458() + "x" + img.method_19478() + ")");
         } catch (Throwable t) {
             System.out.println("[S1mp1e][DevShot] capture failed for " + name + ": " + t);
         } finally {
-            if (img != null) {
-                try { img.close(); } catch (Throwable ignored) {}
-            }
+            if (img != null) { try { img.close(); } catch (Throwable ignored) {} }
         }
     }
 }
