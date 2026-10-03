@@ -45,8 +45,10 @@ inert unless `S1MP1E_BENCH` is set. Driver scripts (not in the repo, kept with t
 | ZGC on Java 21 / 17 / 8 | not applied | **not verified** yet; Java 21's ZGC needs `-XX:+ZGenerational`, Java 17's is the older non-generational one, Java 8 has none on Windows |
 | Fixed heap + `AlwaysPreTouch` | not applied | no measurable gain over ZGC alone (1080p: 1801 vs 1798 FPS explore, same lows) |
 | Lithium 0.25.3, FerriteCore 9.0.0, ImmediatelyFast 1.16.5 (26.2) | **in the pack** | 4K, ZGC: entities 381 → 447 FPS (ranges 363–398 vs 443–451), chunkload 626 → 673; no visual change. Pinned by Modrinth version + SHA-1; a copy the player installed themselves is used instead |
+| Cull Leaves 4.1.2 (26.2) | **in the pack** | culling mod (allowed even though it changes the picture: leaf faces hidden behind other leaves are dropped). 4K, terrain-following routes: explore 614 → 651, chunkload 578 → 659 FPS, non-overlapping ranges |
+| MoreCulling | **not used** | measured on the terrain-following routes: no gain (explore 594, chunkload 561 vs 614 / 578 without it). It is a culling mod, so it was allowed; it simply did not help |
+| Partial glass backdrop copy (our glass client) | **on** | see "Liquid glass cost" |
 | BadOptimizations | **excluded** | its lightmap cache cancels `LightmapRenderStateExtractor.tick()`, which also stops vanilla's block-light flicker — a visible animation |
-| MoreCulling | **excluded** | changes how leaves are culled (visible), and its author does not allow merging into clients |
 | Lower render distance, particles, graphics, resolution | never | out of scope by rule |
 
 ## Results
@@ -82,6 +84,20 @@ machine; at 1080p the explore scenario reached ~1800 FPS with the pack (on the o
 
 ## Liquid glass cost
 
+**Partial backdrop copy (shipped, on by default).** The glass cost turned out to be almost entirely the per-frame
+full-frame copy of the backdrop (4K, skipping the copy: explore +5 %, chunkload +5 %, about the same as switching the
+glass off). The glass now copies only what it reads: every GUI element whose texture is the backdrop, widened by the
+largest refraction offset (0.08 × 0.98 × screen height, from the shader's IOR 1.4) plus the frost kernel, overlapping
+boxes merged. Correctness was checked with a debug mode that fills the backdrop with magenta before the copy: 723
+screenshots of the HUD, screens and in-game sweeps, no glass pixel reading outside the copied boxes. Result, 4K,
+interleaved, 3 valid runs each: explore 661 → 697 FPS, chunkload 661 → 707 FPS, identical picture.
+Two traps found on the way: 26.2's `CommandEncoder.copyTextureToTexture` (OpenGL) passes width/height as the blit's
+end coordinates, so only copies starting at (0, 0) are right — the partial copy uses `glCopyImageSubData` instead
+(OpenGL 4.3 / ARB_copy_image; otherwise the full copy stays); and GL texture rows count from the bottom.
+`-Ds1mp1e.glass.fullCopy=true` restores the old full copy.
+
+Earlier measurement:
+
 Measured by switching the refraction pipeline off (`-Ds1mp1e.bench.noglass=true`, a benchmark-only switch; never
 shipped). At 1080p the difference was within run-to-run noise (chunkload 1557 vs 1542 FPS). The glass is not a
 bottleneck and the pack does not touch it.
@@ -95,9 +111,8 @@ bottleneck and the pack does not touch it.
 ## Remaining bottlenecks
 
 1. **GPU at 4K.** The average frame rate is bound by the GPU; vanilla/Sodium terrain and entity rendering dominate.
-2. **Liquid glass backdrop copy.** Every frame copies the whole frame (33 MB at 4K) as the refraction backdrop; the
-   glass costs about 5 % at 4K. Planned: copy only the area under glass elements plus the refraction margin — the
-   picture must stay pixel-identical. The glass itself is never reduced.
+2. **Liquid glass.** Done: partial backdrop copy (above). What remains is the glass shader itself (6 backdrop samples
+   per glass pixel), small at HUD sizes.
 3. **Allocation rate.** G1 collected about once a second; ZGC hides it on Java 25, but older versions (Java 8 / 17)
    cannot use generational ZGC, so allocation in our own per-frame code has to go down instead.
 4. **Other versions not measured.** Java 21 (1.20.5–1.21.x), Java 17 (1.18–1.20.4) and Java 8 (≤ 1.16.5) keep their

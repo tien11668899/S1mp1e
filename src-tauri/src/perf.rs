@@ -52,7 +52,10 @@ pub struct PerfMod {
 /// ranges) and chunk loading from 626 to 673, with no visual change (compared screenshots).
 /// Lithium: game-logic optimisation, keeps vanilla behaviour (allowed in speedrunning).
 /// FerriteCore: memory layout of block states / models. ImmediatelyFast: batches immediate-mode
-/// drawing (entities, text, HUD). Other versions are not in the pack until measured there.
+/// drawing (entities, text, HUD). Cull Leaves (a culling mod — allowed even though it changes the
+/// picture slightly: it drops leaf faces hidden behind other leaves): 4K, terrain-following routes,
+/// chunk loading 578 -> 659 FPS and explore 614 -> 651 (non-overlapping ranges). MoreCulling was
+/// measured too and did not help. Other versions are not in the pack until measured there.
 pub const PACK: &[PerfMod] = &[
     PerfMod {
         mc: "26.2",
@@ -69,6 +72,14 @@ pub const PACK: &[PerfMod] = &[
         file: "ferritecore-9.0.0-fabric.jar",
         sha1: "eac76ff0f3753422c61b2c44487d0d195d88d4bc",
         ids: &["ferritecore"],
+    },
+    PerfMod {
+        mc: "26.2",
+        slug: "cull-leaves",
+        version: "4.1.2+26.2-fabric",
+        file: "cullleaves-fabric-4.1.2+26.2.jar",
+        sha1: "1df64a439a6cf79b785882c94b39ac04e67c63bd",
+        ids: &["cullleaves"],
     },
     PerfMod {
         mc: "26.2",
@@ -423,20 +434,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let emit: Emit = std::sync::Arc::new(|_| {});
         let jars = ensure_pack(&root, "26.2", &emit).await;
-        assert_eq!(jars.len(), 3, "{jars:?}");
+        assert_eq!(jars.len(), 4, "{jars:?}");
         for j in &jars {
             assert!(j.exists());
         }
         // a damaged file is fetched again
         std::fs::write(&jars[0], b"broken").unwrap();
         let again = ensure_pack(&root, "26.2", &emit).await;
-        assert_eq!(again.len(), 3);
+        assert_eq!(again.len(), 4);
         assert_ne!(std::fs::read(&again[0]).unwrap(), b"broken");
         // the player's own copy wins: put lithium in the player's folder
         let user = root.join("s1mp1e-mods").join("26.2");
         std::fs::copy(&again.iter().find(|p| p.to_string_lossy().contains("lithium")).unwrap(), user.join("my-lithium.jar")).unwrap();
         let third = ensure_pack(&root, "26.2", &emit).await;
-        assert_eq!(third.len(), 2, "{third:?}");
+        assert_eq!(third.len(), 3, "{third:?}");
         // nothing for a version without measured entries
         assert!(ensure_pack(&root, "1.8.9", &emit).await.is_empty());
         let _ = std::fs::remove_dir_all(&root);

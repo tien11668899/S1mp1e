@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\s1mp1e.ico</ApplicationIcon>
     <!-- Single source of truth for the app version. The GitHub release tag is
          "v{Version}", and UpdateChecker compares this against the latest release. -->
-    <Version>0.1.7</Version>
+    <Version>0.1.8</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,7 +42,7 @@
   <!-- The UI shells out to the Rust `itest` CLI for ALL real work (login/play/install).
        Without this, `dotnet publish` shipped S1mp1e.exe with NO itest.exe next to it, so
        every download was a dead launcher. Build itest from source (needs the Rust
-       toolchain — same as building the glass mods) and carry it into both the build
+       toolchain 鈥?same as building the glass mods) and carry it into both the build
        output and the publish output. EnsureItest runs before AssignTargetPaths so the
        exe exists when the None item's copy is computed. -->
   <Target Name="EnsureItest" BeforeTargets="AssignTargetPaths">

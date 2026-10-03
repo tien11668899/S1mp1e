@@ -43,6 +43,7 @@ public class GuiRendererGrabMixin {
    private void lg$grabCleanBackdrop(CallbackInfo ci) {
       dev.s1mp1e.client.gui.GuiAlpha.reset();   // frame boundary: nothing pushed may leak into the next frame
       com.seagull.liquidglass.client.render.GuiAmbient.clear();
+      GlassPipeline.collectReaders(this.renderState);   // which areas the glass reads this frame (partial copy)
       GlassPipeline.grabBackdrop();
       // Tooltip strata to the END of the strata list: drawn after everything else in the frame.
       TooltipLayer.promote(this.renderState);
