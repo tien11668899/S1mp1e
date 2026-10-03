@@ -2331,6 +2331,7 @@ public partial class MainWindow : Window
             if (accIdx >= 0 && AccentBox is not null) AccentBox.SelectedIndex = accIdx;
             ApplyAccent(s.Accent);
             if (GlassToggle is not null) GlassToggle.IsChecked = s.Glass;
+            if (PerfToggle is not null) PerfToggle.IsChecked = s.PerfPack;
             if (DemoToggle is not null) DemoToggle.IsChecked = s.ReduceTransparency;
             // Theme: restore the saved 自動/淺色/深色 choice (was previously never
             // persisted, so it reset to 自動 on every launch).
@@ -2786,6 +2787,12 @@ public partial class MainWindow : Window
         var hex = Accents[idx].hex;
         _cfg.Settings.Accent = hex;
         ApplyAccent(hex);
+        SaveCfg();
+    }
+    private void OnPerfToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || PerfToggle is null) return;
+        _cfg.Settings.PerfPack = PerfToggle.IsChecked == true;
         SaveCfg();
     }
     private void OnGlassToggleChanged(object? sender, RoutedEventArgs e)

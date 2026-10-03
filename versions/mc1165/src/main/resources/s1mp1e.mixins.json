@@ -47,6 +47,7 @@
     "InGameHudEffectMixin",
     "CrosshairMixin",
     "LowFireMixin",
+    "ParticleLimitMixin",
     "AttackIndicatorHideMixin",
     "HitMarkerAttackMixin",
     "HitMarkerCritPacketMixin",

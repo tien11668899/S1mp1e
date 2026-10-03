@@ -89,7 +89,7 @@ fn tick(emit: &Emit, message: String, done: u64, total: u64) {
 }
 
 /// The `id` of a Fabric mod jar, or None when it is not one / unreadable.
-fn fabric_mod_id(jar: &Path) -> Option<String> {
+pub(crate) fn fabric_mod_id(jar: &Path) -> Option<String> {
     let f = std::fs::File::open(jar).ok()?;
     let mut zip = zip::ZipArchive::new(f).ok()?;
     let mut entry = zip.by_name("fabric.mod.json").ok()?;

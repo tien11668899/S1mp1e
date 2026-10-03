@@ -855,6 +855,12 @@
                                         <ctl:GlassSelect x:Name="AfterLaunchBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="隱藏啟動器|保持開啟|關閉啟動器" SelectionChanged="OnAfterLaunchChanged"/>
                                     </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/sparkles.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="效能優化" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="自動載入經實測的優化模組與 Java 設定，不改畫質" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:LiquidToggle x:Name="PerfToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnPerfToggleChanged"/>
+                                    </Grid>
                                 </StackPanel>
                             </Border>
 

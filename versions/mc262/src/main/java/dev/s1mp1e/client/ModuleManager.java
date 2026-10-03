@@ -111,6 +111,8 @@ public final class ModuleManager {
         add("LowFireModule",       safeLowFire());
         add("AttackRingModule",    safeAttackRing());
         add("HitMarkerModule",     safeHitMarker());
+        // particles: one switch for every particle (reduced share or none)
+        add("ParticlesModule",     safeParticles());
 
         S1mp1eConfig.load();
 
@@ -210,6 +212,10 @@ public final class ModuleManager {
 
     private static Module safeChromaHud() {
         try { return new ChromaHudModule(); } catch (Throwable t) { return fail("ChromaHudModule", t); }
+    }
+
+    private static Module safeParticles() {
+        try { return new dev.s1mp1e.client.module.ParticlesModule(); } catch (Throwable t) { return fail("ParticlesModule", t); }
     }
 
     private static Module safeLowFire() {

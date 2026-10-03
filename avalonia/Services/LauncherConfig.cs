@@ -28,6 +28,8 @@ public class LauncherSettings
     [JsonPropertyName("res_width")]           public int    ResWidth           { get; set; }            // 0 = MC default
     [JsonPropertyName("res_height")]          public int    ResHeight          { get; set; }
     [JsonPropertyName("java_path")]           public string JavaPath           { get; set; } = "";      // "" = auto
+    [JsonPropertyName("default_mods")]        public bool   DefaultMods        { get; set; } = true;    // Fabric default mod set (default_mods.rs)
+    [JsonPropertyName("perf_pack")]           public bool   PerfPack           { get; set; } = true;    // measured performance pack (perf.rs)
     [JsonPropertyName("menu_key")]            public int    MenuKey            { get; set; } = 54;      // LWJGL RShift; the in-game config-GUI open key
 }
 

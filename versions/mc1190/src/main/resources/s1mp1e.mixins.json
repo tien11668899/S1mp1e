@@ -90,6 +90,7 @@
     "MouseClickMixin",
     "CrosshairMixin",
     "LowFireMixin",
+    "ParticleLimitMixin",
     "AttackIndicatorHideMixin",
     "HitMarkerAttackMixin",
     "HitMarkerCritPacketMixin",

@@ -136,6 +136,8 @@ public final class ModuleManager {
         add("LowFireModule",       safeLowFire());
         add("AttackRingModule",    safeAttackRing());
         add("HitMarkerModule",     safeHitMarker());
+        // particles: one switch for every particle (reduced share or none)
+        add("ParticlesModule",     safeParticles());
     }
 
     private static void add(String label, Module m) {
@@ -148,6 +150,10 @@ public final class ModuleManager {
 
     // Separate methods rather than one big try block: a failure in the middle
     // of a shared block would silently drop every module after it.
+
+    private static Module safeParticles() {
+        try { return new dev.s1mp1e.client.module.ParticlesModule(); } catch (Throwable t) { return fail("ParticlesModule", t); }
+    }
 
     private static Module safeLowFire() {
         try { return new LowFireModule(); } catch (Throwable t) { return fail("LowFireModule", t); }

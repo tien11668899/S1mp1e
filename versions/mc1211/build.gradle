@@ -51,6 +51,10 @@ loom {
     runs {
         client {
             vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // Benchmark only (C:/Temp/s1bench/bench.ps1): extra JVM flags for the game JVM, e.g. -PbenchJvm="-Xmx4096M -XX:+UseZGC"
+            if (project.hasProperty('benchJvm')) {
+                project.property('benchJvm').toString().trim().split(/\s+/).each { if (it) vmArg it }
+            }
         }
     }
 }

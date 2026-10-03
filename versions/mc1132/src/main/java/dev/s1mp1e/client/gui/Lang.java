@@ -37,6 +37,7 @@ public final class Lang {
         MODULE.put("Fullbright", "全亮");
         MODULE.put("XpFlow", "經驗條流動");
         MODULE.put("LowFire", "火焰畫面降低");
+        MODULE.put("Particles", "粒子");
         MODULE.put("AttackRing", "攻擊冷卻玻璃環");
         MODULE.put("HitMarker", "命中標記");
 
@@ -83,6 +84,8 @@ public final class Lang {
         SETTING.put("Smoothness", "平滑度");
         SETTING.put("Block other zoom", "阻擋其他模組縮放");
         SETTING.put("Brightness", "亮度");
+        SETTING.put("Amount", "粒子量");
+        SETTING.put("Keep", "保留比例");
         SETTING.put("Sheen colour", "掃光顏色");
         SETTING.put("Glow", "散發微光");
         SETTING.put("Hide vanilla effects", "隱藏原版效果");
@@ -128,6 +131,8 @@ public final class Lang {
         MODE.put("Square", "方框");
         MODE.put("Wrap", "包覆準星");
         MODE.put("Same", "同上");
+        MODE.put("Reduced", "減少");
+        MODE.put("None", "無");
     }
 
     public static String module(String id)  { String v = MODULE.get(id);  return v != null ? v : id; }

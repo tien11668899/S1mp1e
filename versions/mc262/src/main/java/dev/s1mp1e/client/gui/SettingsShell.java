@@ -945,14 +945,38 @@ public final class SettingsShell {
             return st.contX0 > st.sideX1 && mx >= st.sideX0 && mx < st.sideX1 && my >= st.bodyY0 && my < st.bodyY1;
         }
 
+        /**
+         * A row cut by the body edge keeps its full-height widget, and the rows come before the footer in the child
+         * list — so a click on the Done capsule's top could land on the half-hidden row under it. Outside the body the
+         * pane takes such a point: it hands the click to the footer (or a note) under it, or drops it.
+         */
+        private boolean overHiddenRow(double mx, double my) {
+            if (st.mode == MODE_LIST || (my >= st.bodyY0 && my < st.bodyY1)) return false;
+            for (Row r : st.rows) {
+                if ((r.w != null && r.w.visible && r.w.isMouseOver(mx, my))
+                        || (r.extra != null && r.extra.visible && r.extra.isMouseOver(mx, my))) return true;
+            }
+            return false;
+        }
+
         @Override
         public boolean isMouseOver(double mx, double my) {
-            return overSidebar(mx, my);                      // never over the content: the rows get their own clicks
+            return overSidebar(mx, my) || overHiddenRow(mx, my);   // never over visible content: rows get their own clicks
         }
 
         @Override
         public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-            return event.button() == 0 && overSidebar(event.x(), event.y()) && clickTab(st, event);
+            if (event.button() == 0 && overSidebar(event.x(), event.y())) return clickTab(st, event);
+            if (overHiddenRow(event.x(), event.y())) {
+                for (AbstractWidget w : st.footer) {
+                    if (w.visible && w.active && w.isMouseOver(event.x(), event.y())) return w.mouseClicked(event, doubleClick);
+                }
+                for (AbstractWidget w : st.notes) {
+                    if (w.visible && w.active && w.isMouseOver(event.x(), event.y())) return w.mouseClicked(event, doubleClick);
+                }
+                return true;
+            }
+            return false;
         }
 
         @Override

@@ -4,6 +4,7 @@
 //!   itest play    <mc> <loader> <mcPath> <name> Launch (online if signed in).
 //!   itest install fabric <mc> [mcPath]          Install a Fabric profile.
 //!   itest default-mods <mc> [mcPath]            Install the default Fabric mods for <mc>.
+//!   itest perf <mc> [mcPath]                    Prepare the performance pack and print what a Fabric launch would use.
 //!
 //! `login` prints `CODE <user_code>\t<verification_uri>` the instant it has a device
 //! code (the UI shows/opens it), then `DONE <name>\t<uuid>` and SAVES the account to
@@ -12,7 +13,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, default_mods, download, install, launch, meta, paths};
+use s1mp1e::{auth, config, default_mods, download, install, launch, meta, paths, perf};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ async fn main() {
         "play" => cmd_play(rest).await,
         "install" => cmd_install(rest).await,
         "default-mods" => cmd_default_mods(rest).await,
+        "perf" => cmd_perf(rest).await,
         "list-versions" => cmd_list_versions().await,
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
@@ -175,6 +177,49 @@ fn silent_emit() -> install::Emit {
     })
 }
 
+/// itest perf <mc> [mcPath] — prepare the performance pack for <mc> (as `play` does) and print the JVM flags and
+/// pack jars a Fabric launch would use, without starting the game. Diagnostics for perf.rs.
+async fn cmd_perf(a: &[String]) -> i32 {
+    let mc = a.first().cloned().unwrap_or_default();
+    let mc_path = a.get(1).filter(|s| !s.is_empty()).cloned();
+    if mc.is_empty() {
+        eprintln!("perf 需要 <mc>");
+        return 2;
+    }
+    let root = paths::mc_root(mc_path.as_deref());
+    let settings = config::load().settings;
+    let jars = if settings.perf_pack { perf::ensure_pack(&root, &mc, &silent_emit()).await } else { Vec::new() };
+    let st = perf::load_state(&root, &mc);
+    println!("pack {} for {mc}: setting={} disabled={} ok_launches={} {}", st.revision, settings.perf_pack, st.disabled,
+        st.ok_launches, if st.reason.is_empty() { String::new() } else { format!("reason: {}", st.reason) });
+    for j in &jars {
+        println!("jar {}", j.display());
+    }
+    let Some(id) = resolve_version_id(&root, &mc, "fabric") else {
+        println!("no Fabric profile installed for {mc}: JVM flags not shown");
+        return 0;
+    };
+    match launch::plan_launch(&root, &id, &launch::AuthInfo::offline("Player"), &settings) {
+        Ok(plan) => {
+            for arg in &plan.args {
+                if arg.starts_with("-X") || arg.starts_with("-XX:") {
+                    println!("jvm {arg}");
+                } else if let Some(m) = arg.strip_prefix("-Dfabric.addMods=") {
+                    for p in m.split(';') {
+                        println!("mod {p}");
+                    }
+                }
+            }
+            println!("java {}", plan.java_exe.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("{e:#}");
+            1
+        }
+    }
+}
+
 fn is_fabric_loader(loader: &str) -> bool {
     !loader.eq_ignore_ascii_case("forge")
 }
@@ -256,6 +301,14 @@ async fn cmd_play(a: &[String]) -> i32 {
     if settings.default_mods && is_fabric_loader(&loader) {
         let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
     }
+    // Performance pack: verify / fetch the measured optimisation mods for this version
+    // (perf.rs). Skipped entirely when the setting is off or after a crash switched it off.
+    let pack_on = if settings.perf_pack {
+        let jars = if is_fabric_loader(&loader) { perf::ensure_pack(&root, &mc, &silent_emit()).await } else { Vec::new() };
+        !perf::load_state(&root, &mc).disabled && (!jars.is_empty() || perf::has_jvm_flags())
+    } else {
+        false
+    };
     let plan = match launch::plan_launch(&root, &id, &auth_info, &settings) {
         Ok(p) => p,
         Err(e) => {
@@ -263,12 +316,22 @@ async fn cmd_play(a: &[String]) -> i32 {
             return 1;
         }
     };
-    launch::run_blocking(plan, |line| {
+    let gamedir = plan.cwd.clone();
+    if pack_on {
+        perf::mark_launch(&root, &mc);
+    }
+    let code = launch::run_blocking(plan, |line| {
         let mut o = std::io::stdout();
         let _ = writeln!(o, "{line}");
         let _ = o.flush();
     })
-    .unwrap_or(-1)
+    .unwrap_or(-1);
+    if pack_on {
+        if let Some(why) = perf::judge_exit(&root, &mc, &gamedir, code) {
+            eprintln!("效能套件已暫停（下次啟動不載入）：{why}");
+        }
+    }
+    code
 }
 
 /// itest list-versions — print the Mojang version manifest, one per line as

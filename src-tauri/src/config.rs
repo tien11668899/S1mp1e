@@ -32,6 +32,7 @@ pub struct Settings {
     #[serde(default)]               pub res_height: u32,      // 0 = MC default
     #[serde(default)]               pub java_path: String,    // "" = auto-select the runtime
     #[serde(default = "d_true")]    pub default_mods: bool,   // Fabric: install the default mod set
+    #[serde(default = "d_true")]    pub perf_pack: bool,      // load the measured performance pack (perf.rs)
 }
 
 fn d_ram() -> u32 { 4096 }
@@ -51,7 +52,7 @@ impl Default for Settings {
             reduce_transparency: false, version: d_ver(), loader: d_loader(),
             theme: d_theme(),
             jvm_args: String::new(), res_width: 0, res_height: 0, java_path: String::new(),
-            default_mods: d_true(),
+            default_mods: d_true(), perf_pack: d_true(),
         }
     }
 }

@@ -914,7 +914,23 @@ public final class SettingsShell {
 
         @Override
         public boolean mouseClicked(double mx, double my, int button) {
-            return button == 0 && overSidebar(mx, my) && clickTab(st, mx, my);
+            if (button == 0 && overSidebar(mx, my)) return clickTab(st, mx, my);
+            // A row cut by the body edge keeps its full-height widget, and the rows come before the footer in the
+            // child list — so a click on the Done capsule's top could land on the half-hidden row under it. Outside
+            // the body the footer (and notes) win; a hidden part of a row takes no click at all.
+            if (st.mode != MODE_LIST && (my < st.bodyY0 || my >= st.bodyY1)) {
+                for (ClickableWidget w : st.footer) {
+                    if (w.visible && w.active && w.isMouseOver(mx, my)) return w.mouseClicked(mx, my, button);
+                }
+                for (ClickableWidget w : st.notes) {
+                    if (w.visible && w.active && w.isMouseOver(mx, my)) return w.mouseClicked(mx, my, button);
+                }
+                for (Row r : st.rows) {
+                    if ((r.w != null && r.w.visible && r.w.isMouseOver(mx, my))
+                            || (r.extra != null && r.extra.visible && r.extra.isMouseOver(mx, my))) return true;
+                }
+            }
+            return false;
         }
 
         @Override

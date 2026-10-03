@@ -66,6 +66,30 @@ public final class GlassPipeline {
     *  {@link #backdropView()} grab is taken before ANY GUI is drawn, i.e. world only). See {@link TooltipLayer}. */
    private static GpuTexture overlayTex;
    private static GpuTextureView overlayView;
+
+   /**
+    * Textures replaced after a resize are closed two frames later, not at once. GUI elements are extracted (and name
+    * their texture view) BEFORE {@link #grabBackdrop()} runs in GuiRenderer.render, so closing the old view right there
+    * left that frame's draws pointing at a closed view: "Texture view Sampler0 (liquidglass_backdrop) has been closed!"
+    * the moment the window changed size (resize, fullscreen, a 4K window).
+    */
+   private static final java.util.ArrayList<Object[]> retired = new java.util.ArrayList<>();
+   private static long frameNo;
+
+   private static void retire(GpuTextureView view, GpuTexture tex) {
+      if (view != null || tex != null) retired.add(new Object[]{frameNo, view, tex});
+   }
+
+   /** Close what was retired at least two frames ago. Called once a frame from {@link #grabBackdrop()}. */
+   private static void closeRetired() {
+      for (int i = retired.size() - 1; i >= 0; i--) {
+         Object[] r = retired.get(i);
+         if (frameNo - (Long) r[0] < 2) continue;
+         try { if (r[1] != null) ((GpuTextureView) r[1]).close(); } catch (Throwable ignored) { }
+         try { if (r[2] != null) ((GpuTexture) r[2]).close(); } catch (Throwable ignored) { }
+         retired.remove(i);
+      }
+   }
    private static int ow;
    private static int oh;
    private static boolean overlayFailed;
@@ -228,6 +252,11 @@ public final class GlassPipeline {
                backend, gpu.vendorName(), gpu.isZZeroToOne());
             boolean openGl = backend == null
                || backend.toLowerCase(Locale.ROOT).contains("opengl");
+            if (Boolean.getBoolean("s1mp1e.bench.noglass")) {   // benchmark only: measure the cost of real refraction
+               state = -1;
+               LiquidGlassClient.LOG.info("[LiquidGlass] -Ds1mp1e.bench.noglass -> primitive glass (benchmark)");
+               return false;
+            }
             if (!openGl) {
                state = -1;
                LiquidGlassClient.LOG.warn("[LiquidGlass] non-OpenGL graphics backend ('{}') -> using primitive glass fallback (shader refraction assumes an OpenGL framebuffer origin; set Options > Graphics API to OpenGL for full liquid glass)", backend);
@@ -447,6 +476,8 @@ public final class GlassPipeline {
 
    public static void grabBackdrop() {
       if (state == 1) {
+         frameNo++;
+         closeRetired();
          try {
             RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
             int w = main.width;
@@ -457,15 +488,9 @@ public final class GlassPipeline {
 
             GpuDevice dev = RenderSystem.getDevice();
             if (grabTex == null || gw != w || gh != h) {
-               if (grabView != null) {
-                  grabView.close();
-                  grabView = null;
-               }
-
-               if (grabTex != null) {
-                  grabTex.close();
-                  grabTex = null;
-               }
+               retire(grabView, grabTex);   // this frame's GUI elements were extracted with the old view
+               grabView = null;
+               grabTex = null;
 
                // usage 13 = COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT (the last so it can be cleared, below)
                grabTex = dev.createTexture("liquidglass_backdrop", 13, main.getColorTexture().getFormat(), w, h, 1, 1);
@@ -533,15 +558,9 @@ public final class GlassPipeline {
 
             GpuDevice dev = RenderSystem.getDevice();
             if (snapTex == null || sw0 != w || sh0 != h) {
-               if (snapView != null) {
-                  snapView.close();
-                  snapView = null;
-               }
-
-               if (snapTex != null) {
-                  snapTex.close();
-                  snapTex = null;
-               }
+               retire(snapView, snapTex);
+               snapView = null;
+               snapTex = null;
 
                snapTex = dev.createTexture("liquidglass_snapshot", 5, main.getColorTexture().getFormat(), w, h, 1, 1);
                snapView = dev.createTextureView(snapTex);
@@ -573,14 +592,9 @@ public final class GlassPipeline {
             return null;
          }
          if (overlayTex == null || ow != w || oh != h) {
-            if (overlayView != null) {
-               overlayView.close();
-               overlayView = null;
-            }
-            if (overlayTex != null) {
-               overlayTex.close();
-               overlayTex = null;
-            }
+            retire(overlayView, overlayTex);
+            overlayView = null;
+            overlayTex = null;
             GpuDevice dev = RenderSystem.getDevice();
             overlayTex = dev.createTexture("liquidglass_overlay_backdrop", 5, main.getColorTexture().getFormat(), w, h, 1, 1);
             overlayView = dev.createTextureView(overlayTex);

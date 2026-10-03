@@ -18,6 +18,7 @@ struct Merged {
     libraries: Vec<Library>,
     asset_index_id: String,
     java_component: Option<String>,
+    java_major: u32,
     // exactly one of these describes the game args
     modern_jvm: Vec<String>,
     modern_game: Vec<String>,
@@ -72,6 +73,7 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
         .or_else(|| base.assets.clone())
         .unwrap_or_else(|| "legacy".into());
     let java_component = base.java_version.as_ref().map(|j| j.component.clone());
+    let java_major = base.java_version.as_ref().map(|j| j.major_version).unwrap_or(8);
 
     // libraries: child chain first, dedupe keeping the first of each. The key MUST
     // include the classifier: modern (1.19+) natives ship as a sibling artifact
@@ -122,7 +124,7 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
 
     Ok(Merged {
         id: child.id.clone(), base_id, main_class, libraries,
-        asset_index_id, java_component, modern_jvm, modern_game, legacy_args,
+        asset_index_id, java_component, java_major, modern_jvm, modern_game, legacy_args,
     })
 }
 
@@ -467,6 +469,15 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     for tok in settings.jvm_args.split_whitespace() {
         args.push(tok.to_string());
     }
+    // Performance pack JVM flags (perf.rs): only measured ones, and never on top of a collector
+    // the player picked themselves. A custom Java path keeps its own defaults too.
+    if settings.perf_pack && settings.java_path.trim().is_empty() && !crate::perf::user_sets_gc(&settings.jvm_args)
+        && !crate::perf::load_state(root, &merged.base_id).disabled
+    {
+        for f in crate::perf::jvm_flags(merged.java_major, ram_mb) {
+            args.push(f);
+        }
+    }
     // Short java.io.tmpdir — safety net for AF_UNIX socket path length (108-byte
     // limit) even though on some Windows builds AF_UNIX loopback fails regardless.
     #[cfg(target_os = "windows")]
@@ -529,10 +540,15 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     // User's downloaded mods (s1mp1e-mods/<mc>/), filtered to jars that actually target
     // the loader we're launching — see jar_matches_loader: a per-MC folder can mix
     // loaders and feeding a Forge jar to Fabric addMods crashed the game.
-    let user_mods: Vec<PathBuf> = pick_user_mods(root, &merged.base_id)
+    let mut user_mods: Vec<PathBuf> = pick_user_mods(root, &merged.base_id)
         .into_iter()
         .filter(|p| jar_matches_loader(p, is_fabric))
         .collect();
+    // Performance pack (perf.rs): launcher-owned optimisation mods chosen for this launch by
+    // `perf::ensure_pack` (already skips any mod the player installed themselves).
+    if settings.perf_pack && is_fabric {
+        user_mods.extend(crate::perf::active_jars(root, &merged.base_id));
+    }
     if is_fabric {
         // Fabric: mods ride -Dfabric.addMods, kept out of the shared mods folder.
         if !user_mods.is_empty() {

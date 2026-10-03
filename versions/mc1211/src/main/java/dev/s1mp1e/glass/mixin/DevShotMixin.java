@@ -22,6 +22,7 @@ public abstract class DevShotMixin {
     private void s1mp1e$devShot(boolean tick, CallbackInfo ci) {
         try {
             DevShot.onRenderEnd((MinecraftClient) (Object) this);
+            dev.s1mp1e.client.Bench.onRenderEnd((MinecraftClient) (Object) this);
         } catch (Throwable ignored) {
             // A screenshot-harness failure must never disturb the frame loop.
         }
