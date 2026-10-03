@@ -5,6 +5,8 @@
 //!   itest install fabric <mc> [mcPath]          Install a Fabric profile.
 //!   itest default-mods <mc> [mcPath]            Install the default Fabric mods for <mc>.
 //!   itest perf <mc> [mcPath]                    Prepare the performance pack and print what a Fabric launch would use.
+//!   itest plan <mc> <loader> [mcPath]           Print the launch command (offline identity) as JSON, don't start.
+//!   itest forge-deps <mc> [mcPath]              Fetch the libraries the Forge mods for <mc> need.
 //!
 //! `login` prints `CODE <user_code>\t<verification_uri>` the instant it has a device
 //! code (the UI shows/opens it), then `DONE <name>\t<uuid>` and SAVES the account to
@@ -13,7 +15,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, default_mods, download, install, launch, meta, paths, perf};
+use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, meta, paths, perf};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -28,6 +30,8 @@ async fn main() {
         "install" => cmd_install(rest).await,
         "default-mods" => cmd_default_mods(rest).await,
         "perf" => cmd_perf(rest).await,
+        "plan" => cmd_plan(rest),
+        "forge-deps" => cmd_forge_deps(rest).await,
         "list-versions" => cmd_list_versions().await,
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
@@ -220,6 +224,66 @@ async fn cmd_perf(a: &[String]) -> i32 {
     }
 }
 
+/// itest forge-deps <mc> [mcPath] — fetch the libraries the Forge mods for <mc> need (what `play`
+/// does on a Forge launch, forge_deps.rs). Prints one `ADDED <file>` per jar, then `DONE <mc>`.
+async fn cmd_forge_deps(a: &[String]) -> i32 {
+    let mc = a.first().cloned().unwrap_or_default();
+    let mc_path = a.get(1).filter(|s| !s.is_empty()).cloned();
+    if mc.is_empty() {
+        eprintln!("forge-deps 需要 <mc>");
+        return 2;
+    }
+    let root = paths::mc_root(mc_path.as_deref());
+    match forge_deps::ensure_forge_deps(&root, &mc).await {
+        Ok(added) => {
+            for n in added {
+                println!("ADDED {n}");
+            }
+            println!("DONE {mc}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e:#}");
+            1
+        }
+    }
+}
+
+/// itest plan <mc> <loader> [mcPath] — print the launch an installed profile would get, as JSON
+/// `{java, cwd, args}`, without starting the game. Always the OFFLINE identity ("Player"): no
+/// account is read, so the output carries no token and can be pasted into a bug report. Like
+/// `play`, it rebuilds the instance's mods/ folder (that folder is launcher-owned).
+fn cmd_plan(a: &[String]) -> i32 {
+    let mc = a.first().cloned().unwrap_or_default();
+    let loader = a.get(1).cloned().unwrap_or_else(|| "fabric".into());
+    let mc_path = a.get(2).filter(|s| !s.is_empty()).cloned();
+    if mc.is_empty() {
+        eprintln!("plan 需要 <mc>");
+        return 2;
+    }
+    let root = paths::mc_root(mc_path.as_deref());
+    let Some(id) = resolve_version_id(&root, &mc, &loader) else {
+        eprintln!("{mc} 沒有安裝 {loader} 設定檔");
+        return 1;
+    };
+    let settings = config::load().settings;
+    match launch::plan_launch(&root, &id, &launch::AuthInfo::offline("Player"), &settings) {
+        Ok(plan) => {
+            let out = serde_json::json!({
+                "java": plan.java_exe.to_string_lossy(),
+                "cwd": plan.cwd.to_string_lossy(),
+                "args": plan.args,
+            });
+            println!("{out}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e:#}");
+            1
+        }
+    }
+}
+
 fn is_fabric_loader(loader: &str) -> bool {
     !loader.eq_ignore_ascii_case("forge")
 }
@@ -300,6 +364,19 @@ async fn cmd_play(a: &[String]) -> i32 {
     // Entity Culling) once per version — also on installs an earlier launcher made.
     if settings.default_mods && is_fabric_loader(&loader) {
         let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
+    }
+    // Forge has no dependency resolution for coremods: a mod whose coremod needs a library
+    // that is not installed (MixinBooter on 1.12.2) makes the game exit before its window
+    // opens. Fetch what the installed mods need (forge_deps.rs). Never fatal.
+    if !is_fabric_loader(&loader) {
+        match forge_deps::ensure_forge_deps(&root, &mc).await {
+            Ok(added) => {
+                for n in added {
+                    println!("[install] 已補上模組需要的前置：{n}");
+                }
+            }
+            Err(e) => eprintln!("檢查 Forge 前置模組失敗（照常啟動）：{e:#}"),
+        }
     }
     // Performance pack: verify / fetch the measured optimisation mods for this version
     // (perf.rs). Skipped entirely when the setting is off or after a crash switched it off.

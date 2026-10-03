@@ -10,6 +10,7 @@ pub mod meta;
 pub mod download;
 pub mod install;
 pub mod default_mods;
+pub mod forge_deps;
 pub mod perf;
 pub mod launch;
 pub mod config;
