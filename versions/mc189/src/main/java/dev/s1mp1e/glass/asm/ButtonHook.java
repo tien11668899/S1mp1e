@@ -103,6 +103,17 @@ public final class ButtonHook {
                 return true;
             }
 
+            // 第 9 組：按下的脈衝——整顆按鈕（膠囊＋標籤）以中心為軸先縮一下再彈回（PressPulse，由 playPressSound 打點）。
+            float pulse = dev.s1mp1e.glass.anim.PressPulse.scale(button);
+            boolean pulsing = pulse < 0.9995f;
+            if (pulsing) {
+                float pcx = button.xPosition + button.width / 2f, pcy = button.yPosition + button.height / 2f;
+                GlStateManager.pushMatrix();
+                GlStateManager.translate(pcx, pcy, 0f);
+                GlStateManager.scale(pulse, pulse, 1f);
+                GlStateManager.translate(-pcx, -pcy, 0f);
+            }
+            try {
             GlassButtonPainter.paint(button, hovered, opacity);
 
             // Sliders (and anything else overriding mouseDragged) do their value
@@ -151,6 +162,9 @@ public final class ButtonHook {
                             button.yPosition + (button.height - 8) / 2f,
                             col);
                 }
+            }
+            } finally {
+                if (pulsing) GlStateManager.popMatrix();
             }
             return true;
         } catch (Throwable t) {

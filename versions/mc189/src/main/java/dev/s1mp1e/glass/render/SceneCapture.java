@@ -33,6 +33,10 @@ import org.lwjgl.opengl.GL12;
  * ~75 % darker dimmed image. Alternating between those two backdrops from frame
  * to frame is exactly the flicker.
  *
+ * <p>2026-10-04：容器不再在暗色遮罩之後重拍，改用 HUD 在 Pre(ALL) 拍的那張只有世界的背景（和 26.2 一樣，面板
+ * 裡是明亮的霧化世界；暗色遮罩只在面板外）。順序是固定的（overlay 一定先於畫面），所以不會回到上面那種閃爍；
+ * 見 {@code GlassContainerHandler.onBackgroundDrawn}。
+ *
  * <p>So: sites that merely need <em>a</em> backdrop call {@link #grabOnce()} and
  * share one copy per frame; sites that need <em>their own</em> point in the draw
  * order call {@link #forceGrab()}. Correctness costs up to three copies in a

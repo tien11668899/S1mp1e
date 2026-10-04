@@ -36,6 +36,10 @@ public final class Lang {
         MODULE.put("XpFlow", "經驗條流動");
         MODULE.put("BlockOutline", "方塊外框");
         MODULE.put("ChromaHud", "彩虹介面");
+        // 戰鬥三件套與其設定（從 mc1122 補齊；1.8.9 原本漏了，功能選單裡這幾項顯示成英文）
+        MODULE.put("LowFire", "火焰畫面降低");
+        MODULE.put("AttackRing", "攻擊冷卻玻璃環");
+        MODULE.put("HitMarker", "命中標記");
 
         SETTING.put("X", "X 位置");
         SETTING.put("Y", "Y 位置");
@@ -93,11 +97,39 @@ public final class Lang {
         SETTING.put("Saturation", "飽和度");
         SETTING.put("Wave", "字元波動");
         SETTING.put("Accents", "套用至高光點綴");
+        SETTING.put("Fire lower", "下降高度");
+        SETTING.put("Fire opacity", "火焰不透明度");
+        SETTING.put("Fire size", "火焰大小");
+        SETTING.put("Hide fire", "完全隱藏火焰");
+        SETTING.put("Hide with Fire Res", "有抗火時隱藏");
+        SETTING.put("Ring radius", "環半徑");
+        SETTING.put("Ring width", "環粗細");
+        SETTING.put("Ring colour", "進度顏色");
+        SETTING.put("Ready colour", "蓄滿顏色");
+        SETTING.put("Glass track", "玻璃底環");
+        SETTING.put("Track opacity", "底環不透明度");
+        SETTING.put("Clockwise", "順時針");
+        SETTING.put("Show when ready", "蓄滿且瞄準生物時保持顯示");
+        SETTING.put("Hit colour", "命中顏色");
+        SETTING.put("Crit colour", "暴擊顏色");
+        SETTING.put("Kill colour", "擊殺顏色");
+        SETTING.put("Marker size", "標記長度");
+        SETTING.put("Marker time", "顯示時間 (ms)");
+        SETTING.put("Glass ticks", "玻璃底");
+        SETTING.put("Pop", "彈出幅度");
+        SETTING.put("Crits only", "只顯示暴擊");
+        SETTING.put("Ready shape", "蓄滿形狀");
+        SETTING.put("Ready size", "蓄滿大小 (0=同環半徑)");
+        SETTING.put("Ready width", "蓄滿粗細 (0=同環粗細)");
 
         MODE.put("Cross", "十字");
         MODE.put("Dot", "圓點");
         MODE.put("Circle", "圓環");
         MODE.put("T", "T 字");
+        MODE.put("X", "X 形");
+        MODE.put("Square", "方框");
+        MODE.put("Wrap", "包覆準星");
+        MODE.put("Same", "同上");
     }
 
     public static String module(String id)  { String v = MODULE.get(id);  return v != null ? v : id; }

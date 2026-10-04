@@ -99,11 +99,18 @@ public final class GlassContainerHandler {
             return;
         }
 
-        // Backdrop = world + dim + HUD, grabbed the instant before any glass draws.
-        // forceGrab, not grabOnce: this call site's POSITION is the point. Sharing
-        // the HUD's world-only capture would refract an undimmed frame, and which
-        // of the two won used to depend on timing jitter -> flicker.
-        SceneCapture.forceGrab();
+        // 背景 = 只有世界（沒有原版的暗色遮罩），和 26.2 一樣。
+        //
+        // 2026-10-04 使用者回報「有些版本背包比較暗」，推測是 26.2 用模糊世界、不是背包後面變暗的世界，所以玻璃比較亮。
+        // 查證屬實：26.2 的面板取樣的是 GuiRenderer.render 開頭、任何 GUI 都還沒畫時拍的那張（只有世界）；暗色遮罩雖然也
+        // 畫，但在面板底下，面板裡看到的是明亮、被玻璃霧化的世界。這條線原本在 drawDefaultBackground 的 0xC0101010→
+        // 0xD0101010 漸層（約 75–82% 黑）畫完之後才 forceGrab，玻璃折射的是已經變暗的世界，整個背包就暗下來。
+        //
+        // 以前改用 forceGrab 的理由是「兩個拍背景的地方誰贏取決於時間抖動 → 閃爍」（見 SceneCapture 的說明）。現在不靠
+        // 時間：HUD 在每一幀 overlay 最開頭（Pre(ALL)、HIGHEST）newFrame()＋grabOnce() 拍那張只有世界的背景，1.8.9 在
+        // 世界裡開著畫面時 overlay 一定先於畫面畫，所以這裡 hasBackdrop() 為真時那張一定就是只有世界的版本——固定的順序，
+        // 不會在兩種背景之間跳。只有這一幀沒有 overlay（理論上不會）才退回在遮罩之後重拍。
+        if (!SceneCapture.hasBackdrop()) SceneCapture.forceGrab();
 
         // Per-instance open fade: fadeByte = min(1, elapsedMs / 150).
         long now = System.nanoTime();

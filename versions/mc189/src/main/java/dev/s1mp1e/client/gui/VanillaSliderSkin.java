@@ -139,6 +139,102 @@ public final class VanillaSliderSkin {
                 Math.min(tx1, knobX), 0xFF000000 | fillRgb, 0x4DFFFFFF, ta);
     }
 
+    // ---- 列形式（設定頁）：S1mp1e 功能選單的滑桿，裸的 —— 只有軌道＋藥丸，沒有膠囊、沒有標籤 ----
+
+    /** 只給截圖工具用：代替實體左鍵，因為腳本化的拖曳沒辦法真的按住滑鼠。 */
+    public static boolean devMouseDown;
+
+    private static final float ROW_HW = 9f, ROW_HH = 6f, ROW_TRACK = 4f;   // = widget/SliderWidget（18x12 藥丸、4 px 軌道）
+    private float rowX0, rowX1 = 1f, rowGrab;
+
+    /**
+     * 按在列滑桿上：按在藥丸上就保留抓取偏移（數值不會跳），按在裸軌道上藥丸就滑過去 ——
+     * 和功能選單的滑桿一模一樣。要在把按下點經 {@link #rowValueAt} 映射之前呼叫。
+     */
+    public void rowPress(double pointerX) {
+        float knob = lastKnobX;
+        boolean onPill = !Float.isNaN(knob) && Math.abs(pointerX - knob) <= ROW_HW + 3f;
+        rowGrab = onPill ? (float) (pointerX - Math.max(rowX0, Math.min(rowX1, knob))) : 0f;
+    }
+
+    /** 給上一幀畫出來的列軌道：指標 x 對應的滑桿值（未夾限），已算進抓取偏移。 */
+    public double rowValueAt(double pointerX) {
+        return (pointerX - rowGrab - rowX0) / Math.max(1f, rowX1 - rowX0);
+    }
+
+    /**
+     * 設定頁列上的功能選單滑桿：藥丸中心會走完整條軌道 {@code tx0..tx1}。按住時 1:1 跟著指標、
+     * 不量化（有級距的選項照樣拖得順），超出兩端會橡皮筋回彈，並變成玻璃透鏡、隨速度拉長；
+     * 放開／點在軌道上時用的是和 {@link #paint} 一樣的彈簧。移植自 mc1144/mc1211 的
+     * {@code VanillaSliderSkin.paintRow}。
+     */
+    public void paintRow(float tx0, float tx1, float cy, double value, boolean held, double pointerX,
+                         boolean active, float alpha) {
+        float dt = clock.tick();
+        long now = System.nanoTime();
+        lastPaintNano = now;
+        rowX0 = tx0;
+        rowX1 = tx1;
+        float range = Math.max(1f, tx1 - tx0);
+
+        float base;
+        if (held) {
+            double raw = rowValueAt(pointerX);
+            float clamped = Motion.clamp01((float) raw);
+            float overPx = (float) ((raw - clamped) * range);
+            base = clamped + Math.signum(overPx) * Motion.rubberBand(Math.abs(overPx), ROW_HW * 2f) / range;
+        } else {
+            base = (float) Math.max(0.0, Math.min(1.0, value));
+        }
+        boolean pressed = held && !wasHeld, released = !held && wasHeld;
+        wasHeld = held;
+        if (pressed) {
+            pressNano = now;
+            lifted = true;
+            lift.tune(Motion.MORPH_IN_S, 0f).retarget(1f);
+        }
+        if (released) {
+            holdUntilNano = (now - pressNano) / 1.0e9f < Motion.TAP_S ? now + (long) (Motion.TAP_HOLD_S * 1.0e9f) : now;
+        }
+        if (!Float.isNaN(lastBase) && base != lastBase && (!held || pressed)) {
+            if (released) glide.tune(Motion.SETTLE_S, 0f);
+            else if (pressed || (glide.x == 0f && glide.v == 0f)) glide.tune(Motion.JUMP_S, 0f);
+            glide.x += lastBase - base;
+            glide.retarget(0f);
+            if (released) glide.settleMonotonic();
+            else glide.capOvershoot();
+        }
+        lastBase = base;
+        glide.update(dt);
+        glide.settle(0.0002f);
+        float knobX = tx0 + range * (base + glide.x);
+
+        if (!held && lifted && now >= holdUntilNano) {
+            lifted = false;
+            lift.tune(Motion.MORPH_OUT_S, 0f).retarget(0f);
+        }
+        lift.update(dt);
+        lift.settle(0.002f);
+        float L = Motion.clamp01(lift.x);
+        if (!Float.isNaN(lastKnobX) && dt > 0f) {
+            float inst = Math.abs(knobX - lastKnobX) / dt;
+            speed += (inst - speed) * Motion.ema(dt, Motion.SPEED_TAU_S);
+        }
+        lastKnobX = knobX;
+        stretch.retarget(Motion.stretchTarget(speed, ROW_HW * 2f)).update(dt);
+        Motion.lensShape(stretch.x, lens);
+
+        float ta = alpha * (active ? 1f : 0.5f);
+        int fillRgb = active ? 0x0A84FF : 0x8E8E93;
+        float ty0 = cy - ROW_TRACK / 2f, ty1 = cy + ROW_TRACK / 2f;
+        GlassWidgets.fillRound(tx0, ty0, tx1, ty1, (byteOf(ta * 0.30f) << 24) | 0xFFFFFF, ROW_TRACK / 2f);
+        float fillEnd = Math.min(tx1, knobX - (ROW_HW - ROW_TRACK) * (1f - L));
+        if (fillEnd > tx0 + ROW_TRACK)
+            GlassWidgets.fillRound(tx0, ty0, Math.max(tx0 + ROW_TRACK, fillEnd), ty1, (byteOf(ta) << 24) | fillRgb, ROW_TRACK / 2f);
+        GlassWidgets.knobLens(knobX, cy, ROW_HW, ROW_HH, L, lens[0], lens[1], lens[2], tx0, tx1, ROW_TRACK / 2f,
+                Math.min(tx1, knobX), 0xFF000000 | fillRgb, 0x4DFFFFFF, ta);
+    }
+
     private static int byteOf(float a) {
         int v = Math.round(a * 255f);
         return v < 0 ? 0 : (v > 255 ? 255 : v);

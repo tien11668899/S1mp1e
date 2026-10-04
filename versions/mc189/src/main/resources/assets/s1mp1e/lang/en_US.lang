@@ -1,0 +1,22 @@
+# S1mp1e 模組開關的按鍵名稱（按鍵設定頁）。鍵值 key.s1mp1e.<模組名小寫> 由 KeybindHandler 註冊，
+# 也是 options.txt 裡存綁定的 ID，所以不能改鍵值，只能在這裡給顯示名稱。
+key.s1mp1e.armorhud=ArmorHUD
+key.s1mp1e.blockoutline=BlockOutline
+key.s1mp1e.cps=CPS
+key.s1mp1e.chromahud=ChromaHud
+key.s1mp1e.coordshud=CoordsHUD
+key.s1mp1e.crosshair=Crosshair
+key.s1mp1e.fpshud=FpsHUD
+key.s1mp1e.fullbright=Fullbright
+key.s1mp1e.handposition=HandPosition
+key.s1mp1e.hitmarker=HitMarker
+key.s1mp1e.hungerhud=HungerHUD
+key.s1mp1e.inventoryhud=InventoryHUD
+key.s1mp1e.keystrokes=Keystrokes
+key.s1mp1e.lowfire=LowFire
+key.s1mp1e.nohurtcam=NoHurtCam
+key.s1mp1e.oldanimations=OldAnimations
+key.s1mp1e.potionhud=PotionHUD
+key.s1mp1e.steadyfov=SteadyFOV
+key.s1mp1e.xpflow=XpFlow
+key.s1mp1e.zoom=Zoom

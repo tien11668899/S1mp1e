@@ -43,6 +43,44 @@ public final class GlassChatHud {
     /** True while a glass panel drew this drawChat call, so {@link #rect} drops the per-line dark rects. */
     private static boolean panelActive;
 
+    // ---- 第 7 組：聊天新訊息進場（ChatArrival）-------------------------------------------------------
+
+    /** 這次 drawChat 的進場偏移（螢幕 px），以及計算它用的那一欄。 */
+    private static float colOffsetPx;
+    private static List<?> curDrawn;
+    private static int curScroll;
+
+    /**
+     * 轉接 drawChat 的「第一個」{@code GlStateManager.translate(2, 20, 0)}（聊天欄的位置；1.8.9 是 20，1.12.2 是 8）：
+     * 加上進場偏移，整欄文字跟玻璃面板一起滑。
+     */
+    public static void translate(float x, float y, float z) {
+        GlStateManager.translate(x, y + colOffsetPx, z);
+    }
+
+    /**
+     * 轉接 drawChat 每一行的 {@code drawStringWithShadow(s, x, j2 - 8, rgb + (alpha << 24))}：從 y 反推是第幾行
+     * （{@code j2 = -i * 9}），把那一行的 alpha 乘上它的進場淡入。陰影由全域「不畫陰影」規則處理。
+     */
+    public static int text(net.minecraft.client.gui.FontRenderer fr, String s, float x, float y, int color) {
+        try {
+            if (curDrawn != null) {
+                int i = Math.round(-(y + 8f) / 9f);
+                int idx = i + curScroll;
+                if (idx >= 0 && idx < curDrawn.size()) {
+                    float fade = dev.s1mp1e.glass.render.ChatArrival.lineFade(curDrawn.get(idx));
+                    if (fade < 1f) {
+                        int a = (color >>> 24) & 0xFF;
+                        int na = Math.round(a * fade);
+                        if (na < 4) return (int) x;            // 字型把 alpha < 4 當成不透明：這行直接不畫
+                        color = (na << 24) | (color & 0xFFFFFF);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return fr.drawStringWithShadow(s, x, y, color);
+    }
+
     private static boolean fieldsResolved;
     private static Field F_DRAWN, F_SCROLL;
 
@@ -51,6 +89,18 @@ public final class GlassChatHud {
     /** Draw the single glass chat panel. Runs at drawChat head, inside renderChat's translate(2, height-48). */
     public static void begin(GuiNewChat self, int updateCounter) {
         panelActive = false;
+        colOffsetPx = 0f;
+        try {
+            // 第 7 組聊天進場：登記上一幀之後新來的行，取得這一幀整欄要往下偏的量（新行從下面推上來）。
+            List<?> all = drawnLines(self);
+            if (all != null) {
+                int sp = scrollPos(self);
+                dev.s1mp1e.glass.render.ChatArrival.track(all, Math.max(0, sp));
+                curDrawn = all;
+                curScroll = Math.max(0, sp);
+                colOffsetPx = dev.s1mp1e.glass.render.ChatArrival.offset(9) * self.getChatScale();
+            }
+        } catch (Throwable ignored) {}
         try {
             Minecraft mc = Minecraft.getMinecraft();
             if (mc == null || mc.gameSettings == null) return;
@@ -103,7 +153,7 @@ public final class GlassChatHud {
             panelActive = true;
 
             GlStateManager.pushMatrix();
-            GlStateManager.translate(2.0f, 20.0f, 0.0f);
+            GlStateManager.translate(2.0f, 20.0f + colOffsetPx, 0.0f);   // drawChat 自己的平移＋進場偏移
             GlStateManager.scale(scale, scale, 1.0f);
             GlassProgram.setShadowScale(mc.currentScreen != null ? 0f : 1f);
             try {

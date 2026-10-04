@@ -125,7 +125,7 @@ public final class GlassCreative {
         if (sel == null) return;
         float[] r = tabRect(sel, gl, gt, xs, ys);   // sprite rect [x0,y0,x1,y1]
         float cx = (r[0] + r[2]) * 0.5f;
-        float cy = (r[1] + r[3]) * 0.5f;
+        float cy = bandCy(sel, gt, ys);             // 玻璃帶正中（不是原版貼圖的中心）
         boolean row = sel.isTabInFirstRow();
         int idx = sel.getTabIndex();
 
@@ -175,7 +175,7 @@ public final class GlassCreative {
 
         if (hovering) {
             float[] r = tabRect(hov, gl, gt, xs, ys);
-            float cx = (r[0] + r[2]) * 0.5f, cy = (r[1] + r[3]) * 0.5f;
+            float cx = (r[0] + r[2]) * 0.5f, cy = bandCy(hov, gt, ys);
             if (hvX1 == null || (!hvActive && hvFade.value() <= 0.05f)) {
                 hvX1 = new Spring(cx, Spring.OMEGA_SNAP, Spring.DAMPING);
                 hvX2 = new Spring(cx, Spring.OMEGA_MED,  Spring.DAMPING);
@@ -194,8 +194,8 @@ public final class GlassCreative {
         }
 
         hvX1.advance(dt); hvX2.advance(dt); hvY1.advance(dt); hvY2.advance(dt);
-        // half-size taken from a standard tab cell (24x28)
-        float hw = 12f, hh = 14f;
+        // 和選中 pill 同樣的正方形（BAND/2 − 內距 = 12 → 24×24）
+        float hw = BAND * 0.5f - PILL_INSET, hh = hw;
         float lox = Math.min(hvX1.value(), hvX2.value()) - hw;
         float hix = Math.max(hvX1.value(), hvX2.value()) + hw;
         float loy = Math.min(hvY1.value(), hvY2.value()) - hh;
@@ -227,6 +227,7 @@ public final class GlassCreative {
             if (fCurrentScroll != null) rawScroll = fCurrentScroll.getFloat(screen);
             if (fIsScrolling  != null) dragging = fIsScrolling.getBoolean(screen);
         } catch (Throwable ignored) {}
+        dragging = dragging || devDragging;
         rawScroll = clamp01(rawScroll);
 
         // Vanilla's own logical top row (scrollTo rounds to this): clicks/tooltips
@@ -254,6 +255,12 @@ public final class GlassCreative {
 
     private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
 
+    /**
+     * 只給 DevShot 用：代替「按住滑桿」。原版每幀在畫背景之前用 Mouse.isButtonDown(0) 重設 isScrolling，
+     * 腳本沒辦法真的按住滑鼠，所以用這個旗標讓滑桿畫成按住狀態（捲動位置由腳本直接改 currentScroll）。
+     */
+    public static boolean devDragging;
+
     // ---- pill drawing (hotbar corner via GlassCorners, sharp like the hotbar selector) ----
     private static void pill(float x0, float y0, float x1, float y1, float lift, float opacity) {
         if (opacity <= 0.003f) return;
@@ -273,8 +280,38 @@ public final class GlassCreative {
         return new float[] { l, i1, l + 28, i1 + 32 };
     }
 
-    private static float halfW(float[] r) { return (r[2] - r[0]) * 0.5f - PILL_INSET; }
-    private static float halfH(float[] r) { return (r[3] - r[1]) * 0.5f - PILL_INSET; }
+    // 分類 pill：正方形，置於「分類格（28 寬）× 玻璃帶（BAND = 28 高）」正中、四邊各內縮 PILL_INSET——
+    // 和 26.2／1.21.1 的 GlassTabs 同一條規則（hw = 格寬/2 − 內距、hh = BAND/2 − 內距，格寬 ≈ BAND 所以是正方形）。
+    // 2026-10-04 使用者要求：原本用原版分類貼圖的 28×32 矩形內縮，pill 是 24 寬 × 28 高的直長形，而且中心比玻璃帶
+    // 偏了 2 px（貼圖有 4 px 伸進面板）。圖示由 tabIcon() 一起移到玻璃帶正中。
+    private static float halfW(float[] r) { return BAND * 0.5f - PILL_INSET; }
+    private static float halfH(float[] r) { return BAND * 0.5f - PILL_INSET; }
+
+    /** 分類在玻璃帶裡的中心 y：上排是面板頂邊上方 BAND/2，下排是面板底邊下方 BAND/2。 */
+    private static float bandCy(CreativeTabs tab, int gt, int ys) {
+        return tab.isTabInFirstRow() ? gt - BAND * 0.5f : gt + ys + BAND * 0.5f;
+    }
+
+    /**
+     * 原版的分類圖示位置（func_147051_a）：上排 y = 頂邊 − 19（中心 −11）、下排 y = 底邊 + 3（中心 +11）；
+     * 玻璃帶中心是 −14／+14，所以上排往上 3、下排往下 3，圖示就在 pill 正中。只在玻璃分類列生效時移
+     * （玻璃不可用時原版分類貼圖還在，圖示要對齊原版）。分類的點擊範圍不動。
+     */
+    public static void tabIcon(net.minecraft.client.renderer.entity.RenderItem ri,
+                               net.minecraft.item.ItemStack stack, int x, int y) {
+        ri.renderItemAndEffectIntoGUI(stack, x, iconY(y));
+    }
+
+    public static void tabIconOverlay(net.minecraft.client.renderer.entity.RenderItem ri,
+                                      net.minecraft.client.gui.FontRenderer fr,
+                                      net.minecraft.item.ItemStack stack, int x, int y) {
+        ri.renderItemOverlays(fr, stack, x, iconY(y));
+    }
+
+    private static int iconY(int y) {
+        if (!dev.s1mp1e.glass.asm.BlitSuppressor.creativeArmed()) return y;
+        return y < dev.s1mp1e.glass.asm.BlitSuppressor.panelTop() ? y - 3 : y + 3;
+    }
 
     /** The tab whose vanilla hit box contains the cursor (matches what is clicked). */
     private static CreativeTabs tabUnderMouse(int gl, int gt, int xs, int ys, int mouseX, int mouseY) {

@@ -48,6 +48,12 @@ public final class S1mp1eGlass {
         // splice), so the old DrawScreenEvent.Pre under-painter is gone — keeping
         // it double-composited every capsule and advanced the slider springs twice.
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassScreenFadeHandler());
+        // 每幀最上層：畫面切換的快照交叉淡化（GlassScreenFadeHandler 只負責觸發）。
+        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassTopLayer());
+        // 第 7 組：關掉聊天時，輸入框玻璃淡出、打到一半的字往上飄走。
+        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.ChatCloseHook());
+        // 第 10 組：每次啟動第一次顯示標題畫面之前，先播 S1mp1e 品牌開場（純黑底）。
+        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.BrandIntroHandler());
         System.out.println("[S1mp1e] glass handlers registered");
 
         // Bring up the combat/QoL module subsystem. Must happen at FMLInitialization --

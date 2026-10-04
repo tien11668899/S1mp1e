@@ -1,9 +1,6 @@
 package dev.s1mp1e.glass.ui;
 
-import dev.s1mp1e.glass.anim.Fade;
-import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
-import dev.s1mp1e.glass.render.SceneCapture;
 
 /**
  * The 1.8.9 counterpart of LiquidGlass26's {@code gui/GlassScrollbar} (PORT_SPEC
@@ -27,26 +24,31 @@ import dev.s1mp1e.glass.render.SceneCapture;
 public final class GlassScrollbar {
 
     // --- Apple/iOS constants (shared with the config slider) ---
-    private static final float MORPH_IN_S  = 0.13f;
-    private static final float MORPH_OUT_S = 0.28f;
     private static final float TRACK_HALF_W = 1.5f;
     private static final float GLIDE_TAU_MS = 90f;
     /** iOS systemBlue accent + white, as the config slider lens. */
     private static final int   ACCENT = 0xFF0A84FF;
-    private static final int   WHITE  = 0xE6FFFFFF;
 
-    private final Fade  lift = new Fade(0f, MORPH_IN_S * 1000f); // 0 = capsule, 1 = lens
+    // 按住時的透鏡：和設定頁滑桿／26.2 GlassScrollbar 同一套 Motion 彈簧（0 = 白色藥丸，1 = 玻璃透鏡）
+    private final dev.s1mp1e.client.gui.Motion.Spring lift =
+            new dev.s1mp1e.client.gui.Motion.Spring(dev.s1mp1e.client.gui.Motion.MORPH_IN_S, 0f);
+    private final dev.s1mp1e.client.gui.Motion.Spring stretch =
+            new dev.s1mp1e.client.gui.Motion.Spring(dev.s1mp1e.client.gui.Motion.STRETCH_S, 1f)
+                    .tune(dev.s1mp1e.client.gui.Motion.STRETCH_S, dev.s1mp1e.client.gui.Motion.STRETCH_BOUNCE);
+    private final float[] lens = new float[3];
+    private boolean lifted;
+    private float  speed;                  // 指標速度（px/s，EMA），驅動透鏡拉長
+    private float  lastThumbPx = Float.NaN;
     private float  drawnPos = Float.NaN;   // eased ratio 0..1
-    private float  velPos   = 0f;          // ratio units / s, for the stretch
     private long   lastNanos = 0L;
-    private float  lensLambda = 1f;        // filtered vertical stretch factor
     private float  lastTarget = 0f;        // the logical ratio last fed to run() (for snapToTarget)
 
     /** Reset to a fresh screen (snap, no glide from a stale spot). */
     public void reset() {
-        drawnPos = Float.NaN; velPos = 0f; lastNanos = 0L; lensLambda = 1f;
+        drawnPos = Float.NaN; lastNanos = 0L;
         lastTarget = 0f;
-        lift.snap(0f);
+        lift.snap(0f); lifted = false;
+        stretch.snap(1f); speed = 0f; lastThumbPx = Float.NaN;
     }
 
     /** The eased drawn ratio (feature D moves the grid content by the SAME value). */
@@ -59,7 +61,7 @@ public final class GlassScrollbar {
      * on shows the target row — the row vanilla will hit-test — and the content
      * drawn under the cursor is exactly the item that gets picked up.
      */
-    public void snapToTarget() { drawnPos = lastTarget; velPos = 0f; }
+    public void snapToTarget() { drawnPos = lastTarget; }
 
     /**
      * Draw the scrollbar.
@@ -97,7 +99,6 @@ public final class GlassScrollbar {
         if (over < 0f) rubberPx = -rubberPx;
 
         // Position: 1:1 while dragging, eased glide otherwise (tau 90 ms).
-        float prev = Float.isNaN(drawnPos) ? target : drawnPos;
         if (Float.isNaN(drawnPos)) {
             drawnPos = target;
         } else if (dragging) {
@@ -105,18 +106,31 @@ public final class GlassScrollbar {
         } else {
             drawnPos += (target - drawnPos) * (1f - (float) Math.exp(-dtMs / GLIDE_TAU_MS));
         }
-        velPos = dt > 0f ? (drawnPos - prev) / dt : 0f;
-
-        // Held lens morph.
-        lift.to(dragging ? 1f : 0f, (dragging ? MORPH_IN_S : MORPH_OUT_S) * 1000f);
-        float held = lift.value();
-
-        // Speed-driven vertical stretch of the lens (area preserving: H x lambda, W / lambda).
-        float speedFrac = Math.min(1f, Math.abs(velPos) * 6.3f);
-        float stretchTarget = 1f + 0.18f * speedFrac;
-        lensLambda += (stretchTarget - lensLambda) * (1f - (float) Math.exp(-dtMs / 280f));
 
         float thumbY = trackTop + drawnPos * travelPx + rubberPx;
+        float cyT = thumbY + thumbLen * 0.5f;
+
+        // ---- 按住的透鏡（和設定頁滑桿、26.2 GlassScrollbar 一樣）----
+        // 2026-10-04 使用者回報：背包滑桿按住拖曳時「沒變大、而且是藍色」，設定頁的滑桿卻正常。原本這裡是硬切成
+        // 原尺寸的透鏡、再疊一層 18% 的 iOS 藍；設定頁則是白色藥丸隨按住程度漸變成放大的透鏡、沒有藍色。
+        // 現在照 26.2：knobLens 的形變（按住 0.13 s 變透鏡、放開 0.28 s 變回）、透鏡放大＋隨拖曳速度拉長，
+        // 直式所以寬高係數對調（快速往下拖會變高變窄）；水平色帶是退化的（cx..cx），所以不會出現任何藍色。
+        if (dragging && !lifted) {
+            lifted = true;
+            lift.tune(dev.s1mp1e.client.gui.Motion.MORPH_IN_S, 0f).retarget(1f);
+        } else if (!dragging && lifted) {
+            lifted = false;
+            lift.tune(dev.s1mp1e.client.gui.Motion.MORPH_OUT_S, 0f).retarget(0f);
+        }
+        lift.update(dt);
+        float L = clamp01(lift.x);
+        if (!Float.isNaN(lastThumbPx) && dt > 0f) {
+            float inst = Math.abs(cyT - lastThumbPx) / dt;
+            speed += (inst - speed) * dev.s1mp1e.client.gui.Motion.ema(dt, dev.s1mp1e.client.gui.Motion.SPEED_TAU_S);
+        }
+        lastThumbPx = cyT;
+        stretch.retarget(dev.s1mp1e.client.gui.Motion.stretchTarget(speed, thumbLen)).update(dt);
+        dev.s1mp1e.client.gui.Motion.lensShape(stretch.x, lens);   // [寬係數, 高係數, 圓角]（水平滑桿的定義）
 
         // ---- groove: faint white capsule the full track length ----
         float grooveA = (active ? 0.30f : 0.16f) * alpha;
@@ -124,29 +138,12 @@ public final class GlassScrollbar {
         GlassRenderer.roundRect(cx - TRACK_HALF_W, trackTop, cx + TRACK_HALF_W,
                                 trackTop + travelPx + thumbLen, TRACK_HALF_W, grooveArgb);
 
-        // ---- thumb: white capsule, morphing to a refracting lens when held ----
-        float baseHW = Math.max(2.5f, thumbLen * 0.40f);
-        float lam = held > 0.02f ? lensLambda : 1f;
-        float hh = (thumbLen * 0.5f) * lam;
-        float hw = baseHW / (float) Math.sqrt(Math.max(0.5f, lam));
-        float cyT = thumbY + thumbLen * 0.5f;
-
-        boolean lensOk = held > 0.02f && GlassProgram.ensureReady() && GlassProgram.lensUsable()
-                && SceneCapture.hasBackdrop();
-        if (lensOk) {
-            // refracting lens (full-capsule corner), slight neutral lift, accent rim via
-            // an overlaid translucent accent capsule.
-            GlassRenderer.lens(cx - hw, cyT - hh, cx + hw, cyT + hh, 1.0f, 0.12f, alpha, GlassRenderer.FROST_NONE);
-            int accentA = Math.round(0.18f * held * alpha * 255f) & 0xFF;
-            if (accentA > 1) {
-                GlassRenderer.roundRect(cx - hw, cyT - hh, cx + hw, cyT + hh,
-                                        Math.min(hw, hh), (accentA << 24) | (ACCENT & 0xFFFFFF));
-            }
-        } else {
-            int wa = Math.round(((WHITE >>> 24) / 255f) * alpha * 255f) & 0xFF;
-            GlassRenderer.roundRect(cx - hw, cyT - hh, cx + hw, cyT + hh,
-                                    Math.min(hw, hh), (wa << 24) | (WHITE & 0xFFFFFF));
-        }
+        // ---- thumb：白色藥丸 → 按住時漸變成放大的折射透鏡 ----
+        float hw = Math.max(2.5f, thumbLen * 0.40f);
+        float hh = thumbLen * 0.5f;
+        dev.s1mp1e.client.gui.GlassWidgets.knobLens(cx, cyT, hw, hh, L, lens[1], lens[0], lens[2],
+                cx, cx, TRACK_HALF_W, Float.NaN, 0xFF000000 | (ACCENT & 0xFFFFFF), 0x4DFFFFFF, alpha);
+        dev.s1mp1e.client.gui.GlassWidgets.resetColorCache();
     }
 
     private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }

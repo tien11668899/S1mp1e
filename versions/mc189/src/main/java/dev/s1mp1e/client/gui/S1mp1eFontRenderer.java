@@ -81,7 +81,8 @@ public final class S1mp1eFontRenderer extends FontRenderer {
             return super.drawString(text, x, y, color, shadow);   // super. = vanilla funnel, no recursion
         }
         if ((color & 0xFC000000) == 0) color |= 0xFF000000;        // default to opaque
-        if (shadow) drawRuns(text, x + 1f, y + 1f, color, true);
+        // Global no-text-shadow rule: never draw the offset dark pass. (Previously this drew
+        // a full x+1/y+1 run in a dark colour — that is the drop shadow the user asked removed.)
         return (int) drawRuns(text, x, y, color, false);
     }
 

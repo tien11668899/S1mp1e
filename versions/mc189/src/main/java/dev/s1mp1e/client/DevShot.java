@@ -101,6 +101,8 @@ public final class DevShot {
                              P_HUD = 21, P_HUD_INPUT = 22, P_MODULES = 23, P_NAMETAG = 24,
                              // Feature B: creative tab pill slide (same row) + cross-fade (row switch).
                              P_TABS = 26,
+                             // 模式跑（S1MP1E_SHOT_MODE）：title.png 後的標題佇列、world.png 後的世界佇列。
+                             P_SCENES_TITLE = 27, P_SCENES = 28,
                              P_STOP = 14, P_DONE = 15;
 
     private static boolean resolved;      // env vars checked exactly once
@@ -116,7 +118,8 @@ public final class DevShot {
     private static boolean worldTried;
     /** Target reference resolution — forced onto the framebuffer so shots are 1280x720 even when
      *  the desktop is smaller than that and the OS clamps the on-screen window. */
-    private static final int SHOT_W = 1280, SHOT_H = 720;
+    /** 參考截圖解析度；場景可以暫時改小（小視窗那張），所以不是常數。 */
+    static int shotW = 1280, shotH = 720;
 
     /** Called at the end of every rendered frame (render thread). No-op when both vars are unset. */
     public static void onRenderEnd(Minecraft mc) {
@@ -150,8 +153,10 @@ public final class DevShot {
         if (outDir == null || mc == null) return;
 
         // Global watchdog — never hang.
-        if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > WATCHDOG_MS) {
-            System.out.println("[S1mp1e][DevShot] watchdog fired (" + (WATCHDOG_MS / 1000)
+        // 模式跑會多跑很多場景，看門狗放寬到 600 s；固定腳本維持 240 s。
+        long watchdog = DevShotScenes.mode().isEmpty() ? WATCHDOG_MS : 600_000L;
+        if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
+            System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
             try { mc.shutdown(); } catch (Throwable ignored) {}
             phase = P_DONE;
@@ -189,6 +194,14 @@ public final class DevShot {
                 case P_HUD_INPUT:          stepHudInput(mc);               break;
                 case P_MODULES:            stepModules(mc);                break;
                 case P_NAMETAG:            stepNameTag(mc);                break;
+                case P_SCENES_TITLE:
+                    if (DevShotScenes.tick(mc)) {
+                        if (createWorld(mc)) { frames = 0; phase = P_WAIT_WORLD; } else phase = P_STOP;
+                    }
+                    break;
+                case P_SCENES:
+                    if (DevShotScenes.tick(mc)) phase = P_STOP;
+                    break;
                 case P_STOP:               stepStop(mc);                    break;
                 default:                   break;
             }
@@ -203,7 +216,7 @@ public final class DevShot {
     }
 
     /**
-     * Force MC's main framebuffer to {@link #SHOT_W}x{@link #SHOT_H} so every reference shot is
+     * Force MC's main framebuffer to {@link #shotW}x{@link #shotH} so every reference shot is
      * 1280x720 regardless of the desktop size. {@link Minecraft#resize} sets displayWidth/Height and
      * reallocates {@code framebufferMc} to that size; on a desktop smaller than 1280x720 the OS
      * clamps the on-screen window, but the off-screen framebuffer we screenshot is still full size.
@@ -213,11 +226,11 @@ public final class DevShot {
      */
     private static void forceFramebuffer(Minecraft mc) {
         try {
-            if (mc.displayWidth == SHOT_W && mc.displayHeight == SHOT_H) return;
-            mc.resize(SHOT_W, SHOT_H);   // sets displayWidth/Height + reallocates framebufferMc + relays currentScreen
-            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + SHOT_W + "x" + SHOT_H);
+            if (mc.displayWidth == shotW && mc.displayHeight == shotH) return;
+            mc.resize(shotW, shotH);   // sets displayWidth/Height + reallocates framebufferMc + relays currentScreen
+            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + shotW + "x" + shotH);
         } catch (Throwable t) {
-            skip("force framebuffer " + SHOT_W + "x" + SHOT_H, t);
+            skip("force framebuffer " + shotW + "x" + shotH, t);
         }
     }
 
@@ -226,7 +239,7 @@ public final class DevShot {
     private static void stepInit(Minecraft mc) {
         try {
             // Cosmetic on-screen window size; the shot itself comes from the forced framebuffer.
-            try { org.lwjgl.opengl.Display.setDisplayMode(new org.lwjgl.opengl.DisplayMode(SHOT_W, SHOT_H)); }
+            try { org.lwjgl.opengl.Display.setDisplayMode(new org.lwjgl.opengl.DisplayMode(shotW, shotH)); }
             catch (Throwable ignored) {}
             mc.gameSettings.guiScale = 2;
             // Only pay the resource-reload cost when the language actually differs. 1.8.9 registers
@@ -257,11 +270,18 @@ public final class DevShot {
         phase = P_WAIT_TITLE;
     }
 
+    private static int introFrame;
+
     private static void stepWaitTitle(Minecraft mc) {
+        // 模式 intro：開機的品牌開場在標題畫面之前播放，每 3 幀拍一張
+        if (dev.s1mp1e.client.gui.BrandIntro.showing() && DevShotScenes.has("intro")) {
+            if (introFrame % 3 == 0) capture(mc, String.format("intro_%03d.png", introFrame / 3));
+            introFrame++;
+        }
         // Wait past the Mojang splash / any resource reload until the title is the current screen.
         if (mc.currentScreen instanceof GuiMainMenu) {
             frames = 0; phase = P_TITLE;
-        } else if (++frames > WAIT_SCREEN_CAP * 4) {
+        } else if (++frames > WAIT_SCREEN_CAP * 8) {   // 開場會延後標題出現
             skip("wait title screen", new IllegalStateException("title never shown"));
             frames = 0; phase = P_TITLE;   // try to shoot whatever is on screen, then continue
         }
@@ -270,6 +290,12 @@ public final class DevShot {
     private static void stepTitle(Minecraft mc) {
         if (++frames >= TITLE_FRAMES) {
             capture(mc, "title.png");
+            if (!DevShotScenes.mode().isEmpty()) {
+                System.out.println("[S1mp1e][DevShot] mode run: " + DevShotScenes.mode());
+                DevShotScenes.queueTitle();
+                frames = 0; phase = P_SCENES_TITLE;
+                return;
+            }
             open(mc, new S1mp1eConfigScreen(), "open settings (over title)");
             frames = 0; phase = P_WAIT_CONFIG;
         }
@@ -340,6 +366,11 @@ public final class DevShot {
         keepItemName(mc);
         if (++frames >= WORLD_FRAMES) {
             capture(mc, "world.png");
+            if (!DevShotScenes.mode().isEmpty()) {
+                DevShotScenes.queueWorld();
+                frames = 0; phase = P_SCENES;
+                return;
+            }
             open(mc, new S1mp1eConfigScreen(), "open settings (over world)");
             frames = 0; phase = P_WAIT_CONFIG2;
         }
@@ -951,6 +982,22 @@ public final class DevShot {
             auditFinalPending = false;
             logAudit("COREMOD AUDIT (final, all screens exercised)");
         }
+        // 絕不在世界裡直接關遊戲：先照原版暫停選單「儲存並離開」的做法離開世界（Forge 的 loadWorld(null) 會等整合
+        // 伺服器存完檔、停下來才返回），回到標題畫面，等幾幀之後才關。之前直接 shutdown，伺服器關閉流程偶爾在視窗
+        // 已經關掉後才跑完，留下一個「Display not created」的伺服器執行緒例外。
+        if (mc.theWorld != null) {
+            System.out.println("[S1mp1e][DevShot] done, leaving the world (save + quit to title) before quitting.");
+            try {
+                mc.theWorld.sendQuittingDisconnectingPacket();
+                mc.loadWorld((net.minecraft.client.multiplayer.WorldClient) null);
+                mc.displayGuiScreen(new GuiMainMenu());
+            } catch (Throwable t) {
+                skip("leave world", t);
+            }
+            frames = 0;
+            return;                       // 下一幀再回到這裡；那時 theWorld 已經是 null
+        }
+        if (++frames < 20) return;        // 在標題畫面停一下再關
         System.out.println("[S1mp1e][DevShot] done, quitting.");
         try { mc.shutdown(); } catch (Throwable ignored) {}
         phase = P_DONE;
@@ -1129,6 +1176,9 @@ public final class DevShot {
      * framebuffer PNG writer ({@link net.minecraft.util.ScreenShotHelper}), which always writes into
      * {@code <gameDir>/screenshots}; the file is then relocated to the shot folder.
      */
+    /** 給 {@link DevShotScenes} 用的截圖入口。 */
+    static void captureExternal(Minecraft mc, String name) { capture(mc, name); }
+
     private static void capture(Minecraft mc, String name) {
         try {
             net.minecraft.util.ScreenShotHelper.saveScreenshot(

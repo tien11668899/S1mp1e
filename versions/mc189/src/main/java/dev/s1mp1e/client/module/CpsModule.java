@@ -49,7 +49,9 @@ public final class CpsModule extends Module implements HudBounds, HudRenderer {
     private final Setting posY     = add(Setting.integer("PosY", 4, 0, 2000));
     private final Setting showRight = add(Setting.bool("Show right CPS", false));
     private final Setting color    = add(Setting.color("Colour", 0xFFFFFFFF));
-    private final Setting shadow   = add(Setting.bool("Shadow", true));
+    // Global no-text-shadow rule: in-game text never draws a drop shadow, so this toggle is
+    // now dead. Keep it (persisted) but hide its row, matching the newer lines.
+    private final Setting shadow   = add(Setting.bool("Shadow", true).hide());
 
     private final ArrayDeque<Long> leftClicks  = new ArrayDeque<Long>();
     private final ArrayDeque<Long> rightClicks = new ArrayDeque<Long>();

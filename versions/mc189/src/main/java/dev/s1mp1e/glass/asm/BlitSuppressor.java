@@ -58,6 +58,12 @@ public final class BlitSuppressor {
     /** Disarm creative-chrome suppression. */
     public static void disarmCreative() { creativeChrome = false; }
 
+    /** 創造模式的玻璃分類列正在生效（背景層、玻璃可用、貼圖已被抑制）。 */
+    public static boolean creativeArmed() { return creativeChrome && armed; }
+
+    /** 目前武裝中的面板頂邊（guiTop）。 */
+    public static int panelTop() { return gt; }
+
     /**
      * True when the given {@code drawTexturedModalRect(x,y,u,v,w,h)} should be
      * skipped: any full-width strip that starts at the panel's left edge and
@@ -69,6 +75,10 @@ public final class BlitSuppressor {
         // is 12x15. Tab ICONS go through itemRender (not this blit), so they survive.
         if (creativeChrome && ((w == 28 && h == 32) || (w == 12 && h == 15))) return true;
         if (!armed) return false;
-        return x == gl && w == xs && y >= gt && y < gt + ys;
+        if (x == gl && w == xs && y >= gt && y < gt + ys) return true;
+        // 第 8 組：容器背景層裡「留下來」的 blit（熔爐火焰／箭頭、釀造台泡泡、鐵砧叉叉…）改從一份把不透明灰色底
+        // 變透明的材質副本畫，才不會在玻璃上變成灰色方塊（ContainerExtras）。
+        dev.s1mp1e.glass.render.ContainerExtras.rebindKeyed();
+        return false;
     }
 }

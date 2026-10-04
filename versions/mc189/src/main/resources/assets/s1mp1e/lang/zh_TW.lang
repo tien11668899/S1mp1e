@@ -1,0 +1,22 @@
+# S1mp1e 模組開關的按鍵名稱（按鍵設定頁）。鍵值 key.s1mp1e.<模組名小寫> 由 KeybindHandler 註冊，
+# 也是 options.txt 裡存綁定的 ID，所以不能改鍵值，只能在這裡給顯示名稱。
+key.s1mp1e.armorhud=裝備欄
+key.s1mp1e.blockoutline=方塊外框
+key.s1mp1e.cps=點擊速度
+key.s1mp1e.chromahud=彩虹介面
+key.s1mp1e.coordshud=座標顯示
+key.s1mp1e.crosshair=準星
+key.s1mp1e.fpshud=幀率顯示
+key.s1mp1e.fullbright=全亮
+key.s1mp1e.handposition=手部位置
+key.s1mp1e.hitmarker=命中標記
+key.s1mp1e.hungerhud=隱藏飽食度
+key.s1mp1e.inventoryhud=背包預覽
+key.s1mp1e.keystrokes=按鍵顯示
+key.s1mp1e.lowfire=火焰畫面降低
+key.s1mp1e.nohurtcam=關閉受傷晃動
+key.s1mp1e.oldanimations=舊版動畫
+key.s1mp1e.potionhud=藥水欄
+key.s1mp1e.steadyfov=固定視野
+key.s1mp1e.xpflow=經驗條流動
+key.s1mp1e.zoom=視野縮放

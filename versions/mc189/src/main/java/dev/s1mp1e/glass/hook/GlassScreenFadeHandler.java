@@ -1,51 +1,31 @@
 package dev.s1mp1e.glass.hook;
 
-import dev.s1mp1e.glass.render.ScreenFade;
+import dev.s1mp1e.glass.render.ScreenDissolve;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.client.event.GuiOpenEvent;
-import net.minecraftforge.client.event.GuiScreenEvent;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Cross-dissolves every GUI screen change — title to Singleplayer, Multiplayer,
- * Options, the in-game menu, and closing back to the world.
+ * 每次真的換畫面時啟動選單交叉淡化（{@link ScreenDissolve}）。{@link GuiOpenEvent} 在
+ * {@code Minecraft.displayGuiScreen} 開頭送出，此時 {@code currentScreen} 還是要離開的畫面、主 framebuffer 還留著
+ * 它最後畫完的那一幀——正是要拍下來的東西。LOWEST 優先序，所以比對的是事件最後決定的畫面。改變視窗大小會把
+ * 同一個實例再設一次，不能觸發淡化。快照由 {@link GlassTopLayer} 畫（這一幀的最上層）。
  *
- * <p>{@link GuiOpenEvent} only STARTS the dissolve. It fires during tick/input,
- * outside the render pass, so capturing there produced an unfilled (and
- * therefore incomplete) texture, which OpenGL renders as a flat white quad —
- * the white flash. The frame is instead captured at the end of every rendered
- * frame, from inside the render pass, so the snapshot is always last frame's
- * finished image.
- *
- * <p>Draw runs before capture within a frame, and capture pauses for the
- * duration of a dissolve, so the fade is never captured into its own snapshot.
+ * <p>取代這條線舊的做法（每幀結尾複製一次、在 DrawScreenEvent.Post／RenderGameOverlayEvent.Post 畫 150 ms 線性
+ * 淡出的 {@code ScreenFade}）：那種複製可能晚一幀，而且淡化畫在 Post 事件，蓋不到之後才畫的東西。
  */
 public final class GlassScreenFadeHandler {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onGuiOpen(GuiOpenEvent e) {
+        if (e.isCanceled()) return;
         Minecraft mc = Minecraft.getMinecraft();
-        // Only dissolve on a real change; MC re-sets the same screen on resize
-        // and that must not flash.
         if (mc.currentScreen == e.gui) return;
-        ScreenFade.trigger();
-    }
-
-    /** Screen open: dissolve above the screen, then snapshot the finished frame. */
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onScreenPost(GuiScreenEvent.DrawScreenEvent.Post e) {
-        ScreenFade.draw();
-        ScreenFade.captureFrame();
-    }
-
-    /** No screen (back in the world): dissolve above the HUD, then snapshot. */
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onOverlayPost(RenderGameOverlayEvent.Post e) {
-        if (e.type != RenderGameOverlayEvent.ElementType.ALL) return;
-        if (Minecraft.getMinecraft().currentScreen != null) return;
-        ScreenFade.draw();
-        ScreenFade.captureFrame();
+        try {
+            ScreenDissolve.onSetScreen(mc.currentScreen, e.gui);
+        } catch (Throwable t) {
+            // 純外觀：快照失敗就只是硬切
+        }
     }
 }

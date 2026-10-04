@@ -129,6 +129,13 @@ public final class S1mp1eTransformer implements IClassTransformer {
     private static final String HOOKS_BUTTON    = "dev/s1mp1e/glass/asm/ButtonHook";
     private static final String HOOKS_CONTAINER = "dev/s1mp1e/glass/asm/ContainerHook";
     private static final String HOOKS_GLIDE     = "dev/s1mp1e/glass/hook/GlassCreativeGlide";
+    private static final String HOOKS_FLIGHT    = "dev/s1mp1e/glass/hook/ItemFlightHook";
+
+    // drawGuiContainerForegroundLayer(int,int)V — the item-flight draw goes right before it, inside
+    // the slot loop's translate(guiLeft,guiTop) and after vanilla's disableStandardItemLighting().
+    private static final String FG_LAYER_MCP  = "drawGuiContainerForegroundLayer";
+    private static final String FG_LAYER_SRG  = "func_146979_b";
+    private static final String FG_LAYER_DESC = "(II)V";
 
     // mouseClicked(int,int,int)V — GuiContainer's override; the creative grid item
     // hit-test happens here (via super), so a mid-glide click snaps first (feature D).
@@ -179,11 +186,51 @@ public final class S1mp1eTransformer implements IClassTransformer {
     private static final String WRCOLOR_SRG  = "func_181666_a";
     private static final String WRCOLOR_DESC = "(FFFF)Lnet/minecraft/client/renderer/WorldRenderer;";
 
+    // No text shadow (group 3 / delta) — FontRenderer.renderString(String,float,float,int,boolean)I
+    // is the single private funnel both drawString and drawStringWithShadow route into. Force its
+    // dropShadow argument (local slot 5) to false at the method head, so a genuine vanilla
+    // FontRenderer never paints a drop shadow. The GlassFont path (the replaced FontRenderer, the HUD
+    // text seam, the glass GUI) is already shadow-free in Java; this covers any residual vanilla
+    // FontRenderer instance and the bitmap-font fallback. SRG func_180455_b verified via mcp-srg.srg.
+    private static final String FONT_RENDERER_CLASS = "net.minecraft.client.gui.FontRenderer";
+    private static final String RENDERSTRING_MCP  = "renderString";
+    private static final String RENDERSTRING_SRG  = "func_180455_b";
+    private static final String RENDERSTRING_DESC = "(Ljava/lang/String;FFIZ)I";
+
     private static final String HOOKS_CHAT      = "dev/s1mp1e/glass/hook/GlassChatHud";
     private static final String HOOKS_TABLIST   = "dev/s1mp1e/glass/hook/GlassTabList";
     private static final String HOOKS_BOSSBAR   = "dev/s1mp1e/glass/hook/GlassBossBar";
     private static final String HOOKS_ACTIONBAR = "dev/s1mp1e/glass/hook/GlassActionBar";
     private static final String HOOKS_NAMETAG   = "dev/s1mp1e/glass/hook/GlassNameTag";
+
+    // 第 5 組：同一畫面內的內容切換改成交叉淡化（TabSwitchHook）。兩個方法開頭各插一個 void static 呼叫，
+    // 在內容翻過去之前、主 framebuffer 還是舊版面時拍快照。SRG 名稱查 mcp_stable_22 的 methods.csv。
+    private static final String CREATIVE_SCREEN = "net.minecraft.client.gui.inventory.GuiContainerCreative";
+    private static final String CREATE_WORLD    = "net.minecraft.client.gui.GuiCreateWorld";
+    private static final String HOOKS_TAB       = "dev/s1mp1e/glass/hook/TabSwitchHook";
+    // 第 7 組：Tab 清單淡入淡出、血條受傷拖尾
+    private static final String HOOKS_HUD = "dev/s1mp1e/glass/hook/HudMotionHook";
+    // 第 6 組：清單滾輪平滑捲動、文字框打字動畫
+    private static final String HOOKS_LIST = "dev/s1mp1e/glass/hook/ListMotionHook";
+    private static final String LIST_DESC  = "(Lnet/minecraft/client/gui/GuiSlot;)V";
+
+    // 第 1 組：設定頁外殼——原版每個設定頁都換成同一套玻璃側邊欄＋卡片列版面。
+    // 每個設定畫面的 drawScreen(IIF)V 開頭插 `if (SettingsShell.render(this,mx,my,pt)) return;`（外殼代替原版畫），
+    // GuiScreen.mouseClicked / handleMouseInput 開頭插閘門，讓外殼接管點擊和滾輪（非設定頁時 handles() 直接放行）。
+    private static final String SHELL = "dev/s1mp1e/client/gui/SettingsShell";
+    private static final String SHELL_RENDER_DESC = "(Lnet/minecraft/client/gui/GuiScreen;IIF)Z";
+    private static final String SHELL_CLICK_DESC  = "(Lnet/minecraft/client/gui/GuiScreen;III)Z";
+    private static final String SHELL_WHEEL_DESC  = "(Lnet/minecraft/client/gui/GuiScreen;)Z";
+    private static final String MOUSE_CLICKED_MCP = "mouseClicked", MOUSE_CLICKED_SRG = "func_73864_a",
+                                MOUSE_CLICKED_DESC = "(III)V";
+    private static final String HANDLE_MOUSE_MCP = "handleMouseInput", HANDLE_MOUSE_SRG = "func_146274_d",
+                                HANDLE_MOUSE_DESC = "()V";
+    /** 外殼要接手畫的設定畫面（和 SettingsShell.handles() 同一份清單）。 */
+    private static final java.util.Set<String> SHELL_SCREENS = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "net.minecraft.client.gui.GuiOptions", "net.minecraft.client.gui.GuiVideoSettings",
+            "net.minecraft.client.gui.GuiControls", "net.minecraft.client.gui.GuiLanguage",
+            "net.minecraft.client.gui.ScreenChatOptions", "net.minecraft.client.gui.GuiScreenOptionsSounds",
+            "net.minecraft.client.gui.GuiCustomizeSkin"));
 
     // ---- coremod patch-site audit -----------------------------------------
     // Recorded as each target class is transformed (lazily, at class-load time). Read by
@@ -249,6 +296,50 @@ public final class S1mp1eTransformer implements IClassTransformer {
             if (RENDER.equals(transformedName)) {
                 return patchNameTag(basicClass);
             }
+            if (FONT_RENDERER_CLASS.equals(transformedName)) {
+                return patchFontShadow(basicClass);
+            }
+            if ("net.minecraft.client.multiplayer.GuiConnecting".equals(transformedName)
+                    || "net.minecraft.client.gui.GuiDownloadTerrain".equals(transformedName)
+                    || "net.minecraft.client.gui.GuiScreenWorking".equals(transformedName)) {
+                return patchLoadingCard(basicClass, transformedName);
+            }
+            if ("net.minecraft.client.gui.GuiIngame".equals(transformedName)) {
+                return patchScoreboardRecord(basicClass);
+            }
+            if ("net.minecraft.client.gui.GuiTextField".equals(transformedName)) {
+                // 第 6 組：文字框打字動畫。drawTextBox()V 開頭：if (EditBoxHook.draw(this)) return;
+                ClassNode cn = read(basicClass);
+                MethodNode m = find(cn, "drawTextBox", "func_146194_f", "()V");
+                if (m == null) {
+                    System.out.println("[S1mp1e/ASM] GuiTextField.drawTextBox not found");
+                    auditFail("GuiTextField.drawTextBox", "method not found");
+                    return basicClass;
+                }
+                LabelNode pass = new LabelNode();
+                InsnList pre = new InsnList();
+                pre.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/EditBoxHook", "draw",
+                        "(Lnet/minecraft/client/gui/GuiTextField;)Z", false));
+                pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+                pre.add(new InsnNode(Opcodes.RETURN));
+                pre.add(pass);
+                m.instructions.insert(pre);
+                System.out.println("[S1mp1e/ASM] patched GuiTextField.drawTextBox (typing animation)");
+                auditOk("GuiTextField.drawTextBox (typing animation)");
+                return write(cn);
+            }
+            if (SHELL_SCREENS.contains(transformedName)) {
+                return patchSettingsDraw(basicClass, transformedName);
+            }
+            if (CREATIVE_SCREEN.equals(transformedName)) {
+                return patchCreative(basicClass);
+            }
+            if (CREATE_WORLD.equals(transformedName)) {
+                return patchTabSwitch(basicClass, "GuiCreateWorld.showMoreWorldOptions",
+                        "showMoreWorldOptions", "func_146316_a", "(Z)V",
+                        "createWorld", "(Lnet/minecraft/client/gui/GuiCreateWorld;Z)V", Opcodes.ILOAD);
+            }
         } catch (Throwable t) {
             // Never take the game down over a failed patch — fall back to vanilla.
             System.out.println("[S1mp1e/ASM] patch of " + transformedName + " failed: " + t);
@@ -284,6 +375,20 @@ public final class S1mp1eTransformer implements IClassTransformer {
         m.instructions.insert(pre);
         System.out.println("[S1mp1e/ASM] patched GuiButton.drawButton");
         auditOk("GuiButton.drawButton");
+
+        // 第 9 組按下脈衝：playPressSound(SoundHandler)V 開頭 → PressPulse.press(this)（每次點擊都會播放按鈕音效）。
+        MethodNode ps = find(cn, "playPressSound", "func_146113_a", "(Lnet/minecraft/client/audio/SoundHandler;)V");
+        if (ps != null) {
+            InsnList pp = new InsnList();
+            pp.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            pp.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/anim/PressPulse", "press",
+                    "(Lnet/minecraft/client/gui/GuiButton;)V", false));
+            ps.instructions.insert(pp);
+            System.out.println("[S1mp1e/ASM] patched GuiButton.playPressSound (press pulse)");
+            auditOk("GuiButton.playPressSound (press pulse)");
+        } else {
+            auditFail("GuiButton.playPressSound", "method not found (press pulse)");
+        }
         return write(cn);
     }
 
@@ -332,6 +437,38 @@ public final class S1mp1eTransformer implements IClassTransformer {
             System.out.println("[S1mp1e/ASM] GuiContainer.drawScreen not found, skipping");
             auditFail("GuiContainer.drawScreen", "method not found");
             return basic;
+        }
+
+        // Item flight (delta): drawScreen HEAD -> ItemFlightHook.observe(this). A per-frame slot diff;
+        // no click hooks, so mod moves and server packets fly too. Stack-neutral void static: no frame.
+        InsnList obs = new InsnList();
+        obs.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this (GuiContainer)
+        obs.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_FLIGHT, "observe",
+                "(Lnet/minecraft/client/gui/inventory/GuiContainer;)V", false));
+        m.instructions.insert(obs);
+
+        // Item flight (delta): draw every active flight right BEFORE drawGuiContainerForegroundLayer,
+        // inside the slot loop's translate(guiLeft,guiTop) and with lights in vanilla's pre-foreground
+        // state. ItemFlightHook.draw(this) brackets its own GUI item lighting and restores it.
+        int flightDraw = 0;
+        Iterator<AbstractInsnNode> fit = m.instructions.iterator();
+        while (fit.hasNext()) {
+            AbstractInsnNode insn = fit.next();
+            if (insn.getOpcode() != Opcodes.INVOKEVIRTUAL) continue;
+            MethodInsnNode call = (MethodInsnNode) insn;
+            boolean isFg = (FG_LAYER_MCP.equals(call.name) || FG_LAYER_SRG.equals(call.name))
+                           && FG_LAYER_DESC.equals(call.desc);
+            if (!isFg) continue;
+            InsnList before = new InsnList();
+            before.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (GuiContainer)
+            before.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_FLIGHT, "draw",
+                    "(Lnet/minecraft/client/gui/inventory/GuiContainer;)V", false));
+            m.instructions.insertBefore(call, before);
+            flightDraw++;
+            break;   // the first (own) foreground-layer call; subclass overrides have their own drawScreen? no
+        }
+        if (flightDraw == 0) {
+            auditFail("GuiContainer.drawScreen", "foreground-layer call not found (item flight draw not spliced)");
         }
 
         int patched = 0;
@@ -403,6 +540,20 @@ public final class S1mp1eTransformer implements IClassTransformer {
             slotM.instructions.insert(pre);
             glide++;
 
+            // Item flight (delta): drawSlot HEAD -> if (ItemFlightHook.hideSlot(this, slot)) return;
+            // Inserted last so it runs FIRST (a slot whose item is still in flight toward it is not
+            // drawn by vanilla until the flight lands). Mutually exclusive with the creative glide.
+            LabelNode passFlight = new LabelNode();
+            InsnList fpre = new InsnList();
+            fpre.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (GuiContainer)
+            fpre.add(new VarInsnNode(Opcodes.ALOAD, 1)); // Slot
+            fpre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_FLIGHT, "hideSlot",
+                    "(Lnet/minecraft/client/gui/inventory/GuiContainer;Lnet/minecraft/inventory/Slot;)Z", false));
+            fpre.add(new JumpInsnNode(Opcodes.IFEQ, passFlight));
+            fpre.add(new InsnNode(Opcodes.RETURN));
+            fpre.add(passFlight);
+            slotM.instructions.insert(fpre);
+
             Iterator<AbstractInsnNode> sit = slotM.instructions.iterator();
             while (sit.hasNext()) {
                 AbstractInsnNode insn = sit.next();
@@ -449,7 +600,8 @@ public final class S1mp1eTransformer implements IClassTransformer {
         }
         System.out.println("[S1mp1e/ASM] patched GuiContainer.drawScreen (hover redirects: " + hover + ")");
         auditOk("GuiContainer.drawScreen (bgLayer, hover=" + hover + ", drag=" + drag
-                + ", glideSlot=" + glide + ", clickSnap=" + click + ")");
+                + ", glideSlot=" + glide + ", clickSnap=" + click
+                + ", flight=observe+draw" + flightDraw + "+hide" + glide + ")");
         return write(cn);
     }
 
@@ -536,8 +688,74 @@ public final class S1mp1eTransformer implements IClassTransformer {
             auditFail("GuiScreen.drawHoveringText", "method not found");
         }
 
+        // 第 1 組：設定頁外殼的輸入閘門。mouseClicked(III)V 開頭：
+        //   if (SettingsShell.mouseClicked(this, mx, my, btn)) return;
+        MethodNode mcm = find(cn, MOUSE_CLICKED_MCP, MOUSE_CLICKED_SRG, MOUSE_CLICKED_DESC);
+        if (mcm != null) {
+            LabelNode cpass = new LabelNode();
+            InsnList cpre = new InsnList();
+            cpre.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this
+            cpre.add(new VarInsnNode(Opcodes.ILOAD, 1));   // mouseX
+            cpre.add(new VarInsnNode(Opcodes.ILOAD, 2));   // mouseY
+            cpre.add(new VarInsnNode(Opcodes.ILOAD, 3));   // mouseButton
+            cpre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SHELL, "mouseClicked", SHELL_CLICK_DESC, false));
+            cpre.add(new JumpInsnNode(Opcodes.IFEQ, cpass));
+            cpre.add(new InsnNode(Opcodes.RETURN));
+            cpre.add(cpass);
+            mcm.instructions.insert(cpre);
+            System.out.println("[S1mp1e/ASM] patched GuiScreen.mouseClicked (settings shell gate)");
+            auditOk("GuiScreen.mouseClicked (settings shell gate)");
+        } else {
+            auditFail("GuiScreen.mouseClicked", "method not found (settings shell gate)");
+        }
+        // handleMouseInput()V 開頭：if (SettingsShell.handleWheel(this)) return;
+        MethodNode hmi = find(cn, HANDLE_MOUSE_MCP, HANDLE_MOUSE_SRG, HANDLE_MOUSE_DESC);
+        if (hmi != null) {
+            LabelNode wpass = new LabelNode();
+            InsnList wpre = new InsnList();
+            wpre.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this
+            wpre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SHELL, "handleWheel", SHELL_WHEEL_DESC, false));
+            wpre.add(new JumpInsnNode(Opcodes.IFEQ, wpass));
+            wpre.add(new InsnNode(Opcodes.RETURN));
+            wpre.add(wpass);
+            hmi.instructions.insert(wpre);
+            System.out.println("[S1mp1e/ASM] patched GuiScreen.handleMouseInput (settings shell wheel gate)");
+            auditOk("GuiScreen.handleMouseInput (settings shell wheel gate)");
+        } else {
+            auditFail("GuiScreen.handleMouseInput", "method not found (settings shell wheel gate)");
+        }
+
         System.out.println("[S1mp1e/ASM] patched GuiScreen.drawBackground");
         auditOk("GuiScreen.drawBackground");
+        return write(cn);
+    }
+
+    /**
+     * 第 1 組：在設定畫面的 drawScreen(IIF)V 開頭插 `if (SettingsShell.render(this,mx,my,pt)) return;`。
+     * this=0、mx=1、my=2、pt=3（float）。
+     */
+    private static byte[] patchSettingsDraw(byte[] basic, String className) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, DRAW_SCREEN_MCP, DRAW_SCREEN_SRG, DRAW_SCREEN_DESC);
+        String site = className.substring(className.lastIndexOf('.') + 1) + ".drawScreen (settings shell)";
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] " + site + " not found, settings shell skipped");
+            auditFail(site, "method not found");
+            return basic;
+        }
+        LabelNode pass = new LabelNode();
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this (GuiScreen)
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 1));   // mouseX
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 2));   // mouseY
+        pre.add(new VarInsnNode(Opcodes.FLOAD, 3));   // partialTicks
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SHELL, "render", SHELL_RENDER_DESC, false));
+        pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+        pre.add(new InsnNode(Opcodes.RETURN));
+        pre.add(pass);
+        m.instructions.insert(pre);
+        System.out.println("[S1mp1e/ASM] patched " + site);
+        auditOk(site);
         return write(cn);
     }
 
@@ -631,6 +849,36 @@ public final class S1mp1eTransformer implements IClassTransformer {
             auditFail("GuiSlot.overlayBackground", "method not found");
         }
 
+        // 第 6 組：滾輪平滑捲動（ListMotionHook）。handleMouseInput 開頭 before(this)、每個 RETURN 之前 after(this)；
+        // drawScreen 開頭 step(this)。全部是單純 push＋void static 呼叫：堆疊不變、沒有分支。
+        MethodNode hmi = find(cn, "handleMouseInput", "func_178039_p", "()V");
+        MethodNode dsc = find(cn, "drawScreen", "func_148128_a", "(IIF)V");
+        if (hmi != null && dsc != null) {
+            int rets = 0;
+            for (AbstractInsnNode insn = hmi.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() != Opcodes.RETURN) continue;
+                InsnList a = new InsnList();
+                a.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                a.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LIST, "after", LIST_DESC, false));
+                hmi.instructions.insertBefore(insn, a);
+                rets++;
+            }
+            InsnList b = new InsnList();
+            b.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            b.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LIST, "before", LIST_DESC, false));
+            hmi.instructions.insert(b);
+            InsnList st = new InsnList();
+            st.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            st.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LIST, "step", LIST_DESC, false));
+            dsc.instructions.insert(st);
+            done++;
+            System.out.println("[S1mp1e/ASM] patched GuiSlot smooth wheel (returns: " + rets + ")");
+            auditOk("GuiSlot smooth wheel (returns=" + rets + ")");
+        } else {
+            System.out.println("[S1mp1e/ASM] GuiSlot handleMouseInput/drawScreen not found, smooth wheel skipped");
+            auditFail("GuiSlot smooth wheel", "handleMouseInput/drawScreen not found");
+        }
+
         if (done == 0) return basic;
         System.out.println("[S1mp1e/ASM] patched GuiSlot list background (sites: " + done + ")");
         return write(cn);
@@ -685,7 +933,33 @@ public final class S1mp1eTransformer implements IClassTransformer {
         // redirect the per-line drawRect(IIIII) calls
         int rects = redirectStaticRect(m, HOOKS_CHAT, "rect");
         System.out.println("[S1mp1e/ASM] patched GuiNewChat.drawChat (rect redirects: " + rects + ")");
-        auditOk("GuiNewChat.drawChat (panel + rect=" + rects + ")");
+        // 第 7 組聊天進場：「第一個」GlStateManager.translate(FFF)（聊天欄的位置）和每一行的 drawStringWithShadow
+        // 轉到 GlassChatHud（參數、回傳值都一樣：堆疊不變）。
+        int tr = 0, tx = 0;
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (!(insn instanceof MethodInsnNode)) continue;
+            MethodInsnNode c = (MethodInsnNode) insn;
+            if (tr == 0 && c.getOpcode() == Opcodes.INVOKESTATIC
+                    && "net/minecraft/client/renderer/GlStateManager".equals(c.owner)
+                    && ("translate".equals(c.name) || "func_179109_b".equals(c.name)) && "(FFF)V".equals(c.desc)) {
+                MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_CHAT, "translate", "(FFF)V", false);
+                m.instructions.set(c, n);
+                insn = n;
+                tr++;
+                continue;
+            }
+            if (c.getOpcode() == Opcodes.INVOKEVIRTUAL && "net/minecraft/client/gui/FontRenderer".equals(c.owner)
+                    && ("drawStringWithShadow".equals(c.name) || "func_175063_a".equals(c.name))
+                    && "(Ljava/lang/String;FFI)I".equals(c.desc)) {
+                MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_CHAT, "text",
+                        "(Lnet/minecraft/client/gui/FontRenderer;Ljava/lang/String;FFI)I", false);
+                m.instructions.set(c, n);
+                insn = n;
+                tx++;
+            }
+        }
+        System.out.println("[S1mp1e/ASM] chat arrival: pose translate " + tr + ", line text " + tx);
+        auditOk("GuiNewChat.drawChat (panel + rect=" + rects + ", arrival translate=" + tr + " text=" + tx + ")");
         return write(cn);
     }
 
@@ -723,6 +997,19 @@ public final class S1mp1eTransformer implements IClassTransformer {
         }
         System.out.println("[S1mp1e/ASM] patched GuiChat.drawScreen (input bar)");
         auditOk("GuiChat.drawScreen (input bar)");
+        // 第 7 組聊天關閉淡出：onGuiClosed()V 開頭 → ChatCloseHook.closed(this)（記下輸入框的字）。
+        MethodNode closed = find(cn, "onGuiClosed", "func_146281_b", "()V");
+        if (closed != null) {
+            InsnList cc = new InsnList();
+            cc.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            cc.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/ChatCloseHook", "closed",
+                    "(Lnet/minecraft/client/gui/GuiChat;)V", false));
+            closed.instructions.insert(cc);
+            System.out.println("[S1mp1e/ASM] patched GuiChat.onGuiClosed (chat close fade)");
+            auditOk("GuiChat.onGuiClosed (chat close fade)");
+        } else {
+            auditFail("GuiChat.onGuiClosed", "method not found (chat close fade)");
+        }
         return write(cn);
     }
 
@@ -745,7 +1032,30 @@ public final class S1mp1eTransformer implements IClassTransformer {
             return basic;
         }
         System.out.println("[S1mp1e/ASM] patched GuiPlayerTabOverlay.renderPlayerlist (rect redirects: " + rects + ")");
-        auditOk("GuiPlayerTabOverlay.renderPlayerlist (rect=" + rects + ")");
+        // 第 7 組 Tab 清單淡入淡出：renderPlayerlist／drawPing／drawScoreboardValues 裡的 GlStateManager.color(FFFF)
+        // 和 drawStringWithShadow 轉到 HudMotionHook，乘上 TabListFade 的 alpha（玻璃底板由 GlassTabList.rect 自己乘）。
+        int col = 0, txt = 0;
+        String[][] methods = {
+            { TAB_MCP, TAB_SRG, TAB_DESC },
+            { "drawPing", "func_175245_a", "(IIILnet/minecraft/client/network/NetworkPlayerInfo;)V" },
+            { "drawScoreboardValues", "func_175247_a",
+              "(Lnet/minecraft/scoreboard/ScoreObjective;ILjava/lang/String;IILnet/minecraft/client/network/NetworkPlayerInfo;)V" } };
+        for (String[] md : methods) {
+            MethodNode mm = find(cn, md[0], md[1], md[2]);
+            if (mm == null) continue;
+            for (AbstractInsnNode insn = mm.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (isCall(insn, Opcodes.INVOKESTATIC, "net/minecraft/client/renderer/GlStateManager", "color", "func_179131_c", "(FFFF)V")) {
+                    MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "tabColor", "(FFFF)V", false);
+                    mm.instructions.set(insn, n); insn = n; col++;
+                } else if (isCall(insn, Opcodes.INVOKEVIRTUAL, "net/minecraft/client/gui/FontRenderer", "drawStringWithShadow", "func_175063_a", "(Ljava/lang/String;FFI)I")) {
+                    MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "tabText",
+                            "(Lnet/minecraft/client/gui/FontRenderer;Ljava/lang/String;FFI)I", false);
+                    mm.instructions.set(insn, n); insn = n; txt++;
+                }
+            }
+        }
+        System.out.println("[S1mp1e/ASM] tab list fade: colour " + col + ", text " + txt);
+        auditOk("GuiPlayerTabOverlay.renderPlayerlist (rect=" + rects + ", fade colour=" + col + " text=" + txt + ")");
         return write(cn);
     }
 
@@ -806,7 +1116,157 @@ public final class S1mp1eTransformer implements IClassTransformer {
             auditFail("GuiIngameForge.renderRecordOverlay", "method not found");
         }
 
+        // ---- 第 7 組 HUD 動態 ----
+        // (1) Tab 清單閘門：renderPlayerList 裡的 keyBindPlayerList.isKeyDown() → HudMotionHook.tabGate(KeyBinding)，
+        //     放開 Tab 後淡出期間仍繼續畫。
+        MethodNode rpl = find(cn, "renderPlayerList", "renderPlayerList", "(II)V");
+        int gate = 0;
+        if (rpl != null) {
+            for (AbstractInsnNode insn = rpl.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (isCall(insn, Opcodes.INVOKEVIRTUAL, "net/minecraft/client/settings/KeyBinding", "isKeyDown", "func_151470_d", "()Z")) {
+                    MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "tabGate",
+                            "(Lnet/minecraft/client/settings/KeyBinding;)Z", false);
+                    rpl.instructions.set(insn, n); insn = n; gate++;
+                }
+            }
+        }
+        if (gate == 1) { done++; auditOk("GuiIngameForge.renderPlayerList (tab fade gate)"); }
+        else auditFail("GuiIngameForge.renderPlayerList", "tab key gate sites=" + gate);
+
+        // (2) 血條受傷拖尾：renderHealth 裡 health = ceil(getHealth()) 之後的第一個 ISTORE 是 highlight（白框閃爍），
+        //     再來 `this.playerHealth = health; int healthLast = this.lastPlayerHealth;` 的 ISTORE 是 healthLast。
+        //     highlight 換成 heartBlink(health)、healthLast 換成 heartTop(...)（拖尾頂端），每個愛心 blit 走 heartBlit。
+        //     注意參數：heartBlink 吃「目前」血量，heartTop 回傳「顯示用」的拖尾頂端——1.21.1 第一版曾經接反。
+        //     1.8.9 的 MathHelper 在 net/minecraft/util，開發環境的名字是 ceiling_float_int。
+        MethodNode rh = find(cn, "renderHealth", "renderHealth", "(II)V");
+        boolean trail = false;
+        if (rh != null) {
+            int healthIdx = -1;
+            VarInsnNode highlightStore = null, lastStore = null;
+            for (AbstractInsnNode insn = rh.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (healthIdx < 0 && isCall(insn, Opcodes.INVOKESTATIC, "net/minecraft/util/MathHelper", "ceiling_float_int", "func_76123_f", "(F)I")) {
+                    AbstractInsnNode nx = insn.getNext();
+                    while (nx != null && nx.getOpcode() < 0) nx = nx.getNext();
+                    if (nx != null && nx.getOpcode() == Opcodes.ISTORE) { healthIdx = ((VarInsnNode) nx).var; insn = nx; }
+                    continue;
+                }
+                if (healthIdx >= 0 && highlightStore == null && insn.getOpcode() == Opcodes.ISTORE) {
+                    highlightStore = (VarInsnNode) insn;
+                    continue;
+                }
+                if (highlightStore != null && lastStore == null && insn.getOpcode() == Opcodes.ISTORE) {
+                    // healthLast：ILOAD health; PUTFIELD I; ALOAD 0; GETFIELD I; ISTORE n
+                    AbstractInsnNode g = prevReal(insn), a0 = prevReal(g), pf = prevReal(a0), il = prevReal(pf);
+                    if (g != null && g.getOpcode() == Opcodes.GETFIELD && a0 != null && a0.getOpcode() == Opcodes.ALOAD
+                            && pf != null && pf.getOpcode() == Opcodes.PUTFIELD && il != null && il.getOpcode() == Opcodes.ILOAD
+                            && ((VarInsnNode) il).var == healthIdx) {
+                        lastStore = (VarInsnNode) insn;
+                    }
+                }
+            }
+            if (healthIdx >= 0 && highlightStore != null && lastStore != null) {
+                InsnList h = new InsnList();
+                h.add(new VarInsnNode(Opcodes.ILOAD, healthIdx));
+                h.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "heartBlink", "(I)Z", false));
+                h.add(new VarInsnNode(Opcodes.ISTORE, highlightStore.var));
+                rh.instructions.insert(highlightStore, h);
+                InsnList l = new InsnList();
+                l.add(new VarInsnNode(Opcodes.ILOAD, lastStore.var));
+                l.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "heartTop", "(I)I", false));
+                l.add(new VarInsnNode(Opcodes.ISTORE, lastStore.var));
+                rh.instructions.insert(lastStore, l);
+                int blits = redirectInvokeVirtual(rh, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_HUD, "heartBlit",
+                        "(Lnet/minecraft/client/gui/Gui;IIIIII)V", 0);
+                trail = blits > 0;
+                System.out.println("[S1mp1e/ASM] health trail: health=" + healthIdx + " highlight=" + highlightStore.var
+                        + " healthLast=" + lastStore.var + " blits=" + blits);
+                if (trail) { done++; auditOk("GuiIngameForge.renderHealth (damage trail, blits=" + blits + ")"); }
+            } else {
+                System.out.println("[S1mp1e/ASM] health trail locals not found (" + healthIdx + "," + highlightStore + "," + lastStore + ")");
+            }
+        }
+        if (!trail) auditFail("GuiIngameForge.renderHealth", "damage trail not spliced");
+
+        // (3) 計分板側欄淡入淡出：renderGameOverlay 裡每個 getObjectiveInDisplaySlot(I) → ScoreboardHook.sidebar
+        MethodNode rgo = find(cn, "renderGameOverlay", "func_175180_a", "(F)V");
+        int sb = 0;
+        if (rgo != null) {
+            for (AbstractInsnNode insn = rgo.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (isCall(insn, Opcodes.INVOKEVIRTUAL, "net/minecraft/scoreboard/Scoreboard", "getObjectiveInDisplaySlot",
+                        "func_96539_a", "(I)Lnet/minecraft/scoreboard/ScoreObjective;")) {
+                    MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/ScoreboardHook",
+                            "sidebar", "(Lnet/minecraft/scoreboard/Scoreboard;I)Lnet/minecraft/scoreboard/ScoreObjective;", false);
+                    rgo.instructions.set(insn, n); insn = n; sb++;
+                }
+            }
+        }
+        System.out.println("[S1mp1e/ASM] scoreboard sidebar lookups redirected: " + sb);
+        if (sb > 0) { done++; auditOk("GuiIngameForge.renderGameOverlay (scoreboard lookups=" + sb + ")"); }
+        else auditFail("GuiIngameForge.renderGameOverlay", "scoreboard lookup not found");
+
         if (done == 0) return basic;
+        return write(cn);
+    }
+
+    /**
+     * 第 10 組載入卡：drawScreen 裡「第一個」背景呼叫（drawDefaultBackground()V 或 drawBackground(I)V）之後，呼叫
+     * LoadingHook.card(this)——一個 void push＋呼叫，堆疊不變。原版的文字在卡片之後畫，所以浮在卡片上。
+     */
+    private static byte[] patchLoadingCard(byte[] basic, String name) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, DRAW_SCREEN_MCP, DRAW_SCREEN_SRG, DRAW_SCREEN_DESC);
+        String site = name.substring(name.lastIndexOf('.') + 1) + ".drawScreen (loading card)";
+        if (m == null) { auditFail(site, "method not found"); return basic; }
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() != Opcodes.INVOKEVIRTUAL) continue;
+            MethodInsnNode c = (MethodInsnNode) insn;
+            boolean bg = (("drawDefaultBackground".equals(c.name) || "func_146276_q_".equals(c.name)) && "()V".equals(c.desc))
+                    || ((DIRT_MCP.equals(c.name) || DIRT_SRG.equals(c.name)) && DIRT_DESC.equals(c.desc));
+            if (!bg) continue;
+            InsnList after = new InsnList();
+            after.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            after.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/LoadingHook", "card",
+                    "(Lnet/minecraft/client/gui/GuiScreen;)V", false));
+            m.instructions.insert(c, after);
+            System.out.println("[S1mp1e/ASM] patched " + site);
+            auditOk(site);
+            return write(cn);
+        }
+        auditFail(site, "background call not found");
+        return basic;
+    }
+
+    /** 第 7 組：GuiIngame.renderScoreboard 的畫面記錄（drawRect／drawString 經過 ScoreboardHook），計分板消失後用來淡出。 */
+    private static byte[] patchScoreboardRecord(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, "renderScoreboard", "func_180475_a",
+                "(Lnet/minecraft/scoreboard/ScoreObjective;Lnet/minecraft/client/gui/ScaledResolution;)V");
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] GuiIngame.renderScoreboard not found");
+            auditFail("GuiIngame.renderScoreboard", "method not found");
+            return basic;
+        }
+        String H = "dev/s1mp1e/glass/hook/ScoreboardHook";
+        int fills = 0;
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() != Opcodes.INVOKESTATIC) continue;
+            MethodInsnNode call = (MethodInsnNode) insn;
+            if ((RECT_MCP.equals(call.name) || RECT_SRG.equals(call.name)) && RECT_DESC.equals(call.desc)) {
+                MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, H, "fill", RECT_DESC, false);
+                m.instructions.set(call, n); insn = n; fills++;
+            }
+        }
+        int texts = redirectInvokeVirtual(m, FDRAW_MCP, FDRAW_SRG, FDRAW_DESC, H, "text",
+                "(Lnet/minecraft/client/gui/FontRenderer;Ljava/lang/String;III)I", 0);
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() == Opcodes.RETURN) {
+                m.instructions.insertBefore(insn, new MethodInsnNode(Opcodes.INVOKESTATIC, H, "end", "()V", false));
+            }
+        }
+        m.instructions.insert(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "begin", "()V", false));
+        System.out.println("[S1mp1e/ASM] patched GuiIngame.renderScoreboard (fade: fills " + fills + ", texts " + texts + ")");
+        if (fills > 0 && texts > 0) auditOk("GuiIngame.renderScoreboard (fade: fills=" + fills + " texts=" + texts + ")");
+        else auditFail("GuiIngame.renderScoreboard", "fills=" + fills + " texts=" + texts);
         return write(cn);
     }
 
@@ -848,7 +1308,65 @@ public final class S1mp1eTransformer implements IClassTransformer {
         return write(cn);
     }
 
+    // -----------------------------------------------------------------------
+    // 13) FontRenderer.renderString -> force dropShadow (slot 5) false at the
+    //     method head. `ICONST_0; ISTORE 5` is stack-neutral at the entry and
+    //     branch-free, so no stack-map frame is needed.
+    // -----------------------------------------------------------------------
+    private static byte[] patchFontShadow(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, RENDERSTRING_MCP, RENDERSTRING_SRG, RENDERSTRING_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] FontRenderer.renderString not found, text shadow left as-is");
+            auditFail("FontRenderer.renderString", "method not found");
+            return basic;
+        }
+        InsnList pre = new InsnList();
+        pre.add(new InsnNode(Opcodes.ICONST_0));
+        pre.add(new VarInsnNode(Opcodes.ISTORE, 5));   // dropShadow = false
+        m.instructions.insert(pre);
+        System.out.println("[S1mp1e/ASM] patched FontRenderer.renderString (no text shadow)");
+        auditOk("FontRenderer.renderString (no text shadow)");
+        return write(cn);
+    }
+
     // ---- helpers ----------------------------------------------------------
+
+    private static boolean isCall(AbstractInsnNode insn, int op, String owner, String mcp, String srg, String desc) {
+        if (insn == null || insn.getOpcode() != op || !(insn instanceof MethodInsnNode)) return false;
+        MethodInsnNode c = (MethodInsnNode) insn;
+        return (owner == null || owner.equals(c.owner)) && (mcp.equals(c.name) || srg.equals(c.name)) && desc.equals(c.desc);
+    }
+
+    /** 往前找上一個「真的」指令（跳過 label／行號／frame）。 */
+    private static AbstractInsnNode prevReal(AbstractInsnNode insn) {
+        AbstractInsnNode p = insn == null ? null : insn.getPrevious();
+        while (p != null && (p instanceof LabelNode || p instanceof org.objectweb.asm.tree.FrameNode
+                || p instanceof org.objectweb.asm.tree.LineNumberNode)) {
+            p = p.getPrevious();
+        }
+        return p;
+    }
+
+    /** 把 {@code m} 裡符合的 INVOKEVIRTUAL 換成 INVOKESTATIC {@code hookOwner.hookName}；max > 0 時最多換 max 個。 */
+    private static int redirectInvokeVirtual(MethodNode m, String mcp, String srg, String callDesc,
+                                             String hookOwner, String hookName, String hookDesc, int max) {
+        int n = 0;
+        AbstractInsnNode insn = m.instructions.getFirst();
+        while (insn != null) {
+            AbstractInsnNode next = insn.getNext();
+            if (insn.getOpcode() == Opcodes.INVOKEVIRTUAL) {
+                MethodInsnNode call = (MethodInsnNode) insn;
+                if ((mcp.equals(call.name) || srg.equals(call.name)) && callDesc.equals(call.desc)) {
+                    m.instructions.set(insn, new MethodInsnNode(Opcodes.INVOKESTATIC, hookOwner, hookName, hookDesc, false));
+                    n++;
+                    if (max > 0 && n >= max) break;
+                }
+            }
+            insn = next;
+        }
+        return n;
+    }
 
     /** Redirect every {@code INVOKESTATIC drawRect(IIIII)V} in {@code m} to
      *  {@code owner.hook(IIIII)V}; returns the number rewritten. */
@@ -866,6 +1384,73 @@ public final class S1mp1eTransformer implements IClassTransformer {
             n++;
         }
         return n;
+    }
+
+    /**
+     * GuiContainerCreative：
+     * <ol>
+     *   <li>第 5 組：setCurrentCreativeTab 開頭插 TabSwitchHook.creative(this, tab)（分類切換交叉淡化）；</li>
+     *   <li>分類 pill 置中：畫分類的 func_147051_a 裡的 renderItemAndEffectIntoGUI／renderItemOverlays 轉到
+     *       GlassCreative.tabIcon／tabIconOverlay，玻璃分類列生效時把圖示移到玻璃帶正中（INVOKEVIRTUAL 換成
+     *       第一個參數是 receiver 的 INVOKESTATIC：堆疊形狀不變）。</li>
+     * </ol>
+     */
+    private static byte[] patchCreative(byte[] basic) {
+        ClassNode cn = read(basic);
+        int done = 0;
+        MethodNode set = find(cn, "setCurrentCreativeTab", "func_147050_b", "(Lnet/minecraft/creativetab/CreativeTabs;)V");
+        if (set != null) {
+            InsnList pre = new InsnList();
+            pre.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            pre.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_TAB, "creative",
+                    "(Lnet/minecraft/client/gui/inventory/GuiContainerCreative;Lnet/minecraft/creativetab/CreativeTabs;)V", false));
+            set.instructions.insert(pre);
+            done++;
+            auditOk("GuiContainerCreative.setCurrentCreativeTab (tab-switch dissolve)");
+        } else {
+            auditFail("GuiContainerCreative.setCurrentCreativeTab", "method not found");
+        }
+        MethodNode tab = find(cn, "func_147051_a", "func_147051_a", "(Lnet/minecraft/creativetab/CreativeTabs;)V");
+        int icons = 0;
+        if (tab != null) {
+            icons += redirectInvokeVirtual(tab, "renderItemAndEffectIntoGUI", "func_180450_b",
+                    "(Lnet/minecraft/item/ItemStack;II)V", "dev/s1mp1e/glass/hook/GlassCreative", "tabIcon",
+                    "(Lnet/minecraft/client/renderer/entity/RenderItem;Lnet/minecraft/item/ItemStack;II)V", 0);
+            icons += redirectInvokeVirtual(tab, "renderItemOverlays", "func_175030_a",
+                    "(Lnet/minecraft/client/gui/FontRenderer;Lnet/minecraft/item/ItemStack;II)V",
+                    "dev/s1mp1e/glass/hook/GlassCreative", "tabIconOverlay",
+                    "(Lnet/minecraft/client/renderer/entity/RenderItem;Lnet/minecraft/client/gui/FontRenderer;"
+                            + "Lnet/minecraft/item/ItemStack;II)V", 0);
+        }
+        if (icons == 2) { done++; auditOk("GuiContainerCreative.func_147051_a (tab icon centred, sites=" + icons + ")"); }
+        else auditFail("GuiContainerCreative.func_147051_a", "tab icon sites=" + icons);
+        if (done == 0) return basic;
+        System.out.println("[S1mp1e/ASM] patched GuiContainerCreative (tab switch + icon centre " + icons + ")");
+        return write(cn);
+    }
+
+    /**
+     * 第 5 組：在 {@code mcp/srg desc} 開頭插入 {@code TabSwitchHook.<hook>(this, 參數1)}——方法入口的單純
+     * push＋呼叫一個 void static，堆疊不變、沒有分支，所以不需要 frame。{@code argLoad} 是載入那個參數的 opcode。
+     */
+    private static byte[] patchTabSwitch(byte[] basic, String site, String mcp, String srg, String desc,
+                                         String hook, String hookDesc, int argLoad) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, mcp, srg, desc);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] " + site + " not found, tab-switch dissolve skipped");
+            auditFail(site, "method not found");
+            return basic;
+        }
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        pre.add(new VarInsnNode(argLoad, 1));
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_TAB, hook, hookDesc, false));
+        m.instructions.insert(pre);
+        System.out.println("[S1mp1e/ASM] patched " + site + " (tab-switch dissolve)");
+        auditOk(site + " (tab-switch dissolve)");
+        return write(cn);
     }
 
     private static MethodNode find(ClassNode cn, String mcp, String srg, String desc) {

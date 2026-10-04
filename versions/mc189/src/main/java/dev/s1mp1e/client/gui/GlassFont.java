@@ -216,6 +216,12 @@ public final class GlassFont {
     }
 
     public static void draw(String s, float x, float y, int rgb, float alpha, boolean shadow) {
+        // No drop shadow under any text, anywhere (user request — the global no-text-shadow
+        // rule). Every S1mp1e and HUD text path funnels through here, so forcing the flag
+        // off in one place removes every shadow the Java paths could draw. The vanilla
+        // bitmap-font fallback below then never takes its shadow branch either, and genuine
+        // vanilla FontRenderer instances are covered by the FontRenderer.renderString splice.
+        shadow = false;
         if (s == null || s.length() == 0) return;
         int a = Math.round(alpha * 255f);
         if (a < 4) return;

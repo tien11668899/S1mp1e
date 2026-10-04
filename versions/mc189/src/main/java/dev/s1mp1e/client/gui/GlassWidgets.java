@@ -170,6 +170,13 @@ public final class GlassWidgets {
 
     private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
 
+    /** 與畫面刷新率無關的「逼近」：讓 {@code current} 以時間常數 {@code tauMs} 靠向 {@code target}。
+     *  和 {@code S1mp1eConfigScreen} 的捲動緩動、26.2 的捲動滑行（{@code GlassScrollbar}）同一條式子；
+     *  tau 取 90 ms 就是功能選單的捲動手感。 */
+    public static float approach(float current, float target, float dtMs, float tauMs) {
+        return current + (target - current) * (1f - (float) Math.exp(-dtMs / Math.max(1f, tauMs)));
+    }
+
     // ---- primitive rects ----
 
     public static void drawRect(float x0, float y0, float x1, float y1, int argb) {
