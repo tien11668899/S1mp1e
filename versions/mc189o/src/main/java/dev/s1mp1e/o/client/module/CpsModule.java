@@ -1,0 +1,165 @@
+package dev.s1mp1e.o.client.module;
+
+import java.util.ArrayDeque;
+
+import dev.s1mp1e.o.client.Module;
+import dev.s1mp1e.o.client.Setting;
+import dev.s1mp1e.o.client.HudBounds;
+import dev.s1mp1e.o.client.HudRenderer;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.render.platform.GlStateManager;
+import dev.s1mp1e.o.event.MouseEvent;
+import dev.s1mp1e.o.event.MinecraftForge;
+import dev.s1mp1e.o.event.EventPriority;
+import dev.s1mp1e.o.event.SubscribeEvent;
+
+/**
+ * Clicks-per-second readout for the left and right mouse buttons.
+ *
+ * <p><b>FAIR-PLAY GUARDRAIL — DO NOT "IMPROVE" THIS CLASS.</b> This module
+ * ONLY OBSERVES. It must never inject, shape, smooth, schedule, or suggest a
+ * click, and it must never display click-timing advice (no "target CPS", no
+ * jitter/blocking hints, no consistency score). It reads input and draws a
+ * number. Anything beyond that turns a legal HUD element into an automation
+ * aid and gets the whole client banned.
+ *
+ * <p>Counting is a rolling one-second window rather than a per-tick average:
+ * a click is stamped with {@link System#currentTimeMillis()} and stamps older
+ * than 1000 ms are evicted, so the displayed value is exactly "clicks in the
+ * last second" and reacts immediately when the player stops.
+ *
+ * <p>Clicks come from Forge's {@link MouseEvent}, which carries the raw LWJGL
+ * event ({@code button} 0 = left, 1 = right; {@code buttonstate} true = press).
+ * That event is posted from {@code Minecraft.tick()}'s {@code Mouse.next()}
+ * drain loop, so every hardware press is seen even when several land inside one
+ * 50 ms tick — polling {@code Mouse.isButtonDown} in a tick handler would drop
+ * them. The event is {@code @Cancelable} and cancelling it makes vanilla skip
+ * the click entirely, so this handler NEVER touches {@code setCanceled}; it
+ * also runs at HIGHEST priority so it still observes a press that some other
+ * mod later cancels.
+ */
+public final class CpsModule extends Module implements HudBounds, HudRenderer {
+
+    private int lastW = 40, lastH = 10;   // last rendered footprint, for the HUD editor
+
+    /** Width of the rolling window, in milliseconds. */
+    private static final long WINDOW_MS = 1000L;
+
+    private final Setting posX     = add(Setting.integer("PosX", 4, 0, 2000));
+    private final Setting posY     = add(Setting.integer("PosY", 4, 0, 2000));
+    private final Setting showRight = add(Setting.bool("Show right CPS", false));
+    private final Setting color    = add(Setting.color("Colour", 0xFFFFFFFF));
+    // Global no-text-shadow rule: in-game text never draws a drop shadow, so this toggle is
+    // now dead. Keep it (persisted) but hide its row, matching the newer lines.
+    private final Setting shadow   = add(Setting.bool("Shadow", true).hide());
+
+    private final ArrayDeque<Long> leftClicks  = new ArrayDeque<Long>();
+    private final ArrayDeque<Long> rightClicks = new ArrayDeque<Long>();
+
+    public CpsModule() {
+        super("CPS", "Combat");
+        // Purely additive readout of your own data -- on by default so a fresh
+        // install shows something without hand-editing config. The behaviour-
+        // changing modules (crosshair replacement, old animations, no-hurt-cam)
+        // stay OFF until the player opts in via their keybind.
+        this.enabled = true;
+
+    }
+
+    @Override
+    public void onEnable() {
+        // Registering at runtime makes FML log "Unable to determine registrant
+        // mod" (no active mod container outside load); it falls back to the
+        // Minecraft container and works, the line is cosmetic.
+        MinecraftForge.EVENT_BUS.register(this);
+    }
+
+    @Override
+    public void onDisable() {
+        MinecraftForge.EVENT_BUS.unregister(this);
+        leftClicks.clear();
+        rightClicks.clear();
+    }
+
+    // ---- observation ------------------------------------------------------
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
+    public void onMouse(MouseEvent e) {
+        if (!enabled) return;
+        if (!e.buttonstate) return;                       // presses only, not releases
+
+        Minecraft mc = Minecraft.getInstance();
+        // In-world clicks only. MouseEvent still fires for screens that set
+        // allowUserInput (chat), and inventory clicks are not "combat" clicks.
+        if (mc.screen != null) return;
+        if (mc.player == null) return;
+
+        long now = System.currentTimeMillis();
+        if (e.button == 0) {
+            leftClicks.addLast(Long.valueOf(now));
+        } else if (e.button == 1) {
+            rightClicks.addLast(Long.valueOf(now));
+        }
+        // Prune here as well as in the render pass: while F3 is held the HUD
+        // returns early and would otherwise never evict, leaking stamps.
+        prune(leftClicks, now);
+        prune(rightClicks, now);
+    }
+
+    // ---- drawing ----------------------------------------------------------
+
+    /**
+     * Called once per frame by {@code HudRenderDispatcher} (which gates player/world/hideGUI).
+     * The render half no longer self-subscribes to {@code Post(TEXT)}; only the click-capture
+     * {@code MouseEvent} handler stays on the bus (registered in {@link #onEnable()}). Matching
+     * mc1211, the debug overlay (F3) does NOT hide this readout.
+     */
+    @Override
+    public void renderHud() {
+        if (!enabled) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+
+        long now = System.currentTimeMillis();
+        int left  = prune(leftClicks, now);
+        int right = prune(rightClicks, now);
+
+        String text = String.valueOf(left) + " CPS";
+        if (showRight.boolValue) {
+            text = String.valueOf(left) + " | " + String.valueOf(right) + " CPS";
+        }
+        lastW = Math.round(dev.s1mp1e.o.client.gui.GlassFont.width(text));
+        lastH = Math.round(dev.s1mp1e.o.client.gui.GlassFont.height());
+
+        // The hotbar glass pass leaves a tinted colour on the stack; reset so
+        // the setting's colour is what actually lands on screen.
+        // Defeat GlStateManager's colour cache (see GlassRenderer.endBatch):
+        // a bare color(1,1,1,1) no-ops when the cache already reads white
+        // while the real GL colour is not, which leaks a tint onto the
+        // glass pipeline that draws after us.
+        GlStateManager.color4f(0f, 0f, 0f, 0f);
+        GlStateManager.color4f(1f, 1f, 1f, 1f);
+        // TextRenderer promotes an all-zero alpha to opaque, so a packed ARGB
+        // value from the colour setting can be handed over as-is.
+        dev.s1mp1e.o.client.hud.HudText.draw(text, (float) posX.intValue, (float) posY.intValue,
+                                      color.colorValue, shadow.boolValue);
+    }
+
+    // ---- HudBounds (for the HUD editor) ----
+    public int hudX() { return posX.intValue; }
+    public int hudY() { return posY.intValue; }
+    public void hudSetPos(int x, int y) { posX.setInt(x); posY.setInt(y); }
+    public int hudW() { return lastW > 0 ? lastW : 40; }
+    public int hudH() { return lastH > 0 ? lastH : 10; }
+    public void hudResetPos() { posX.reset(); posY.reset(); }
+    public String hudLabel() { return name; }
+
+    /** Drop stamps that fell out of the window and return what is left. */
+    private static int prune(ArrayDeque<Long> stamps, long now) {
+        while (!stamps.isEmpty() && now - stamps.peekFirst().longValue() >= WINDOW_MS) {
+            stamps.pollFirst();
+        }
+        return stamps.size();
+    }
+}

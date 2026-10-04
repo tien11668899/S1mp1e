@@ -1,0 +1,11 @@
+assets/fml/textures/gui/forge.gif
+assets/fml/textures/gui/forge.png
+assets/fml/textures/gui/icons.png
+assets/forge/blockstates/dynbucket.json
+assets/forge/lang/README.txt
+assets/forge/lang/en_US.lang
+assets/forge/models/item/bucket.json
+assets/forge/models/item/bucket_milk.json
+assets/forge/textures/items/bucket_base.png
+assets/forge/textures/items/bucket_cover.png
+assets/forge/textures/items/bucket_fluid.png

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "s1mp1e",
+  "name": "S1mp1e",
+  "version": "${version}",
+  "environment": "client",
+  "description": "S1mp1e liquid glass (1.8.9 Ornithe)",
+  "authors": ["S1mp1e"],
+  "entrypoints": {
+    "client": ["dev.s1mp1e.o.S1mp1eClient"]
+  },
+  "mixins": ["s1mp1e.mixins.json"],
+  "accessWidener": "s1mp1e.accesswidener",
+  "depends": {
+    "fabricloader": ">=0.17.3",
+    "minecraft": "1.8.9"
+  }
+}

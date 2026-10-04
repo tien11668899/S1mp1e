@@ -1,0 +1,18 @@
+accessWidener v2 named
+accessible method net/minecraft/client/Minecraft resize (II)V
+accessible field net/minecraft/client/gui/widget/ButtonWidget height I
+accessible field net/minecraft/client/gui/widget/ButtonWidget width I
+accessible field net/minecraft/client/gui/widget/ListWidget maxX I
+accessible field net/minecraft/client/gui/widget/ListWidget maxY I
+accessible field net/minecraft/client/gui/widget/ListWidget minX I
+accessible field net/minecraft/client/gui/widget/ListWidget minY I
+accessible field net/minecraft/client/gui/widget/TextFieldWidget height I
+accessible field net/minecraft/client/gui/widget/TextFieldWidget width I
+mutable field net/minecraft/client/gui/widget/ButtonWidget height I
+mutable field net/minecraft/client/gui/widget/ButtonWidget width I
+mutable field net/minecraft/client/gui/widget/ListWidget maxX I
+mutable field net/minecraft/client/gui/widget/ListWidget maxY I
+mutable field net/minecraft/client/gui/widget/ListWidget minX I
+mutable field net/minecraft/client/gui/widget/ListWidget minY I
+mutable field net/minecraft/client/gui/widget/TextFieldWidget height I
+mutable field net/minecraft/client/gui/widget/TextFieldWidget width I

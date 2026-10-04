@@ -1,0 +1,27 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.s1mp1e.forge.mixin",
+  "plugin": "dev.s1mp1e.forge.mixin.DonorPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "BlockRegistryMixin",
+    "ClientWorldMixin",
+    "EntityRendererEventsMixin",
+    "GameRendererMixin",
+    "ItemRegistryMixin",
+    "IntegratedServerQuitMixin",
+    "ItemStackMixin",
+    "LivingTickMixin",
+    "MinecraftMixin",
+    "NetworkHandlerMixin",
+    "PlayerRendererMixin",
+    "PlayerTickMixin",
+    "ScreenInitMixin",
+    "ScreenMixin",
+    "SoundEngineMixin",
+    "TextureAtlasMixin",
+    "WorldEventsMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

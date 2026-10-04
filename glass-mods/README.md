@@ -10,6 +10,8 @@ tooltips and buttons). No tint, no gameplay hooks.
 | Jar | MC | Loader |
 |-----|----|--------|
 | `glass-1.8.9.jar`  | 1.8.9  | Forge (coremod) |
+| `glass-1.8.9-ornithe.jar` | 1.8.9 | Ornithe (Fabric Loader, Java 25) — source `versions/mc189o` |
+| `glass-1.8.9-forgecompat.jar` | 1.8.9 | Ornithe — S1mp1e Forge 1.8.9 compat layer (loads Forge 1.8.9 mods on Ornithe; bundles Forge 11.15.1.2318, LGPL-2.1) — source `versions/forge189o` |
 | `glass-1.12.2.jar` | 1.12.2 | Forge (coremod) |
 | `glass-1.13.2.jar` | 1.13.2 | Fabric |
 | `glass-1.14.4.jar` | 1.14.4 | Fabric |
@@ -47,3 +49,13 @@ folder as the glass jar. The Forge builds (1.8.9 / 1.12.2) have no such dependen
 
 Sodium is supported (the glass renderer uses the managed shader pipeline, so it stays
 Sodium-safe) but not required.
+
+## 1.8.9 on Ornithe (launcher: 1.8.9 + Fabric)
+
+The launcher's 1.8.9 "Fabric" line is Ornithe gen2 (Fabric Loader 0.19.3, calamus intermediary)
+on Java 25 with Pylon (LWJGL3/SDL3 window layer), OSL and Argentum (performance engine), plus
+`glass-1.8.9-ornithe.jar` and `glass-1.8.9-forgecompat.jar` from here. Pylon/OSL/Argentum are
+downloaded by the launcher from their own release pages with pinned sha1s (`src-tauri/src/ornithe.rs`);
+Argentum has no license, so it is never redistributed here. Forge 1.8.9 mods in
+`s1mp1e-mods/1.8.9/` keep working on this line through the compat layer. 1.8.9 + Forge remains
+available as the classic fallback (`glass-1.8.9.jar`).

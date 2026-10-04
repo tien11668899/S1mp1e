@@ -1,0 +1,4 @@
+net/minecraftforge/fml/common/ModClassLoader
+net/minecraftforge/fml/client/SplashProgress
+net/minecraftforge/fml/client/SplashProgress$*
+net/minecraftforge/fml/common/registry/ObjectHolderRef

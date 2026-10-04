@@ -1,0 +1,14 @@
+tiny	2	0	intermediary	named
+c	net/minecraft/unmapped/C_74425583	net/minecraft/entity/living/LivingEntity
+	f	F	f_12506421	jumpMovementFactor
+c	net/minecraft/unmapped/C_63022874	net/minecraft/client/render/texture/HttpTexture
+	f	Ljava/io/File;	f_34993787	file
+c	net/minecraft/unmapped/C_76792751	net/minecraft/client/options/GameOptions
+	f	Z	f_53941007	entityShadowsc	net/minecraft/unmapped/C_21479319	net/minecraft/entity/vehicle/MinecartEntity
+	m	()D	m_28408983	getMaxSpeedVanilla
+c	net/minecraft/server/MinecraftServer	net/minecraft/server/MinecraftServer
+	f	[[J	f_97328155	worldTickTimesVanilla
+c	net/minecraft/unmapped/C_17889813$C_38385548	net/minecraft/server/ChunkMap$ChunkHolder
+	f	Ljava/util/List;	f_53723218	playersVanilla
+c	net/minecraft/unmapped/C_80713356	net/minecraft/util/registry/IdRegistry
+	m	(Ljava/lang/Object;)I	m_71125592	getIdVanilla
