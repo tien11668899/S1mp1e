@@ -12,6 +12,7 @@ pub mod install;
 pub mod default_mods;
 pub mod forge_deps;
 pub mod perf;
+pub mod ornithe;
 pub mod launch;
 pub mod config;
 pub mod auth;

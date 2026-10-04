@@ -20,7 +20,7 @@ pub struct Progress {
 
 pub type Emit = std::sync::Arc<dyn Fn(Progress) + Send + Sync>;
 
-fn tick(emit: &Emit, phase: &str, message: impl Into<String>, done: u64, total: u64) {
+pub(crate) fn tick(emit: &Emit, phase: &str, message: impl Into<String>, done: u64, total: u64) {
     emit(Progress { phase: phase.into(), message: message.into(), done, total });
 }
 
@@ -48,7 +48,7 @@ async fn fetch_version_json(cl: &reqwest::Client, root: &PathBuf, id: &str) -> R
 }
 
 /// Download every allowed library artifact + native classifier.
-async fn install_libraries(
+pub(crate) async fn install_libraries(
     cl: &reqwest::Client, root: &PathBuf, vj: &VersionJson, emit: &Emit,
 ) -> Result<()> {
     let libs_root = libraries_dir(root);
@@ -75,7 +75,7 @@ async fn install_libraries(
             // Fabric/legacy: derive path + url from the maven coordinate.
             let rel = maven_to_path(&lib.name);
             let url = format!("{}{}", base.trim_end_matches('/'), format!("/{rel}"));
-            jobs.push((libs_root.join(&rel), url, None, 0));
+            jobs.push((libs_root.join(&rel), url, lib.sha1.clone(), 0));
         } else if lib.natives.is_none() {
             // Raw Mojang-style entry (name only, no downloads/url) — e.g. Forge's
             // `net.minecraft:launchwrapper:1.12`. Resolve from the default libraries
@@ -275,6 +275,10 @@ pub async fn install_version(root: PathBuf, id: String, emit: Emit) -> Result<()
 /// ensures the base version is installed, writes the merged `fabric-loader-…`
 /// version json, downloads Fabric libraries, and returns the new version id.
 pub async fn install_fabric(root: PathBuf, mc: String, emit: Emit) -> Result<String> {
+    // 1.8.9 的 Fabric 路線是 Ornithe（Java 25＋Pylon＋Argentum＋Forge 相容層），不是 LegacyFabric
+    if mc == crate::ornithe::MC {
+        return crate::ornithe::install_ornithe(root, emit).await;
+    }
     let cl = client();
     // base vanilla first
     install_version(root.clone(), mc.clone(), emit.clone()).await?;
@@ -434,7 +438,8 @@ pub async fn ensure_java(root: PathBuf, id: String, emit: Emit) -> Result<()> {
             .with_context(|| format!("read version json {}", p.display()))?;
         let vj: VersionJson = serde_json::from_str(&text)
             .with_context(|| format!("parse version json {}", p.display()))?;
-        if let Some(j) = &vj.java_version { jv = Some(j.clone()); }
+        // 子層優先：Ornithe 1.8.9 的 profile 指定 Java 25，蓋過原版 1.8.9 的 Java 8
+        if jv.is_none() { if let Some(j) = &vj.java_version { jv = Some(j.clone()); } }
         match vj.inherits_from { Some(par) => cur = par, None => break }
     }
     // pre-1.7 versions omit javaVersion → Mojang pairs them with jre-legacy (Java 8)

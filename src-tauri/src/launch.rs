@@ -23,6 +23,9 @@ struct Merged {
     modern_jvm: Vec<String>,
     modern_game: Vec<String>,
     legacy_args: Option<String>,
+    /// 舊格式（minecraftArguments）的原版之上，子層 profile 又用新格式加的參數（Ornithe 1.8.9）。
+    extra_jvm: Vec<String>,
+    extra_game: Vec<String>,
 }
 
 fn read_version_json(root: &PathBuf, id: &str) -> Result<VersionJson> {
@@ -72,8 +75,10 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
     let asset_index_id = base.asset_index.as_ref().map(|a| a.id.clone())
         .or_else(|| base.assets.clone())
         .unwrap_or_else(|| "legacy".into());
-    let java_component = base.java_version.as_ref().map(|j| j.component.clone());
-    let java_major = base.java_version.as_ref().map(|j| j.major_version).unwrap_or(8);
+    // 子層優先：載入器 profile 可以要求比原版更新的 Java（Ornithe 1.8.9 → Java 25）
+    let jv = chain.iter().find_map(|v| v.java_version.as_ref());
+    let java_component = jv.map(|j| j.component.clone());
+    let java_major = jv.map(|j| j.major_version).unwrap_or(8);
 
     // libraries: child chain first, dedupe keeping the first of each. The key MUST
     // include the classifier: modern (1.19+) natives ship as a sibling artifact
@@ -84,8 +89,19 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
     // group:artifact[:classifier] (version excluded so child overrides parent).
     let mut libraries: Vec<Library> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for vj in &chain {
+    // 整條鏈宣告要排除的函式庫前綴（s1mp1eExclude），以及「子層提供了同一個 group:artifact
+    // 就丟掉父層任何版本」——Ornithe 的 gen2 函式庫升級（log4j 2.19、gson 2.10…）要真的取代原版舊版，
+    // 不能兩版並存在 classpath 上。
+    let exclude: Vec<String> = chain.iter().flat_map(|v| v.s1mp1e_exclude.iter().cloned()).collect();
+    let ga = |name: &str| -> String { name.split(':').take(2).collect::<Vec<_>>().join(":") };
+    let mut child_ga: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (depth, vj) in chain.iter().enumerate() {
+        let provided_by_child = child_ga.clone();
         for lib in &vj.libraries {
+            if exclude.iter().any(|e| lib.name.starts_with(e.as_str())) { continue; }
+            // 只對 S1mp1e 自己產生的 profile（帶 s1mp1eExclude，目前是 Ornithe）做取代；
+            // Forge 等其他 profile 維持原本的 classpath（子層本來就排前面，行為不變也不冒險）
+            if depth > 0 && !exclude.is_empty() && lib.natives.is_none() && provided_by_child.contains(&ga(&lib.name)) { continue; }
             let parts: Vec<&str> = lib.name.split(':').collect();
             // Dedupe key: group:artifact[:classifier] + (natives-marker if legacy natives)
             // + version. Version MUST be in the key because 1.13-1.18 list the SAME
@@ -104,6 +120,9 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
                 libraries.push(lib.clone());
             }
         }
+        for lib in &vj.libraries {
+            if lib.natives.is_none() { child_ga.insert(ga(&lib.name)); }
+        }
     }
 
     // arguments — modern (any chain member has `arguments`) vs legacy string
@@ -118,6 +137,16 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
             collect_args(&a.game, &mut modern_game);
         }
     }
+    // 原版是舊格式（1.12.2 以前，只有 minecraftArguments）但子層用新格式加參數（Ornithe 的
+    // profile 只帶幾個 -D）：照舊格式組命令列，子層的 jvm/game 參數當額外參數附上。
+    // 以前只要任何一層有 `arguments` 就整個改走新格式，舊參數和 -cp 會一起不見。
+    let mut extra_jvm = Vec::new();
+    let mut extra_game = Vec::new();
+    if base.arguments.is_none() && base.minecraft_arguments.is_some() && has_modern {
+        has_modern = false;
+        extra_jvm = std::mem::take(&mut modern_jvm);
+        extra_game = std::mem::take(&mut modern_game);
+    }
     let legacy_args = if has_modern { None } else {
         chain.iter().find_map(|v| v.minecraft_arguments.clone())
     };
@@ -125,6 +154,7 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
     Ok(Merged {
         id: child.id.clone(), base_id, main_class, libraries,
         asset_index_id, java_component, java_major, modern_jvm, modern_game, legacy_args,
+        extra_jvm, extra_game,
     })
 }
 
@@ -418,7 +448,11 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     // AF_UNIX bug that crashes MC 1.21+ on world load ("failed to create a child
     // event loop"). Temurin/Zulu 21 don't have it. The override lets the user
     // point at a working JDK without patching the launcher.
-    let java_exe = if !settings.java_path.trim().is_empty() {
+    // Ornithe 1.8.9 只能跑在 Java 25（Pylon 的 FFM、Forge 相容層、Argentum）：一律用啟動器管理的
+    // java-runtime-epsilon，不套自訂 Java 路徑（玩家可能為了舊 Forge 1.8.9 設成 Java 8）。
+    let java_exe = if crate::ornithe::is_ornithe_id(&merged.id) {
+        runtime_dir(root, merged.java_component.as_deref().unwrap_or("java-runtime-epsilon")).join("bin").join("javaw.exe")
+    } else if !settings.java_path.trim().is_empty() {
         // User-picked Java (Settings → 自訂 Java 路徑). Overrides the auto-selected runtime.
         PathBuf::from(settings.java_path.trim())
     } else if let Ok(p) = std::env::var("S1MP1E_JAVA") {
@@ -532,7 +566,24 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
         }
     }
 
-    if glass {
+    // Ornithe 1.8.9：玻璃用 Ornithe 版（glass-1.8.9-ornithe.jar），絕不能放 Forge 版的 glass-1.8.9.jar
+    // （Forge 相容層會把它當 Forge coremod 載入）；另外放 Forge 相容層與 Pylon/OSL/Argentum。
+    let ornithe = crate::ornithe::is_ornithe_id(&merged.id);
+    if ornithe {
+        if glass {
+            if let Some(j) = pick_glass_jar(root, crate::ornithe::GLASS_KEY) {
+                let _ = std::fs::copy(&j, mods_dir.join("glass-1.8.9-ornithe.jar"));
+            }
+        }
+        if let Some(j) = pick_glass_jar(root, crate::ornithe::FORGECOMPAT_KEY) {
+            let _ = std::fs::copy(&j, mods_dir.join("s1mp1e-forgecompat-1.8.9.jar"));
+        }
+        for j in crate::ornithe::stack_jars(root) {
+            if let Some(name) = j.file_name() {
+                let _ = std::fs::copy(&j, mods_dir.join(name));
+            }
+        }
+    } else if glass {
         if let Some(glass_jar) = pick_glass_jar(root, &merged.base_id) {
             let _ = std::fs::copy(&glass_jar, mods_dir.join(format!("glass-{}.jar", merged.base_id)));
         }
@@ -540,16 +591,17 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     // User's downloaded mods (s1mp1e-mods/<mc>/), filtered to jars that actually target
     // the loader we're launching — see jar_matches_loader: a per-MC folder can mix
     // loaders and feeding a Forge jar to Fabric addMods crashed the game.
+    // Ornithe：Forge 模組由相容層載入，Ornithe 模組由 Fabric Loader 載入，兩種都放 mods/，不篩
     let mut user_mods: Vec<PathBuf> = pick_user_mods(root, &merged.base_id)
         .into_iter()
-        .filter(|p| jar_matches_loader(p, is_fabric))
+        .filter(|p| ornithe || jar_matches_loader(p, is_fabric))
         .collect();
     // Performance pack (perf.rs): launcher-owned optimisation mods chosen for this launch by
     // `perf::ensure_pack` (already skips any mod the player installed themselves).
-    if settings.perf_pack && is_fabric {
+    if settings.perf_pack && is_fabric && !ornithe {
         user_mods.extend(crate::perf::active_jars(root, &merged.base_id));
     }
-    if is_fabric {
+    if is_fabric && !ornithe {
         // Fabric: mods ride -Dfabric.addMods, kept out of the shared mods folder.
         if !user_mods.is_empty() {
             let joined = user_mods.iter()
@@ -559,7 +611,7 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
             args.push(format!("-Dfabric.addMods={joined}"));
         }
     } else {
-        // Forge (1.8.9/1.12.2): no addMods — copy the user's mods NATIVELY into the
+        // Forge (1.8.9/1.12.2) and Ornithe 1.8.9: no addMods — copy the user's mods NATIVELY into the
         // per-version instance mods/ folder (next to the glass jar) so they load.
         for m in &user_mods {
             if let Some(name) = m.file_name() {
@@ -572,6 +624,7 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
         for a in &merged.modern_jvm { args.push(subst(a)); }
     } else {
         // legacy: no jvm args in json — supply the essentials
+        for a in &merged.extra_jvm { args.push(subst(a)); }
         args.push(format!("-Djava.library.path={}", natives.to_string_lossy()));
         args.push("-cp".into());
         args.push(classpath.clone());
@@ -580,6 +633,7 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
 
     if let Some(legacy) = &merged.legacy_args {
         for tok in legacy.split_whitespace() { args.push(subst(tok)); }
+        for a in &merged.extra_game { args.push(subst(a)); }
     } else {
         for a in &merged.modern_game { args.push(subst(a)); }
     }
@@ -654,4 +708,50 @@ pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String) + Send + Sync + '
     let _ = t1.join();
     let _ = t2.join();
     Ok(status.code().unwrap_or(-1))
+}
+
+#[cfg(test)]
+mod resolve_diff_tests {
+    use super::*;
+
+    /// 只讀：比較每個已安裝 profile 在「子層取代父層同 group:artifact／s1mp1eExclude」規則前後的函式庫差異。
+    /// `cargo test --release resolve_diff -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn resolve_diff() {
+        let root = crate::paths::mc_root(None);
+        let Ok(rd) = std::fs::read_dir(versions_dir(&root)) else { return };
+        for e in rd.flatten() {
+            let id = e.file_name().to_string_lossy().to_string();
+            if !version_json(&root, &id).exists() { continue; }
+            let Ok(new) = resolve(&root, &id) else { continue };
+            // 舊演算法：不排除、不取代
+            let mut chain: Vec<VersionJson> = Vec::new();
+            let mut cur = id.clone();
+            loop {
+                let Ok(vj) = read_version_json(&root, &cur) else { break };
+                let p = vj.inherits_from.clone();
+                chain.push(vj);
+                match p { Some(p) => cur = p, None => break }
+            }
+            let mut old: Vec<String> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for vj in &chain {
+                for lib in &vj.libraries {
+                    let parts: Vec<&str> = lib.name.split(':').collect();
+                    let mut key = match parts.as_slice() {
+                        [g, a, v, c, ..] => format!("{g}:{a}:{c}:{v}"),
+                        [g, a, v, ..] => format!("{g}:{a}:{v}"),
+                        _ => lib.name.clone(),
+                    };
+                    if lib.natives.is_some() { key.push_str("!natives"); }
+                    if seen.insert(key) { old.push(lib.name.clone()); }
+                }
+            }
+            let newn: std::collections::HashSet<String> = new.libraries.iter().map(|l| l.name.clone()).collect();
+            let dropped: Vec<&String> = old.iter().filter(|n| !newn.contains(*n)).collect();
+            println!("{id}: {} → {} libs{}", old.len(), new.libraries.len(),
+                if dropped.is_empty() { String::new() } else { format!("; dropped {dropped:?}") });
+        }
+    }
 }

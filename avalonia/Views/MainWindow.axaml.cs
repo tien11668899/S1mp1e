@@ -497,7 +497,7 @@ public partial class MainWindow : Window
         {
             var v = VersionBox?.SelectedText ?? "";
             // Grey every loader the version can't use (Forge on ≥1.13/26.2;
-            // Fabric on 1.8.9/1.12.2).
+            // Fabric on 1.12.2). 1.8.9 allows both (Fabric = Ornithe).
             dis = new bool[src.Items.Length];
             bool any = false;
             for (int i = 0; i < src.Items.Length; i++)
@@ -2490,20 +2490,22 @@ public partial class MainWindow : Window
         return false;
     }
 
-    // The inverse: pre-1.13 MC (1.8.9, 1.12.2) — our liquid glass there is a FORGE
-    // coremod (Fabric didn't exist / isn't wired), so Fabric is greyed and the loader
-    // auto-switches to Forge, mirroring how 26.2 forces Fabric.
+    // The inverse: pre-1.13 MC (1.12.2) — our liquid glass there is a FORGE coremod, so
+    // Fabric is greyed and the loader auto-switches to Forge, mirroring how 26.2 forces
+    // Fabric. 1.8.9 is the exception: its "Fabric" is Ornithe (Java 25 + Pylon + Argentum,
+    // 1000+ fps; Forge 1.8.9 mods still load through the S1mp1e Forge compat layer), and the
+    // classic Forge profile stays selectable as a fallback.
     private static bool IsForgeOnly(string mc)
     {
-        if (string.IsNullOrEmpty(mc) || mc == "26.2") return false;
+        if (string.IsNullOrEmpty(mc) || mc == "26.2" || mc == "1.8.9") return false;
         var parts = mc.Split('.');
         if (parts.Length >= 2 && parts[0] == "1" && int.TryParse(parts[1], out var x))
             return x < 13;
         return false;
     }
 
-    // Which loaders a version can actually use: 1.8.9/1.12.2 = Forge only; 26.2 fork =
-    // Fabric only; 1.13+ = Fabric. Forge is greyed on everything ≥1.13.
+    // Which loaders a version can actually use: 1.12.2 = Forge only; 1.8.9 = Fabric (Ornithe)
+    // or Forge; 26.2 fork = Fabric only; 1.13+ = Fabric. Forge is greyed on everything ≥1.13.
     private static bool LoaderAllowed(string mc, string loader)
     {
         loader = (loader ?? "").ToLowerInvariant();
@@ -2512,6 +2514,16 @@ public partial class MainWindow : Window
         if (IsFabricOnly(mc)) return loader == "fabric";
         return true;
     }
+
+    // 1.8.9 + Fabric = the Ornithe line (installed as `fabric-loader-<v>-ornithe-1.8.9`).
+    private static bool IsOrnithe(string mc, string loader)
+        => mc == "1.8.9" && !string.Equals(loader, "forge", StringComparison.OrdinalIgnoreCase);
+
+    // Which Modrinth loader to search/download mods with. On 1.8.9 that is always Forge:
+    // the Ornithe line loads Forge 1.8.9 mods through the S1mp1e Forge compat layer, and
+    // Modrinth's 1.8.9 "fabric" builds are Legacy Fabric ones that Ornithe can't load.
+    private static string ModLoaderFor(string mc, string loader)
+        => mc == "1.8.9" ? "forge" : loader.ToLowerInvariant();
 
     // The loader to fall back to when the current pick isn't allowed for a version.
     private static string DefaultLoader(string mc) => IsForgeOnly(mc) ? "Forge" : "Fabric";
@@ -2530,7 +2542,7 @@ public partial class MainWindow : Window
         var mc = string.IsNullOrEmpty(VersionBox?.SelectedText) ? "26.2" : VersionBox.SelectedText;
         var sel = string.IsNullOrEmpty(LoaderBox?.SelectedText) ? "Fabric" : LoaderBox.SelectedText;
         var ldr = LoaderAllowed(mc, sel) ? sel : DefaultLoader(mc);
-        StartNavSub.Text = $"{mc} · {ldr}";
+        StartNavSub.Text = IsOrnithe(mc, ldr) ? $"{mc} · Fabric（Ornithe）" : $"{mc} · {ldr}";
     }
 
     // ---- start page: remember MC version + loader on change ----
@@ -2590,8 +2602,11 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    // 1.8.9's Fabric is Ornithe only (a Legacy Fabric 1.8.9 profile another
+                    // launcher left behind can't run our 1.8.9 line)
                     if (id.StartsWith("fabric-loader", StringComparison.OrdinalIgnoreCase)
-                        && id.EndsWith("-" + mc, StringComparison.OrdinalIgnoreCase)) return true;
+                        && id.EndsWith("-" + mc, StringComparison.OrdinalIgnoreCase)
+                        && (mc != "1.8.9" || id.Contains("-ornithe-", StringComparison.OrdinalIgnoreCase))) return true;
                 }
             }
         }
@@ -3868,7 +3883,7 @@ public partial class MainWindow : Window
         var ct = _searchCts.Token;
         try
         {
-            var hits = await ModrinthClient.SearchAsync(q, mc, loader, sort, limit: 40, offset: 0, ct, category: _modCategory);
+            var hits = await ModrinthClient.SearchAsync(q, mc, ModLoaderFor(mc, loader), sort, limit: 40, offset: 0, ct, category: _modCategory);
             if (ct.IsCancellationRequested) return;
             _mods.Clear();
             foreach (var h in hits)
@@ -4119,7 +4134,7 @@ public partial class MainWindow : Window
         {
             done++;
             UpdateAllLabel.Text = $"更新中 {done}/{ids.Count}";
-            try { if (await DownloadOneVersionAsync(pid, mc, loader)) ok++; }
+            try { if (await DownloadOneVersionAsync(pid, mc, ModLoaderFor(mc, loader))) ok++; }
             catch (Exception ex) { LogCrash(ex); }
         }
         UpdateAllLabel.Text = $"已更新 {ok}/{ids.Count}";
@@ -4209,7 +4224,7 @@ public partial class MainWindow : Window
     {
         row.ButtonEnabled = false;
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "1.21.1" : VersionBox.SelectedText;
-        var loader = (LoaderBox.SelectedText ?? "Fabric").ToLowerInvariant();
+        var loader = ModLoaderFor(mc, LoaderBox.SelectedText ?? "Fabric");
         if (!ModSupportsLoader(row, loader))
         {
             var supported = row.Loaders.Length == 0 ? "?" : string.Join("/", row.Loaders);
@@ -4284,7 +4299,7 @@ public partial class MainWindow : Window
             {
                 done++;
                 row.ButtonLabel = $"{done}/{targets.Length}";
-                var loader = DefaultLoader(mc).ToLowerInvariant();
+                var loader = ModLoaderFor(mc, DefaultLoader(mc));
                 // Skip versions this mod has no build for on their loader — no point
                 // resolving, and it avoids a misleading failure count.
                 if (row.Loaders.Length > 0 &&

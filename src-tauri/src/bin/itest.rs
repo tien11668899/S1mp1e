@@ -15,7 +15,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, meta, paths, perf};
+use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, meta, ornithe, paths, perf};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -149,6 +149,8 @@ fn resolve_version_id(root: &std::path::PathBuf, mc: &str, loader: &str) -> Opti
             }
             let low = id.to_lowercase();
             if low.starts_with("fabric-loader") && id.ends_with(&suffix) {
+                // 1.8.9 的 Fabric 只認 Ornithe profile（別的啟動器留下的 LegacyFabric 1.8.9 不能用）
+                if mc == ornithe::MC && !ornithe::is_ornithe_id(&id) { continue; }
                 fabric.push(id);
             } else if id.starts_with(&forge_prefix) {
                 forge.push(id);
@@ -357,12 +359,24 @@ async fn cmd_play(a: &[String]) -> i32 {
     let settings = config::load().settings;
     // Fetch the glass jar from the repo on a fresh machine, and refresh it whenever the
     // published one changes (ETag), so players actually receive in-game glass updates.
-    if settings.glass {
+    let is_ornithe = ornithe::is_ornithe(&mc, &loader);
+    if is_ornithe {
+        // Ornithe 1.8.9：Ornithe 版玻璃、Forge 相容層（Forge 模組靠它載入，和玻璃開關無關）、Pylon/OSL/Argentum
+        if settings.glass {
+            let _ = install::ensure_glass(&root, ornithe::GLASS_KEY, &silent_emit()).await;
+        }
+        let _ = install::ensure_glass(&root, ornithe::FORGECOMPAT_KEY, &silent_emit()).await;
+        if let Err(e) = ornithe::ensure_stack(&root, &silent_emit()).await {
+            eprintln!("Ornithe 模組準備失敗：{e:#}");
+            return 1;
+        }
+    } else if settings.glass {
         let _ = install::ensure_glass(&root, &mc, &silent_emit()).await;
     }
     // Fabric profiles get the default mod set (Fabric API, Sodium, MaLiLib, Item Scroller,
     // Entity Culling) once per version — also on installs an earlier launcher made.
-    if settings.default_mods && is_fabric_loader(&loader) {
+    // （Ornithe 1.8.9 沒有：Modrinth 上 1.8.9 的「fabric」是 LegacyFabric，對 Ornithe 不相容）
+    if settings.default_mods && is_fabric_loader(&loader) && !is_ornithe {
         let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
     }
     // Forge has no dependency resolution for coremods: a mod whose coremod needs a library
@@ -380,7 +394,7 @@ async fn cmd_play(a: &[String]) -> i32 {
     }
     // Performance pack: verify / fetch the measured optimisation mods for this version
     // (perf.rs). Skipped entirely when the setting is off or after a crash switched it off.
-    let pack_on = if settings.perf_pack {
+    let pack_on = if settings.perf_pack && !is_ornithe {
         let jars = if is_fabric_loader(&loader) { perf::ensure_pack(&root, &mc, &silent_emit()).await } else { Vec::new() };
         !perf::load_state(&root, &mc).disabled && (!jars.is_empty() || perf::has_jvm_flags())
     } else {
@@ -446,7 +460,7 @@ async fn cmd_install(a: &[String]) -> i32 {
     let res = match kind {
         "fabric" => {
             let res = install::install_fabric(root.clone(), mc.clone(), silent_emit()).await;
-            if res.is_ok() && config::load().settings.default_mods {
+            if res.is_ok() && config::load().settings.default_mods && mc != ornithe::MC {
                 let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
             }
             res

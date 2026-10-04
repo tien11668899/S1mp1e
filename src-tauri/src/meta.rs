@@ -54,6 +54,10 @@ pub struct VersionJson {
     // legacy (<=1.12) flat string
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: Option<String>,
+    /// S1mp1e 自訂：要從整條繼承鏈拿掉的函式庫（名稱前綴，例 `org.lwjgl.lwjgl:`）。
+    /// Ornithe 1.8.9 用 Pylon 自帶的 LWJGL3，原版的 LWJGL2 不能留在 classpath 上。
+    #[serde(default, rename = "s1mp1eExclude")]
+    pub s1mp1e_exclude: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -112,6 +116,8 @@ pub struct Library {
     pub downloads: Option<LibraryDownloads>,
     /// Fabric/legacy style: base maven url, no explicit artifact block.
     pub url: Option<String>,
+    /// Fabric/Ornithe meta 的 Fabric 式條目會附 sha1（有就拿來驗證）。
+    pub sha1: Option<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
     /// Legacy natives classifier map, e.g. { "windows": "natives-windows" }.
