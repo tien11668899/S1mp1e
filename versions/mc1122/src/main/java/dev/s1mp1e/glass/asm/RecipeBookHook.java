@@ -108,9 +108,9 @@ public final class RecipeBookHook {
         barActive = false;
         try {
             if (GlassProgram.ensureReady() && GlassProgram.usable()) {
-                // The book draws over the finished container frame, so POSITION is
-                // the point: force a fresh copy rather than reusing the HUD grab.
-                SceneCapture.forceGrab();
+                // 2026-10-04：沿用 HUD 這一幀拍的「只有世界」背景（26.2 的做法），和容器面板一致；
+                // 在暗色遮罩之後重拍會讓配方書跟背包一樣發暗。
+                if (!SceneCapture.hasBackdrop()) SceneCapture.forceGrab();
                 if (SceneCapture.hasBackdrop()) {
                     Book b = book(self);
                     float fade = b.open.value();

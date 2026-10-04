@@ -49,6 +49,12 @@ public final class BlitSuppressor {
     /** Clear the panel-band latch — always call after the vanilla layer returns. */
     public static void disarm() { armed = false; creativeTabs = false; }
 
+    /** 創造模式的玻璃分類列正在生效（背景層、玻璃可用、分類貼圖已被抑制）。 */
+    public static boolean creativeArmed() { return creativeTabs && armed; }
+
+    /** 目前武裝中的面板頂邊（guiTop）。 */
+    public static int panelTop() { return gt; }
+
     /** Drop EVERY blit until {@link #endSuppressAll}. */
     public static void beginSuppressAll() { suppressAll = true; }
 
@@ -69,6 +75,11 @@ public final class BlitSuppressor {
             dev.s1mp1e.glass.render.GlassCreativeTabs.record(x, y, v);
             return true;
         }
-        return x == gl && w == xs && y >= gt && y < gt + ys;
+        if (x == gl && w == xs && y >= gt && y < gt + ys) return true;
+        // A kept blit of the container layer (furnace flame / arrow, brewing bubbles, anvil cross ...): draw it from
+        // a copy of the container texture whose opaque panel-grey background is transparent, so it sits on the glass
+        // without a grey box (ContainerExtras).
+        dev.s1mp1e.glass.render.ContainerExtras.rebindKeyed();
+        return false;
     }
 }

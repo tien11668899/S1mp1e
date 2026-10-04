@@ -69,6 +69,16 @@ public final class GlassProgram {
     /** Build all three once. Returns false if this GPU can't run the glass path. */
     public static boolean ensureReady() {
         if (state != 0) return state == 1;
+        // 只給效能量測用（Bench）：S1MP1E_BENCH_NOGLASS 設了就當成這張顯卡不能跑玻璃，所有畫面走原版外觀，
+        // 用來量「玻璃本身的成本」。一般遊戲不會設這個環境變數。
+        try {
+            String nb = System.getenv("S1MP1E_BENCH_NOGLASS");
+            if (nb != null && !nb.trim().isEmpty()) {
+                System.out.println("[S1mp1e] glass disabled for the benchmark (S1MP1E_BENCH_NOGLASS)");
+                state = -1;
+                return false;
+            }
+        } catch (Throwable ignored) {}
         try {
             if (!GLContext.getCapabilities().OpenGL20) {
                 System.out.println("[S1mp1e] no GL2.0, glass disabled");

@@ -63,16 +63,25 @@ public final class MenuBackdropHook {
         try {
             if (slot == null) return false;
             Minecraft mc = Minecraft.getMinecraft();
+            // A list narrower than the screen (the resource-pack screen's two side-by-side lists) must not lay a
+            // full-screen backdrop: the second list's pass would re-blur the first list (its header turned into a
+            // smudge). Clip the backdrop to the list's own rect; the screen's drawBackground already covers the rest.
+            boolean narrow = mc.currentScreen != null && slot.right - slot.left < mc.currentScreen.width - 8;
+            if (narrow) dev.s1mp1e.client.gui.GlassWidgets.beginScissor(slot.left, slot.top, slot.right, slot.bottom);
             int tex;
-            if (mc.world == null) {
-                // draw() also re-renders the live panorama (V-5) before blurring,
-                // so it must be attempted before any readiness test.
-                if (!MenuBackdrop.draw()) return false;    // full-screen panorama blur
-                tex = MenuBackdrop.panoramaTex();
-            } else {
-                if (!GlassProgram.ensureReady() || !GlassProgram.blurUsable()) return false;
-                if (!MenuBackdrop.drawLive(MenuBackdrop.RADIUS, MenuBackdrop.DIM)) return false;
-                tex = SceneCapture.texture();
+            try {
+                if (mc.world == null) {
+                    // draw() also re-renders the live panorama (V-5) before blurring,
+                    // so it must be attempted before any readiness test.
+                    if (!MenuBackdrop.draw()) return false;    // full-screen panorama blur
+                    tex = MenuBackdrop.panoramaTex();
+                } else {
+                    if (!GlassProgram.ensureReady() || !GlassProgram.blurUsable()) return false;
+                    if (!MenuBackdrop.drawLive(MenuBackdrop.RADIUS, MenuBackdrop.DIM)) return false;
+                    tex = SceneCapture.texture();
+                }
+            } finally {
+                if (narrow) dev.s1mp1e.client.gui.GlassWidgets.endScissor();
             }
             if (tex == 0) return false;
             listTex = tex;
@@ -97,7 +106,14 @@ public final class MenuBackdropHook {
     public static boolean listOverlay(GuiSlot slot, int startY, int endY) {
         try {
             if (!listActive || listTex == 0 || slot == null) return false;
-            MenuBackdrop.drawTexture(listTex, listRadius, listDim, startY, endY);
+            Minecraft mc = Minecraft.getMinecraft();
+            boolean narrow = mc.currentScreen != null && slot.right - slot.left < mc.currentScreen.width - 8;
+            if (narrow) dev.s1mp1e.client.gui.GlassWidgets.beginScissor(slot.left, startY, slot.right, endY);
+            try {
+                MenuBackdrop.drawTexture(listTex, listRadius, listDim, startY, endY);
+            } finally {
+                if (narrow) dev.s1mp1e.client.gui.GlassWidgets.endScissor();
+            }
             // The top strip is (0, top); the bottom strip is (bottom, height). Put
             // the hairline on the edge that faces the list rows.
             boolean header = endY <= slot.top;

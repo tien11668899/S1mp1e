@@ -178,7 +178,8 @@ public abstract class RecipeBookGlassMixin {
 
         // Backdrop for the refraction. If none is available keep the PNG so the
         // book never vanishes.
-        SceneCapture.grabNow();
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
         if (!SceneCapture.hasBackdrop()) {
             self.blit(x, y, u, v, width, height);
             return;

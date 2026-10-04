@@ -54,6 +54,8 @@ public final class GlassEffectHandler {
 
     /** 1.12.2 potion box: fixed width and height, spacing from vanilla. */
     private static final int BOX_W = 140;
+    /** 效果條和容器面板之間的間距（GUI px）。 */
+    private static final int STRIP_GAP = 3;
     private static final int BOX_H = 32;
 
     /** vanilla inventory sheet (holds both the box strip and the status icons). */
@@ -125,7 +127,10 @@ public final class GlassEffectHandler {
         float fade = openFade.value();
 
         // 1) the glass strip (frame-primary; reuses the container's fresh grab).
-        GlassEffects.strip(x, guiTop, x + BOX_W, stripBottom, spacing, rendered, fade);
+        // 右緣不能壓到容器面板：原版 1.12.2 的 140 寬效果框本來就會和面板重疊 16px（生存背包又被配方書強制置中），
+        // 兩塊玻璃疊在一起看起來是壞的，所以收到面板左緣前 STRIP_GAP（和其他版本卡片間距一致）。
+        int stripRight = Math.min(x + BOX_W, guiLeft - STRIP_GAP);
+        GlassEffects.strip(x, guiTop, stripRight, stripBottom, spacing, rendered, fade);
 
         // 2) the vanilla icons + names + durations, on top of the strip. Faithful
         //    to InventoryEffectRenderer.drawActivePotionEffects (icon at +6,+7;

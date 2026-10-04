@@ -32,6 +32,10 @@ public final class GlassTabList {
     /** Grey readability scrim over the plates. */
     private static final int SCRIM = 0x66101018;
 
+    private static int scaleA(int argb, float f) {
+        return (Math.round(((argb >>> 24) & 0xFF) * f) << 24) | (argb & 0xFFFFFF);
+    }
+
     /** Redirect target for {@code Gui.drawRect(int,int,int,int,int)} inside renderPlayerlist. */
     public static void rect(int x0, int y0, int x1, int y1, int argb) {
         int lx = Math.min(x0, x1), rx = Math.max(x0, x1);
@@ -40,6 +44,9 @@ public final class GlassTabList {
         if (w <= 0 || h <= 0) return;
 
         Minecraft mc = Minecraft.getMinecraft();
+        // group 7: the whole list (plates, stripes, names, heads) fades with the tab key (TabListFade)
+        float fa = dev.s1mp1e.glass.render.TabListFade.alpha();
+        if (fa <= 0.004f) return;
         boolean glass = GlassProgram.ensureReady() && GlassProgram.usable() && SceneCapture.hasBackdrop();
         boolean round = GlassProgram.ensureReady() && GlassProgram.roundUsable();
 
@@ -49,19 +56,19 @@ public final class GlassTabList {
                 GlassProgram.setShadowScale(mc != null && mc.currentScreen != null ? 0f : 1f);
                 try {
                     float knob = GlassCorners.hotbarCorner(w, h);
-                    GlassRenderer.glass(lx, ty, rx, by, GlassRenderer.PAD_PANEL, knob, 0f, 1.0f, GlassRenderer.FROST_PANEL);
+                    GlassRenderer.glass(lx, ty, rx, by, GlassRenderer.PAD_PANEL, knob, 0f, fa, GlassRenderer.FROST_PANEL);
                 } finally {
                     GlassProgram.setShadowScale(1f);
                 }
                 if (round) {
-                    GlassRenderer.roundRect(lx, ty, rx, by, GlassCorners.hotbarRadiusPx(w, h), SCRIM);
+                    GlassRenderer.roundRect(lx, ty, rx, by, GlassCorners.hotbarRadiusPx(w, h), scaleA(SCRIM, fa));
                 }
             } else {
-                Gui.drawRect(lx, ty, rx, by, 0x99101018);   // opaque fallback
+                Gui.drawRect(lx, ty, rx, by, scaleA(0x99101018, fa));   // opaque fallback
             }
         } else {
             // short per-row name stripe -> thinned scrim (half its alpha), gentle striping
-            int a = ((argb >>> 24) & 0xFF) / 2;
+            int a = Math.round(((argb >>> 24) & 0xFF) / 2f * fa);
             int scrim = (a << 24) | (argb & 0xFFFFFF);
             if (round) {
                 GlassRenderer.roundRect(lx, ty, rx, by, 2f, scrim);

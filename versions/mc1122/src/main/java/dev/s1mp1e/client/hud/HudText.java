@@ -41,6 +41,8 @@ public final class HudText {
     /** Same contract as {@link GlassFont#drawARGB}: an all-zero alpha byte is promoted to opaque. */
     public static void draw(String s, float x, float y, int argb, boolean shadow) {
         if (s == null || s.isEmpty()) return;
+        // HUD 框高＝GlassFont.height()＋邊距、字畫在框頂邊距處：讓墨跡中心落在框正中（玻璃字才需要，原版點陣字不動）
+        if (GlassFont.available()) y += GlassFont.boxCenterShift();
         if (!ChromaHudModule.textActive()) {
             GlassFont.drawARGB(s, x, y, argb, shadow);
             return;

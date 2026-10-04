@@ -179,7 +179,8 @@ public abstract class RecipeBookGlassMixin {
         // (flicker at high fps / Sodium). grabNow() re-copies every frame, the same
         // rule 1.17.1 applies to frame-primary panels. If no backdrop is available
         // (0-size window etc.) keep the vanilla PNG so the book never vanishes.
-        SceneCapture.grabNow();
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
         if (!SceneCapture.hasBackdrop()) {
             self.drawTexture(matrices, x, y, u, v, width, height);
             return;

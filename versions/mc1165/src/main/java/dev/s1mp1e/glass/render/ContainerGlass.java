@@ -71,7 +71,8 @@ public final class ContainerGlass {
 
         // Frame-primary surface: re-copy a fresh backdrop every frame (grabNow, NOT the deduped grab) so a high-fps
         // paused container can never fold the panel grab onto a stale tooltip snapshot (the 1.16.5 flicker fix, R4).
-        SceneCapture.grabNow();
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         if (!st.opened) {
             // Fresh screen instance: snap the open fade and cancel any in-flight close ghost.

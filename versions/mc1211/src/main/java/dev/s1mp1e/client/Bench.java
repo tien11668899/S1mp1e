@@ -80,8 +80,8 @@ public final class Bench {
     }
 
     // yaw -90 faces +X in Minecraft
-    private static final Scenario EXPLORE = new Scenario("explore", 0, 120, 0, 10, 0, -90, 25, 20, 15, 15, 60);
-    private static final Scenario CHUNKLOAD = new Scenario("chunkload", 0, 180, 3000, 40, 0, -90, 0, 1, 30, 15, 45);
+    private static final Scenario EXPLORE = new Scenario("explore", 0, -1, 0, 10, 0, -90, 25, 20, 20, 15, 60);
+    private static final Scenario CHUNKLOAD = new Scenario("chunkload", 0, -1, 3000, 40, 0, -90, 0, 1, 25, 15, 45);
     // entity pen: 40x40 platform at y=150 centred on (-3000, -3000); camera at its west edge looking east and down
     private static final int PEN_X = -3000, PEN_Z = -3000, PEN_Y = 150, PEN_R = 20;
     private static final Scenario ENTITIES = new Scenario("entities", PEN_X - PEN_R - 6, PEN_Y + 9, PEN_Z, 0, 0, -90, 20,
@@ -95,7 +95,8 @@ public final class Bench {
     private static final List<Scenario> todo = new ArrayList<>();
     private static int phase;
     private static final int P_TITLE = 0, P_WAIT_WORLD = 1, P_SETUP = 2, P_SCEN = 3, P_PREP = 4, P_DRAIN = 5, P_DONE = 6,
-            P_PART = 7;
+            P_PART = 7, P_ROUTES = 8, P_PROFILE = 9, P_DONECHECK = 10;
+    private static int dcStep, dcScrolls;
     private static int partStep;
     private static final String[] PART_MODES = {"off", "Reduced", "None"};
     private static long phaseStartNs;
@@ -186,6 +187,8 @@ public final class Bench {
                 if ("prep".equals(mode)) {
                     deleteTree(new File(saves, MASTER).toPath());
                     createWorld(mc, MASTER);
+                } else if ("profile".equals(mode)) {
+                    mc.createIntegratedServerLoader().start(MASTER, () -> log("open world cancelled"));
                 } else {
                     File master = new File(saves, MASTER);
                     if (!master.isDirectory()) throw new IllegalStateException("no " + MASTER + " — run S1MP1E_BENCH=prep first");
@@ -210,10 +213,14 @@ public final class Bench {
                 if (++frames < 20) return;
                 worldSetup(mc);
                 if ("prep".equals(mode)) { phase = P_PREP; prepStep = 0; frames = 0; phaseStartNs = now; }
+                else if ("routes".equals(mode)) { phase = P_ROUTES; scenIdx = 0; frames = 0; beginScenario(now); }
+                else if ("profile".equals(mode)) { phase = P_PROFILE; scenIdx = 0; }
                 else { phase = P_SCEN; scenIdx = 0; beginScenario(now); }
             }
             case P_SCEN -> runScenario(mc, now, dt);
             case P_PREP -> runPrep(mc, now);
+            case P_ROUTES -> runRoutes(mc, now);
+            case P_PROFILE -> runProfile(mc, now);
             case P_DRAIN -> {
                 if (++frames < 60) return;   // let pending screenshot writes flush
                 log("done, quitting.");
@@ -232,7 +239,7 @@ public final class Bench {
         unfocusedFrames = 0; spikeN = 0;
         scenStartNs = now; measuring = false; ftN = 0; midShot = false; cpuSamples.clear(); lastSampleNs = 0; maxLag = 0;
         startSampler();
-        serverTp(s.x0, s.y0, s.z0, (float) s.yaw0, (float) s.pitch);
+        serverTp(s.x0, s.y0 >= 0 ? s.y0 : routeY(s.name, s.x0), s.z0, (float) s.yaw0, (float) s.pitch);
         log("scenario " + s.name + ": warm " + s.warmS + " s, measure " + s.measureS + " s");
     }
 
@@ -255,7 +262,7 @@ public final class Bench {
         sampling = true;   // CPU / heap / server-lag samples come from the sampler thread, never the render thread
         if (m >= s.measureS) {
             sampling = false;
-            shot(mc, s.name + "_end.png");          // after the window: the read-back stalls one frame
+            shot(mc, s.name + "_end.png");          // after the window: writing a 4K PNG stalls the render thread
             long endMs = System.currentTimeMillis();
             results.add(summarize(s, measureStartMs, endMs));
             writeFrames(s);
@@ -273,16 +280,133 @@ public final class Bench {
         ClientPlayerEntity p = mc.player;
         if (p == null) return;
         double x = s.x0 + s.vx * m, z = s.z0 + s.vz * m;
+        double y = s.y0 >= 0 ? s.y0 : routeY(s.name, x);
         float yaw = (float) (s.yaw0 + s.yawAmp * Math.sin(2 * Math.PI * m / s.yawPeriodS));
         float pitch = (float) s.pitch;
-        p.setPosition(x, s.y0, z);
-        p.prevX = x; p.prevY = s.y0; p.prevZ = z;
-        p.lastRenderX = x; p.lastRenderY = s.y0; p.lastRenderZ = z;
+        p.setPosition(x, y, z);
+        p.prevX = x; p.prevY = y; p.prevZ = z;
+        p.lastRenderX = x; p.lastRenderY = y; p.lastRenderZ = z;
         p.setYaw(yaw); p.setPitch(pitch);
         p.prevYaw = yaw; p.prevPitch = pitch;
         p.setHeadYaw(yaw);
         p.setVelocity(0, 0, 0);
         p.getAbilities().flying = true;
+    }
+
+    // ---- terrain profile -------------------------------------------------------------------------------------------
+
+    /** Ground height (MOTION_BLOCKING) per block along each route, recorded once by {@code S1MP1E_BENCH=profile} and
+     *  stored with the master world ({@code s1bench_profile_<route>.csv}), so every run flies the same height curve. */
+    private static final java.util.Map<String, int[]> profiles = new java.util.HashMap<>();
+    private static final int PROFILE_LEN = 3000;   // blocks along +X from the route start
+    private static final int CLEARANCE = 25, LOOKAHEAD = 40;
+
+    /** Camera height over {@code x}: the highest ground within +-LOOKAHEAD blocks plus CLEARANCE (never inside terrain,
+     *  never above the clouds for long). Falls back to y 200 without a profile. */
+    private static double routeY(String route, double x) {
+        int[] h = profiles.get(route);
+        if (h == null) h = loadProfile(route);
+        Scenario r = route.equals("explore") ? EXPLORE : CHUNKLOAD;
+        if (h == null) return 200;
+        int i = (int) Math.round(x - r.x0);
+        int top = Integer.MIN_VALUE;
+        for (int k = Math.max(0, i - LOOKAHEAD); k <= Math.min(h.length - 1, i + LOOKAHEAD); k++) top = Math.max(top, h[k]);
+        if (top == Integer.MIN_VALUE) return 200;
+        return Math.max(80, top + CLEARANCE);
+    }
+
+    private static int[] loadProfile(String route) {
+        try {
+            MinecraftClient mc = mcRef;
+            File f = new File(new File(mc.runDirectory, "saves/" + COPY), "s1bench_profile_" + route + ".csv");
+            if (!f.exists()) f = new File(new File(mc.runDirectory, "saves/" + MASTER), "s1bench_profile_" + route + ".csv");
+            if (!f.exists()) return null;
+            int[] h = new int[PROFILE_LEN];
+            Arrays.fill(h, Integer.MIN_VALUE);
+            for (String line : Files.readAllLines(f.toPath())) {
+                String[] a = line.split(",");
+                if (a.length != 2 || !a[0].matches("-?\\d+")) continue;
+                int i = Integer.parseInt(a[0]);
+                if (i >= 0 && i < h.length) h[i] = Integer.parseInt(a[1].trim());
+            }
+            profiles.put(route, h);
+            return h;
+        } catch (Throwable t) {
+            log("profile " + route + ": " + t);
+            return null;
+        }
+    }
+
+    private static int[] recording;
+    private static String recordingRoute;
+
+    /** Fly each route at y 300 at 12 b/s and record the ground height under every block column of the path. */
+    private static void runProfile(MinecraftClient mc, long now) {
+        pinWindow(mc);
+        Scenario s = todo.get(scenIdx);
+        if (recording == null || !s.name.equals(recordingRoute)) {
+            recording = new int[PROFILE_LEN];
+            Arrays.fill(recording, Integer.MIN_VALUE);
+            recordingRoute = s.name;
+            serverTp(s.x0, 300, s.z0, -90, 60);
+            scenStartNs = now;
+        }
+        double t = (now - scenStartNs) / 1e9;
+        double travelled = Math.max(0, (t - 5) * 12);
+        double x = s.x0 + travelled;
+        place(mc, new Scenario("p", x, 300, s.z0, 0, 0, -90, 0, 1, 60, 0, 0), 0);
+        // the columns up to 24 blocks behind the camera are loaded on the client by now: read them
+        for (int i = Math.max(0, (int) travelled - 40); i <= (int) travelled - 24 && i < PROFILE_LEN; i++) {
+            if (recording[i] != Integer.MIN_VALUE) continue;
+            int bx = (int) Math.floor(s.x0 + i), bz = (int) Math.floor(s.z0);
+            int top = Integer.MIN_VALUE;
+            for (int dz = -6; dz <= 6; dz++) {   // a strip as wide as the view straight down the path
+                top = Math.max(top, mc.world.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING, bx, bz + dz));
+            }
+            recording[i] = top;
+        }
+        double need = s.vx * s.measureS + LOOKAHEAD + 60;
+        if (travelled >= need + 40) {
+            try {
+                File f = new File(new File(mc.runDirectory, "saves/" + MASTER), "s1bench_profile_" + s.name + ".csv");
+                StringBuilder b = new StringBuilder("i,height\n");
+                int max = Integer.MIN_VALUE, min = Integer.MAX_VALUE;
+                for (int i = 0; i < PROFILE_LEN; i++) {
+                    if (recording[i] == Integer.MIN_VALUE) continue;
+                    b.append(i).append(',').append(recording[i]).append('\n');
+                    max = Math.max(max, recording[i]); min = Math.min(min, recording[i]);
+                }
+                Files.writeString(f.toPath(), b.toString());
+                log("profile " + s.name + ": ground " + min + ".." + max + " -> " + f);
+            } catch (IOException e) {
+                log("profile write failed: " + e);
+            }
+            recording = null;
+            scenIdx++;
+            if (scenIdx >= todo.size()) { phase = P_DRAIN; frames = 0; }
+        }
+    }
+
+    // ---- route check ---------------------------------------------------------------------------------------------
+
+    /** Fly every route like the measurement does and take a screenshot every 5 s of its measured part (no numbers). */
+    private static void runRoutes(MinecraftClient mc, long now) {
+        pinWindow(mc);
+        Scenario s = todo.get(scenIdx);
+        double t = (now - scenStartNs) / 1e9;
+        double m = Math.max(0, t - s.warmS);
+        place(mc, s, m);
+        int k = (int) Math.floor(m / 5.0);
+        if (t >= s.warmS && k > frames - 1 && m < s.measureS) {
+            frames = k + 1;
+            shot(mc, String.format(Locale.ROOT, "route_%s_%02d.png", s.name, k));
+        }
+        if (m >= s.measureS) {
+            scenIdx++; frames = 0;
+            if (scenIdx >= todo.size()) { phase = P_DRAIN; frames = 0; }
+            else beginScenario(now);
+            return;
+        }
     }
 
     // ---- prep -----------------------------------------------------------------------------------------------------

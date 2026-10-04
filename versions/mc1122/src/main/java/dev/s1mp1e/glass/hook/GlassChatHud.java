@@ -55,6 +55,18 @@ public final class GlassChatHud {
     /** Draw the single glass chat panel. Runs at drawChat head, under renderChat's translate(0, h-48). */
     public static void begin(GuiNewChat self, int updateCounter) {
         panelActive = false;
+        colOffsetPx = 0f;
+        try {
+            // Group 7 chat arrival: register lines that arrived since last frame, take the pending column offset.
+            List<?> all = drawnLines(self);
+            if (all != null) {
+                int sp = scrollPos(self);
+                dev.s1mp1e.glass.render.ChatArrival.track(all, Math.max(0, sp));
+                curDrawn = all;
+                curScroll = Math.max(0, sp);
+                colOffsetPx = dev.s1mp1e.glass.render.ChatArrival.offset(9) * self.getChatScale();
+            }
+        } catch (Throwable ignored) {}
         try {
             Minecraft mc = Minecraft.getMinecraft();
             if (mc == null || mc.gameSettings == null) return;
@@ -108,7 +120,7 @@ public final class GlassChatHud {
             panelActive = true;
 
             GlStateManager.pushMatrix();
-            GlStateManager.translate(2.0f, 8.0f, 0.0f);      // 1.12.2 drawChat's own translate
+            GlStateManager.translate(2.0f, 8.0f + colOffsetPx, 0.0f);   // drawChat's own translate + arrival shift
             GlStateManager.scale(scale, scale, 1.0f);
             GlassProgram.setShadowScale(mc.currentScreen != null ? 0f : 1f);
             try {
@@ -126,6 +138,39 @@ public final class GlassChatHud {
         } catch (Throwable t) {
             panelActive = false;   // any failure -> vanilla chat draws unchanged
         }
+    }
+
+    /** The arrival shift of this drawChat call (screen px), and the column it was computed for. */
+    private static float colOffsetPx;
+    private static List<?> curDrawn;
+    private static int curScroll;
+
+    /** Redirect of drawChat's FIRST {@code GlStateManager.translate(2, 8, 0)} (the chat pose): add the arrival shift. */
+    public static void translate(float x, float y, float z) {
+        GlStateManager.translate(x, y + colOffsetPx, z);
+    }
+
+    /**
+     * Redirect of drawChat's per-line {@code drawStringWithShadow(s, 0, j2 - 8, rgb + (alpha << 24))}: the line is
+     * found from its y ({@code j2 = -i * 9}) and its alpha is multiplied by its entrance fade.
+     */
+    public static int text(net.minecraft.client.gui.FontRenderer fr, String s, float x, float y, int color) {
+        try {
+            if (curDrawn != null) {
+                int i = Math.round(-(y + 8f) / 9f);
+                int idx = i + curScroll;
+                if (idx >= 0 && idx < curDrawn.size()) {
+                    float fade = dev.s1mp1e.glass.render.ChatArrival.lineFade(curDrawn.get(idx));
+                    if (fade < 1f) {
+                        int a = (color >>> 24) & 0xFF;
+                        int na = Math.round(a * fade);
+                        if (na < 4) return (int) x;            // the font reads alpha < 4 as opaque: skip the line
+                        color = (na << 24) | (color & 0xFFFFFF);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return fr.drawStringWithShadow(s, x, y, color);
     }
 
     /** Redirect target for the per-line {@code Gui.drawRect} in drawChat. Drops the dark line bg when the panel is up. */

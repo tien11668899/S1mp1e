@@ -111,7 +111,9 @@ public final class DevShot {
                              P_WAIT_ADV = 25, P_ADV = 26,
                              // BATCH B (G/H): HUD chat panel/input + chroma HUD module.
                              P_HUD = 29, P_HUD_INPUT = 30, P_HUD_CHROMA = 31,
-                             P_STOP = 27, P_DONE = 28;
+                             P_STOP = 27, P_DONE = 28,
+                             // mode-driven scene queues (DevShotScenes): after title.png / after world.png
+                             P_SCENES_TITLE = 40, P_SCENES = 41;
     /** Sub-step index inside {@link #P_CREATIVE_EXTRA}. */
     private static int csub;
 
@@ -135,6 +137,8 @@ public final class DevShot {
     /** Target reference resolution — forced onto the (off-screen) framebuffer so shots are 1280x720
      *  regardless of the on-screen window size the OS grants. */
     private static final int SHOT_W = 1280, SHOT_H = 720;
+    /** The size forceFramebuffer holds (a scene may switch it, e.g. the small-window settings page). */
+    static int shotW = SHOT_W, shotH = SHOT_H;
 
     /** Public no-arg ctor so it can be registered on the Forge event bus. */
     public DevShot() {}
@@ -197,7 +201,11 @@ public final class DevShot {
             // Sample the size the frame just rendered at BEFORE forcing the buffer for the next frame.
             lastRenderW = mc.displayWidth;
             lastRenderH = mc.displayHeight;
+            resizedThisFrame = false;
             forceFramebuffer(mc);
+            // A frame in which the framebuffer was just rebuilt holds nothing (a captured shot would be black, and the
+            // screen was re-initialised): let it go by without stepping the script.
+            if (resizedThisFrame && phase != P_INIT && phase != P_WAIT_TITLE && phase != P_TITLE) return;
             switch (phase) {
                 case P_INIT:         stepInit(mc);                       break;
                 case P_WAIT_TITLE:   stepWaitTitle(mc);                  break;
@@ -227,6 +235,15 @@ public final class DevShot {
                 case P_HUD:                  stepHudChat(mc);           break;
                 case P_HUD_INPUT:            stepHudInput(mc);          break;
                 case P_HUD_CHROMA:           stepHudChroma(mc);         break;
+                case P_SCENES_TITLE:
+                    if (DevShotScenes.tick(mc)) {
+                        if (createWorld(mc)) { frames = 0; phase = P_WAIT_WORLD; } else phase = P_STOP;
+                    }
+                    break;
+                case P_SCENES:
+                    clearToasts(mc);                  // not the chat: the HUD scenes push chat on purpose
+                    if (DevShotScenes.tick(mc)) phase = P_STOP;
+                    break;
                 case P_STOP:         stepStop(mc);                       break;
                 default:                                                 break;
             }
@@ -246,11 +263,15 @@ public final class DevShot {
      * blit is what gets clamped on a smaller desktop. No-op once the size already matches, so this is
      * cheap to call every frame and self-heals after any stray resize.
      */
+    /** Set when forceFramebuffer rebuilt the framebuffer this frame: its content is a cleared buffer, not a frame. */
+    private static boolean resizedThisFrame;
+
     private static void forceFramebuffer(Minecraft mc) {
         try {
-            if (mc.displayWidth == SHOT_W && mc.displayHeight == SHOT_H) return;
-            mc.resize(SHOT_W, SHOT_H);
-            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + SHOT_W + "x" + SHOT_H);
+            if (mc.displayWidth == shotW && mc.displayHeight == shotH) return;
+            mc.resize(shotW, shotH);
+            resizedThisFrame = true;
+            System.out.println("[S1mp1e][DevShot] framebuffer forced to " + shotW + "x" + shotH);
         } catch (Throwable t) {
             skip("force framebuffer " + SHOT_W + "x" + SHOT_H, t);
         }
@@ -261,6 +282,8 @@ public final class DevShot {
     private static void stepInit(Minecraft mc) {
         try {
             mc.gameSettings.guiScale = 2;
+            // the dev window may lose focus (other desktop activity): never let the game pause itself mid-scene
+            mc.gameSettings.pauseOnLostFocus = false;
             // Only pay the resource-reload cost when the language actually differs.
             LanguageManager lm = mc.getLanguageManager();
             String cur = lm.getCurrentLanguage() != null ? lm.getCurrentLanguage().getLanguageCode() : null;
@@ -281,7 +304,14 @@ public final class DevShot {
         phase = P_WAIT_TITLE;
     }
 
+    private static int introFrame;
+
     private static void stepWaitTitle(Minecraft mc) {
+        // mode "intro": shoot the boot intro (every 3rd frame) while it plays before the title
+        if (dev.s1mp1e.client.gui.BrandIntro.showing() && DevShotScenes.has("intro")) {
+            if (introFrame % 3 == 0) capture(mc, String.format("intro_%03d.png", introFrame / 3));
+            introFrame++;
+        }
         // Just wait for the title screen to exist; full-size stability is enforced in stepTitle.
         if (mc.currentScreen instanceof GuiMainMenu) {
             frames = 0; phase = P_TITLE;
@@ -304,6 +334,12 @@ public final class DevShot {
         }
         if (++frames >= TITLE_FRAMES) {
             capture(mc, "title.png");
+            if (!DevShotScenes.mode().isEmpty()) {
+                System.out.println("[S1mp1e][DevShot] mode run: " + DevShotScenes.mode());
+                DevShotScenes.queueTitle();
+                frames = 0; phase = P_SCENES_TITLE;
+                return;
+            }
             open(mc, new S1mp1eConfigScreen(), "open settings (over title)");
             frames = 0; phase = P_WAIT_CONFIG;
         }
@@ -351,6 +387,7 @@ public final class DevShot {
         clearNotifications(mc);
         if (++frames < WORLD_SETTLE) return;
         applyWorldSetup(mc);                // time/weather/position/loadout (own try/catch inside)
+        applyClientMirror(mc);
         frames = 0; phase = P_WORLD;
     }
 
@@ -362,6 +399,11 @@ public final class DevShot {
         clearNotifications(mc);
         if (++frames >= WORLD_FRAMES) {
             capture(mc, "world.png");
+            if (!DevShotScenes.mode().isEmpty()) {
+                DevShotScenes.queueWorld();
+                frames = 0; phase = P_SCENES;
+                return;
+            }
             open(mc, new S1mp1eConfigScreen(), "open settings (over world)");
             frames = 0; phase = P_WAIT_CONFIG2;
         }
@@ -482,7 +524,10 @@ public final class DevShot {
             MinecraftServer server = mc.getIntegratedServer();
             EntityPlayerMP sp = server != null && !server.getPlayerList().getPlayers().isEmpty()
                     ? server.getPlayerList().getPlayers().get(0) : null;
-            if (sp != null) sp.setGameType(GameType.CREATIVE);
+            if (sp != null) {
+                final EntityPlayerMP fsp = sp;    // server thread (see applyWorldSetup)
+                server.addScheduledTask(new Runnable() { public void run() { fsp.setGameType(GameType.CREATIVE); } });
+            }
         } catch (Throwable t) {
             skip("set creative gametype", t);
         }
@@ -844,10 +889,13 @@ public final class DevShot {
             EntityPlayerMP sp = server != null && !server.getPlayerList().getPlayers().isEmpty()
                     ? server.getPlayerList().getPlayers().get(0) : null;
             if (sp != null) {
-                sp.addPotionEffect(new PotionEffect(MobEffects.SPEED,        6000, 0, false, false));
-                sp.addPotionEffect(new PotionEffect(MobEffects.STRENGTH,     6000, 1, false, false));
-                sp.addPotionEffect(new PotionEffect(MobEffects.POISON,       6000, 0, false, false));
-                sp.addPotionEffect(new PotionEffect(MobEffects.NIGHT_VISION, 6000, 0, false, false));
+                final EntityPlayerMP fsp = sp;    // server thread (see applyWorldSetup)
+                server.addScheduledTask(new Runnable() { public void run() {
+                    fsp.addPotionEffect(new PotionEffect(MobEffects.SPEED,        6000, 0, false, false));
+                    fsp.addPotionEffect(new PotionEffect(MobEffects.STRENGTH,     6000, 1, false, false));
+                    fsp.addPotionEffect(new PotionEffect(MobEffects.POISON,       6000, 0, false, false));
+                    fsp.addPotionEffect(new PotionEffect(MobEffects.NIGHT_VISION, 6000, 0, false, false));
+                } });
                 any = true;
             }
         } catch (Throwable t) {
@@ -856,7 +904,24 @@ public final class DevShot {
         return any;
     }
 
+    private static int stopFrames;
+
     private static void stepStop(Minecraft mc) {
+        // 絕不在世界裡直接關遊戲：先照暫停選單「儲存並離開」的做法離開世界（Forge 的 loadWorld(null) 會等整合伺服器
+        // 存完檔、停下來才返回），回到標題畫面，等幾幀之後才關（2026-10-04，同 1.8.9）。
+        if (mc.world != null) {
+            System.out.println("[S1mp1e][DevShot] done, leaving the world (save + quit to title) before quitting.");
+            try {
+                mc.world.sendQuittingDisconnectingPacket();
+                mc.loadWorld((net.minecraft.client.multiplayer.WorldClient) null);
+                mc.displayGuiScreen(new GuiMainMenu());
+            } catch (Throwable t) {
+                skip("leave world", t);
+            }
+            stopFrames = 0;
+            return;
+        }
+        if (++stopFrames < 20) return;
         System.out.println("[S1mp1e][DevShot] done, quitting.");
         try { mc.shutdown(); } catch (Throwable ignored) {}
         phase = P_DONE;
@@ -889,6 +954,15 @@ public final class DevShot {
     /** Time / weather / difficulty / camera angle / scripted loadout. Each sub-part is independently guarded. */
     private static void applyWorldSetup(Minecraft mc) {
         MinecraftServer server = mc.getIntegratedServer();
+        // Server-side half on the SERVER thread: touching the server player's inventory / advancements from the client
+        // render thread raced the server tick (ConcurrentModificationException in InventoryChangeTrigger, seen once).
+        if (server != null) {
+            final MinecraftServer srv = server;
+            srv.addScheduledTask(new Runnable() { public void run() { applyServerSetup(srv); } });
+        }
+    }
+
+    private static void applyServerSetup(MinecraftServer server) {
         // difficulty + time + weather (server-authoritative)
         try {
             if (server != null) {
@@ -932,6 +1006,9 @@ public final class DevShot {
         } catch (Throwable t) {
             skip("give loadout", t);
         }
+    }
+
+    private static void applyClientMirror(Minecraft mc) {
         // mirror the loadout + camera on the client player so the very next frame already shows it
         try {
             EntityPlayerSP cp = mc.player;
@@ -949,6 +1026,22 @@ public final class DevShot {
         } catch (Throwable t) {
             skip("mirror loadout on client", t);
         }
+    }
+
+    /** Drop queued/visible toasts only (the scene queues keep the chat). */
+    private static void clearToasts(Minecraft mc) {
+        try {
+            net.minecraft.client.gui.toasts.GuiToast gt = mc.getToastGui();
+            if (gt == null) return;
+            java.lang.reflect.Field qf = net.minecraft.client.gui.toasts.GuiToast.class.getDeclaredField("toastsQueue");
+            qf.setAccessible(true);
+            Object q = qf.get(gt);
+            if (q instanceof Deque) ((Deque<?>) q).clear();
+            java.lang.reflect.Field vf = net.minecraft.client.gui.toasts.GuiToast.class.getDeclaredField("visible");
+            vf.setAccessible(true);
+            Object[] vis = (Object[]) vf.get(gt);
+            if (vis != null) for (int i = 0; i < vis.length; i++) vis[i] = null;
+        } catch (Throwable ignored) {}
     }
 
     /** Drop any queued/visible advancement + recipe toasts and clear chat, so world shots stay clean. */
@@ -1008,6 +1101,21 @@ public final class DevShot {
                 "net.minecraft.client.renderer.ItemRenderer",
                 "net.minecraft.client.settings.KeyBinding",
                 "net.minecraft.client.settings.GameSettings",
+                "net.minecraft.client.gui.FontRenderer",
+                "net.minecraft.client.gui.GuiOptions",
+                "net.minecraft.client.gui.GuiVideoSettings",
+                "net.minecraft.client.gui.GuiControls",
+                "net.minecraft.client.gui.GuiLanguage",
+                "net.minecraft.client.gui.ScreenChatOptions",
+                "net.minecraft.client.gui.GuiScreenOptionsSounds",
+                "net.minecraft.client.gui.GuiCustomizeSkin",
+                "net.minecraft.client.gui.GuiScreenResourcePacks",
+                "net.minecraft.client.gui.GuiSnooper",
+                "net.minecraft.client.gui.GuiCreateWorld",
+                "net.minecraft.client.gui.GuiTextField",
+                "net.minecraft.client.multiplayer.GuiConnecting",
+                "net.minecraft.client.gui.GuiDownloadTerrain",
+                "net.minecraft.client.gui.GuiScreenWorking",
                 // BATCH B (G) HUD-overlay targets
                 "net.minecraft.client.gui.GuiNewChat",
                 "net.minecraft.client.gui.GuiChat",
@@ -1034,6 +1142,22 @@ public final class DevShot {
             auditSite("GuiContainer.drawSlot glide",     dev.s1mp1e.glass.asm.S1mp1eTransformer.creativeGlidePatched,  fail);
             auditSite("GuiContainerCreative.mouseClicked snap", dev.s1mp1e.glass.asm.S1mp1eTransformer.creativeClickPatched, fail);
             auditSite("GuiScreenAdvancements glass",     dev.s1mp1e.glass.asm.S1mp1eTransformer.advancementsPatched,   fail);
+            auditSite("FontRenderer.renderString no-shadow", dev.s1mp1e.glass.asm.S1mp1eTransformer.textShadowPatched, fail);
+            auditSite("SettingsShell drawScreen x" + dev.s1mp1e.glass.asm.S1mp1eTransformer.settingsDrawCount + " (group 1)",
+                      dev.s1mp1e.glass.asm.S1mp1eTransformer.settingsDrawCount == 9, fail);
+            auditSite("Tab-switch dissolves x" + dev.s1mp1e.glass.asm.S1mp1eTransformer.tabSwitchCount + " (group 5)", dev.s1mp1e.glass.asm.S1mp1eTransformer.tabSwitchCount == 3, fail);
+            auditSite("Loading cards x" + dev.s1mp1e.glass.asm.S1mp1eTransformer.loadingCardCount + " (group 10)", dev.s1mp1e.glass.asm.S1mp1eTransformer.loadingCardCount == 3, fail);
+            auditSite("GuiButton press pulse (group 9)", dev.s1mp1e.glass.asm.S1mp1eTransformer.pressPulsePatched, fail);
+            auditSite("Tab list fade (group 7)", dev.s1mp1e.glass.asm.S1mp1eTransformer.tabFadePatched && dev.s1mp1e.glass.asm.S1mp1eTransformer.tabGatePatched, fail);
+            auditSite("Health damage trail (group 7)", dev.s1mp1e.glass.asm.S1mp1eTransformer.healthTrailPatched, fail);
+            auditSite("Scoreboard sidebar fade (group 7)", dev.s1mp1e.glass.asm.S1mp1eTransformer.scoreboardLookupPatched && dev.s1mp1e.glass.asm.S1mp1eTransformer.scoreboardRecordPatched, fail);
+            auditSite("GuiChat close fade (group 7)", dev.s1mp1e.glass.asm.S1mp1eTransformer.chatClosePatched, fail);
+            auditSite("GuiNewChat arrival (group 7)", dev.s1mp1e.glass.asm.S1mp1eTransformer.chatArrivalPatched, fail);
+            auditSite("GuiSlot smooth wheel (group 6)", dev.s1mp1e.glass.asm.S1mp1eTransformer.listMotionPatched, fail);
+            auditSite("GuiTextField typing (group 6)", dev.s1mp1e.glass.asm.S1mp1eTransformer.editBoxPatched, fail);
+            auditSite("GuiContainer item flights (observe/draw/hide)", dev.s1mp1e.glass.asm.S1mp1eTransformer.itemFlightPatched, fail);
+            auditSite("GuiScreen.mouseClicked settings gate", dev.s1mp1e.glass.asm.S1mp1eTransformer.settingsClickPatched, fail);
+            auditSite("GuiScreen.handleMouseInput settings wheel gate", dev.s1mp1e.glass.asm.S1mp1eTransformer.settingsWheelPatched, fail);
             auditSite("Gui.drawTexturedModalRect",       dev.s1mp1e.glass.asm.S1mp1eTransformer.guiBlitPatched,     fail);
             auditSite("GuiScreen.drawBackground",        dev.s1mp1e.glass.asm.S1mp1eTransformer.screenBgPatched,    fail);
             auditSite("GuiScreen.drawHoveringText",      dev.s1mp1e.glass.asm.S1mp1eTransformer.tooltipPatched,     fail);
@@ -1128,6 +1252,9 @@ public final class DevShot {
     }
 
     /** Capture the current framebuffer to {@code outDir/name}, overwriting, with the game's own reader. */
+    /** Capture entry for {@link DevShotScenes}. */
+    static void captureExternal(Minecraft mc, String name) { capture(mc, name); }
+
     private static void capture(Minecraft mc, String name) {
         try {
             BufferedImage img = net.minecraft.util.ScreenShotHelper.createScreenshot(

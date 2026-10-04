@@ -115,7 +115,8 @@ public abstract class CreativeGlassMixin implements GlassGlideHost, GlideProbe {
         if (s1mp1e$openFade == null) s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
 
         self.draw();               // flush the deferred dim so the glass lands on top + the grab captures world+dim
-        SceneCapture.grabNow();    // R4: fresh backdrop every frame
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         if (!s1mp1e$opened) {
             s1mp1e$opened = true;

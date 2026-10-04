@@ -45,6 +45,10 @@ public final class GlassFont {
     private static Font derived, derivedFb;
     private static FontMetrics fm, fmFb;
     private static int ascentP, lineP;
+    /** 參考字墨跡的垂直中心（相對基線，物理像素；負值＝基線上方）。 */
+    private static float inkCenterP = -4.0f;
+    /** 墨跡中心要落在字格頂往下幾 GUI px（MC 呼叫端以「中心 − 4」放字，所以是 4）。 */
+    private static final float INK_CENTER_GUI = 4.0f;
     /** Cap on cached glyph textures. Because this FontRenderer is installed globally,
      *  a CJK-heavy server would otherwise let {@code cache} grow without bound and leak
      *  one small GL texture per never-before-seen character forever. An access-ordered
@@ -116,6 +120,14 @@ public final class GlassFont {
         fmFb = metrics(derivedFb);
         ascentP = fm.getAscent();
         lineP   = fm.getAscent() + fm.getDescent();
+        // 垂直置中：PingFang 的 ascent 比 MC 的 8px 字格大，舊的「基線 = 字頂 + ascent」會讓字掉低 2~3 GUI px
+        // （中文最明顯，使用者回報「字偏下」）。改量參考字的實際墨跡中心（中文「中」與拉丁「H」取平均，
+        // 相對基線、物理像素、負值＝在基線上方），run() 讓這個中心落在 y + INK_CENTER_GUI。
+        Rectangle zh = derived.createGlyphVector(FRC, "中").getPixelBounds(FRC, 0f, 0f);
+        Rectangle la = derived.createGlyphVector(FRC, "H").getPixelBounds(FRC, 0f, 0f);
+        float cZh = zh.height > 0 ? zh.y + zh.height / 2f : la.y + la.height / 2f;
+        float cLa = la.y + la.height / 2f;
+        inkCenterP = (cZh + cLa) / 2f;
     }
 
     private static FontMetrics metrics(Font f) {
@@ -186,6 +198,14 @@ public final class GlassFont {
 
     // ---- public API, all in GUI px (top-left origin, matching MC's label convention) ----
 
+    /**
+     * HUD 模組的框高是 {@link #height()}＋上下邊距、字畫在框頂邊距處：要讓墨跡中心落在框正中，
+     * y 要再往下加這個量（{@code height()/2 − 4}）。一般元件（按鈕/pill，以「中心 − 4」放字）不用加。
+     */
+    public static float boxCenterShift() {
+        return height() / 2f - INK_CENTER_GUI;
+    }
+
     public static float height() {
         if (!ready()) return mc().fontRendererObj.FONT_HEIGHT;
         return lineP / (float) scale;
@@ -240,7 +260,8 @@ public final class GlassFont {
         float r = ((rgb >> 16) & 255) / 255f, g = ((rgb >> 8) & 255) / 255f, b = (rgb & 255) / 255f;
         float a = alpha < 0f ? 0f : (alpha > 1f ? 1f : alpha);
         float sc = (float) scale;
-        float baseY = y + ascentP / sc;   // shared baseline; y is the text top (MC convention)
+        // 共用基線：y 是字格頂（MC 慣例，呼叫端用「中心 − 4」放字），讓參考字的墨跡中心落在 y + 4 ＝ 視覺置中
+        float baseY = y + INK_CENTER_GUI - inkCenterP / sc;
 
         GlStateManager.enableTexture2D();
         GlStateManager.enableBlend();

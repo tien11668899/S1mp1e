@@ -24,5 +24,9 @@ public final class DevShotDriver {
         } catch (Throwable ignored) {
             // A screenshot-harness failure must never disturb the frame loop.
         }
+        try {
+            Bench.onRenderEnd(Minecraft.getMinecraft());   // 效能量測：沒設 S1MP1E_BENCH 時什麼都不做
+        } catch (Throwable ignored) {
+        }
     }
 }

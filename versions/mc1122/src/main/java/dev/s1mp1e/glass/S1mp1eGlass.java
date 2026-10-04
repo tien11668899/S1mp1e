@@ -40,9 +40,17 @@ public final class S1mp1eGlass {
         // tooltip (R1). Registered AFTER the container handler so its LOW-priority
         // BackgroundDrawnEvent handler reuses the container's fresh grab (R4).
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassEffectHandler());
-        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassTooltipHandler());
+        // R1 + group 5: the frame's top layer (RenderTickEvent END, after the toasts): the glass tooltip recorded in
+        // the screen pass, its fade-out ghost, and the screen cross-dissolve snapshot. Replaces GlassTooltipHandler
+        // (whose overlay-time ghost pass did not run over the title screen and sat under the toasts).
+        dev.s1mp1e.glass.ui.GlassTooltip.deferEnabled = true;
+        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassTopLayer());
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassItemNameHandler());
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassScreenFadeHandler());
+        // group 10: the brand intro, once per session before the first title screen
+        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.BrandIntroHandler());
+        // group 7: the chat input fades out (bar ghost + text lifting off) when chat closes
+        MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.ChatCloseHook());
         // BATCH B (G3): the multi-bar boss health bar, redrawn per bar on Forge's per-bar BossInfo
         // event (blue capsule fill + concentric true-capsule glass). Reuses the overlay-head grab (R4).
         MinecraftForge.EVENT_BUS.register(new dev.s1mp1e.glass.hook.GlassBossBar());

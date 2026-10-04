@@ -109,13 +109,16 @@ public final class GlassCreativeTabs {
                      && my >= t[1] && my < t[1] + TAB_H) hov = t;
         }
 
-        float hw = (TAB_W - 2 * PILL_INSET) / 2f;   // 12
-        float hh = (TAB_H - 2 * PILL_INSET) / 2f;    // 14
+        // 正方形 pill，置於「分類格（28 寬）× 玻璃帶（BAND = 28 高）」正中、四邊各內縮 PILL_INSET——
+        // 26.2／1.21.1 GlassTabs 的規則（hw = 格寬/2 − 內距、hh = BAND/2 − 內距）。2026-10-04 使用者要求：原本用原版
+        // 分類貼圖 28×32 的矩形內縮，是 24×28 的直長形，中心也偏了 2 px（貼圖有 4 px 伸進面板）。
+        float hw = BAND / 2f - PILL_INSET;   // 12
+        float hh = hw;                       // 12 → 24×24
 
         // ---- selected pill: hotbar slide within a row, cross-fade across rows / pages ----
         if (sel != null) {
             float cx = sel[0] + TAB_W / 2f;
-            float cy = sel[1] + TAB_H / 2f;
+            float cy = bandCy(sel);
             boolean top = sel[3] != 0;
             int col = Math.round(cx);
             if (selLead == null) {
@@ -138,7 +141,7 @@ public final class GlassCreativeTabs {
         // ---- hover pill: the slot-hover box motion (two springs on x AND y + fade) ----
         if (hov != null) {
             float cx = hov[0] + TAB_W / 2f;
-            float cy = hov[1] + TAB_H / 2f;
+            float cy = bandCy(hov);
             if (hoverActive && hx1 != null) {
                 hx1.setTarget(cx); hx2.setTarget(cx); hy1.setTarget(cy); hy2.setTarget(cy);
             } else if (hx1 != null && hoverFade.value() > 0.05f) {
@@ -182,5 +185,32 @@ public final class GlassCreativeTabs {
         if (x1 - x0 < 1f || y1 - y0 < 1f || alpha <= 0.004f) return;
         float corner = GlassCorners.hotbarCorner(x1 - x0, y1 - y0);
         GlassRenderer.glass(x0, y0, x1, y1, PAD, corner, lift, alpha, FROST);
+    }
+
+    /**
+     * 分類在玻璃帶裡的中心 y。記錄的是原版貼圖的 y：上排貼圖從面板頂邊上方 28 開始（= 玻璃帶頂），下排從面板底邊上方 4
+     * 開始（貼圖有 4 px 伸進面板），所以玻璃帶中心分別是 y + BAND/2 與 y + 4 + BAND/2。
+     */
+    private static float bandCy(int[] t) {
+        return t[3] != 0 ? t[1] + BAND / 2f : t[1] + 4 + BAND / 2f;
+    }
+
+    /**
+     * 原版的分類圖示位置（drawTab）：上排 y = 頂邊 − 19（中心 −11）、下排 y = 底邊 + 3（中心 +11）；玻璃帶中心是
+     * −14／+14，所以上排往上 3、下排往下 3，圖示就在正方形 pill 正中。只在玻璃分類列生效時移（玻璃不可用時原版
+     * 分類貼圖還在，圖示要對齊原版）。分類的點擊範圍不動。
+     */
+    public static void tabIcon(net.minecraft.client.renderer.RenderItem ri, net.minecraft.item.ItemStack stack, int x, int y) {
+        ri.renderItemAndEffectIntoGUI(stack, x, iconY(y));
+    }
+
+    public static void tabIconOverlay(net.minecraft.client.renderer.RenderItem ri, net.minecraft.client.gui.FontRenderer fr,
+                                      net.minecraft.item.ItemStack stack, int x, int y) {
+        ri.renderItemOverlays(fr, stack, x, iconY(y));
+    }
+
+    private static int iconY(int y) {
+        if (!dev.s1mp1e.glass.asm.BlitSuppressor.creativeArmed()) return y;
+        return y < dev.s1mp1e.glass.asm.BlitSuppressor.panelTop() ? y - 3 : y + 3;
     }
 }

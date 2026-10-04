@@ -203,6 +203,16 @@ public final class S1mp1eTransformer implements IClassTransformer {
     private static final String GRAD_SRG  = "func_73733_a";
     private static final String GRAD_DESC = "(IIIIII)V";
 
+    // Item flights (delta / group 7)
+    private static final String HOOKS_FLIGHT = "dev/s1mp1e/glass/hook/ItemFlightHook";
+    private static final String FLIGHT_GC_DESC = "(Lnet/minecraft/client/gui/inventory/GuiContainer;)V";
+    private static final String FLIGHT_HIDE_DESC =
+            "(Lnet/minecraft/client/gui/inventory/GuiContainer;Lnet/minecraft/inventory/Slot;)Z";
+    // drawGuiContainerForegroundLayer(II)V
+    private static final String FG_LAYER_MCP = "drawGuiContainerForegroundLayer";
+    private static final String FG_LAYER_SRG = "func_146979_b";
+    private static final String FG_LAYER_DESC = "(II)V";
+
     private static final String HOOKS_SUPPRESS = "dev/s1mp1e/glass/asm/BlitSuppressor";
     private static final String HOOKS_HOVER    = "dev/s1mp1e/glass/asm/HoverHook";
     private static final String HOOKS_BACKDROP = "dev/s1mp1e/glass/asm/MenuBackdropHook";
@@ -285,6 +295,69 @@ public final class S1mp1eTransformer implements IClassTransformer {
     private static final String HOOKS_TOAST = "dev/s1mp1e/glass/hook/GlassToast";
     private static final String TOAST_CARD_DESC = "(Lnet/minecraft/client/gui/toasts/GuiToast;IIIIII)V";
 
+    // No text shadow (group 3 / delta) — FontRenderer.renderString(String,float,float,int,boolean)V
+    // is the single private funnel both drawString and drawStringWithShadow route into. Force its
+    // dropShadow argument (local slot 5) to false at the method head, so a genuine vanilla
+    // FontRenderer never paints a drop shadow. The GlassFont path (the replaced FontRenderer, the HUD
+    // text seam, the glass GUI) is already shadow-free in Java; this covers any residual vanilla
+    // FontRenderer instance and the bitmap-font fallback.
+    // Settings shell (group 1) — one glass sidebar+card layout over every vanilla options screen.
+    // Each screen's drawScreen(IIF)V gets a head splice `if (SettingsShell.render(this,mx,my,pt)) return;`
+    // so the shell draws instead of vanilla; GuiScreen.mouseClicked / handleMouseInput get gated head
+    // splices so the shell owns clicks and the wheel (no-op for non-options screens via handles()).
+    private static final String SHELL = "dev/s1mp1e/client/gui/SettingsShell";
+    private static final String SHELL_RENDER_DESC = "(Lnet/minecraft/client/gui/GuiScreen;IIF)Z";
+    private static final String SHELL_CLICK_DESC  = "(Lnet/minecraft/client/gui/GuiScreen;III)Z";
+    private static final String SHELL_WHEEL_DESC  = "(Lnet/minecraft/client/gui/GuiScreen;)Z";
+    private static final String[] SETTINGS_SCREENS = {
+            "net.minecraft.client.gui.GuiOptions",
+            "net.minecraft.client.gui.GuiVideoSettings",
+            "net.minecraft.client.gui.GuiControls",
+            "net.minecraft.client.gui.GuiLanguage",
+            "net.minecraft.client.gui.ScreenChatOptions",
+            "net.minecraft.client.gui.GuiScreenOptionsSounds",
+            "net.minecraft.client.gui.GuiCustomizeSkin",
+            "net.minecraft.client.gui.GuiScreenResourcePacks",
+            "net.minecraft.client.gui.GuiSnooper",
+    };
+    // GuiScreen.mouseClicked(III)V and handleMouseInput()V
+    private static final String MOUSE_CLICKED_MCP = "mouseClicked";
+    private static final String MOUSE_CLICKED_SRG = "func_73864_a";
+    private static final String MOUSE_CLICKED_DESC = "(III)V";
+    private static final String HANDLE_MOUSE_MCP = "handleMouseInput";
+    private static final String HANDLE_MOUSE_SRG = "func_146274_d";
+    private static final String HANDLE_MOUSE_DESC = "()V";
+
+    // Tab-switch cross-dissolves (group 5): head splices into the in-screen content switches.
+    private static final String HOOKS_TAB = "dev/s1mp1e/glass/hook/TabSwitchHook";
+    private static final String CREATIVE_TAB_MCP = "setCurrentCreativeTab";
+    private static final String CREATIVE_TAB_SRG = "func_147050_b";
+    private static final String CREATIVE_TAB_DESC = "(Lnet/minecraft/creativetab/CreativeTabs;)V";
+    private static final String ADV_SELECT_MCP = "setSelectedTab";
+    private static final String ADV_SELECT_SRG = "func_193982_e";
+    private static final String ADV_SELECT_DESC = "(Lnet/minecraft/advancements/Advancement;)V";
+    private static final String GUI_CREATE_WORLD = "net.minecraft.client.gui.GuiCreateWorld";
+    private static final String MORE_OPTS_MCP = "showMoreWorldOptions";
+    private static final String MORE_OPTS_SRG = "func_146316_a";
+    private static final String MORE_OPTS_DESC = "(Z)V";
+
+    // Group 6: GuiSlot smooth wheel + GuiTextField typing
+    private static final String HOOKS_LIST = "dev/s1mp1e/glass/hook/ListMotionHook";
+    private static final String LIST_DESC = "(Lnet/minecraft/client/gui/GuiSlot;)V";
+    private static final String SLOT_INPUT_MCP = "handleMouseInput";
+    private static final String SLOT_INPUT_SRG = "func_178039_p";
+    private static final String SLOT_DRAW_MCP = "drawScreen";
+    private static final String SLOT_DRAW_SRG = "func_148128_a";
+    private static final String GUI_TEXT_FIELD = "net.minecraft.client.gui.GuiTextField";
+    private static final String TEXTBOX_MCP = "drawTextBox";
+    private static final String TEXTBOX_SRG = "func_146194_f";
+    private static final String HOOKS_EDITBOX = "dev/s1mp1e/glass/hook/EditBoxHook";
+
+    private static final String FONT_RENDERER = "net.minecraft.client.gui.FontRenderer";
+    private static final String RENDERSTRING_MCP  = "renderString";
+    private static final String RENDERSTRING_SRG  = "func_180455_b";
+    private static final String RENDERSTRING_DESC = "(Ljava/lang/String;FFIZ)I";
+
     // ---- per-patch success flags (read by the DevShot coremod audit) -------
     //
     // These live on the transformer, never on a hook class, so the transform
@@ -341,6 +414,41 @@ public final class S1mp1eTransformer implements IClassTransformer {
     public static volatile boolean toastPatched = false;
     /** How many of the four concrete toasts were patched (G4). */
     public static volatile int toastCount = 0;
+    /** FontRenderer.renderString dropShadow-forced-false splice matched (no text shadow). */
+    public static volatile boolean textShadowPatched = false;
+    /** Loading-screen glass cards spliced (GuiConnecting, GuiDownloadTerrain, GuiScreenWorking): count of 3. */
+    public static volatile int loadingCardCount = 0;
+    /** GuiButton.playPressSound press-pulse stamp (group 9). */
+    public static volatile boolean pressPulsePatched = false;
+    /** Tab list fade: gate + colour/text redirects applied (group 7). */
+    public static volatile boolean tabFadePatched = false;
+    /** GuiIngameForge.renderPlayerList key gate redirected (group 7). */
+    public static volatile boolean tabGatePatched = false;
+    /** Health damage trail: highlight/healthLast locals + heart blits rewired (group 7). */
+    public static volatile boolean healthTrailPatched = false;
+    /** Scoreboard sidebar fade: lookup redirect (GuiIngameForge) + record (GuiIngame.renderScoreboard) (group 7). */
+    public static volatile boolean scoreboardLookupPatched = false;
+    public static volatile boolean scoreboardRecordPatched = false;
+    /** GuiChat.onGuiClosed close-fade record spliced (group 7). */
+    public static volatile boolean chatClosePatched = false;
+    /** GuiNewChat.drawChat arrival redirects (pose translate + line text) applied (group 7). */
+    public static volatile boolean chatArrivalPatched = false;
+    /** GuiSlot smooth-wheel brackets spliced (group 6). */
+    public static volatile boolean listMotionPatched = false;
+    /** Creative tab icons redirected to the band centre (2026-10-04, square pills). */
+    public static volatile boolean creativeTabIconPatched = false;
+    /** GuiTextField.drawTextBox typing splice (group 6). */
+    public static volatile boolean editBoxPatched = false;
+    /** Tab-switch dissolve splices applied (creative, advancements, create-world): count of 3. */
+    public static volatile int tabSwitchCount = 0;
+    /** GuiContainer item-flight observe + foreground draw + drawSlot hide spliced (delta / group 7). */
+    public static volatile boolean itemFlightPatched = false;
+    /** How many of the 9 options screens got the SettingsShell drawScreen splice (group 1). */
+    public static volatile int settingsDrawCount = 0;
+    /** GuiScreen.mouseClicked SettingsShell gate spliced. */
+    public static volatile boolean settingsClickPatched = false;
+    /** GuiScreen.handleMouseInput SettingsShell wheel gate spliced. */
+    public static volatile boolean settingsWheelPatched = false;
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
@@ -400,13 +508,53 @@ public final class S1mp1eTransformer implements IClassTransformer {
                 return patchChatInput(basicClass);
             }
             if (TAB_OVERLAY.equals(transformedName)) {
-                return patchTabList(basicClass);
+                return patchTabMotion(patchTabList(basicClass));
             }
             if (INGAME_FORGE.equals(transformedName)) {
-                return patchActionBar(basicClass);
+                return patchIngameMotion(patchActionBar(basicClass));
             }
             if (ENTITY_RENDERER.equals(transformedName)) {
                 return patchNameTag(basicClass);
+            }
+            if (FONT_RENDERER.equals(transformedName)) {
+                return patchFontShadow(basicClass);
+            }
+            if (GUI_TEXT_FIELD.equals(transformedName)) {
+                ClassNode cn = read(basicClass);
+                MethodNode m = find(cn, TEXTBOX_MCP, TEXTBOX_SRG, "()V");
+                if (m == null) { System.out.println("[S1mp1e/ASM] GuiTextField.drawTextBox not found"); return basicClass; }
+                LabelNode pass = new LabelNode();
+                InsnList pre = new InsnList();
+                pre.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_EDITBOX, "draw",
+                        "(Lnet/minecraft/client/gui/GuiTextField;)Z", false));
+                pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+                pre.add(new InsnNode(Opcodes.RETURN));
+                pre.add(pass);
+                pre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+                m.instructions.insert(pre);
+                editBoxPatched = true;
+                System.out.println("[S1mp1e/ASM] patched GuiTextField.drawTextBox (typing animation)");
+                return write(cn);
+            }
+            if ("net.minecraft.client.multiplayer.GuiConnecting".equals(transformedName)
+                    || "net.minecraft.client.gui.GuiDownloadTerrain".equals(transformedName)
+                    || "net.minecraft.client.gui.GuiScreenWorking".equals(transformedName)) {
+                return patchLoadingCard(basicClass, transformedName);
+            }
+            if ("net.minecraft.client.gui.GuiIngame".equals(transformedName)) {
+                return patchScoreboardRecord(basicClass);
+            }
+            if (GUI_CREATE_WORLD.equals(transformedName)) {
+                ClassNode cn = read(basicClass);
+                if (spliceTab(cn, MORE_OPTS_MCP, MORE_OPTS_SRG, MORE_OPTS_DESC, "createWorld",
+                        "(Lnet/minecraft/client/gui/GuiCreateWorld;Z)V", Opcodes.ILOAD)) return write(cn);
+                return basicClass;
+            }
+            for (int i = 0; i < SETTINGS_SCREENS.length; i++) {
+                if (SETTINGS_SCREENS[i].equals(transformedName)) {
+                    return patchSettingsDraw(basicClass, transformedName);
+                }
             }
             if (TOAST_ADV.equals(transformedName)) {
                 return patchToast(basicClass, "AdvancementToast");
@@ -455,6 +603,18 @@ public final class S1mp1eTransformer implements IClassTransformer {
         m.instructions.insert(pre);
         buttonPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiButton.drawButton");
+
+        // Group 9 tap pulse: playPressSound(SoundHandler)V HEAD -> PressPulse.press(this) (every click plays it).
+        MethodNode ps = find(cn, "playPressSound", "func_146113_a", "(Lnet/minecraft/client/audio/SoundHandler;)V");
+        if (ps != null) {
+            InsnList pp = new InsnList();
+            pp.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            pp.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/anim/PressPulse", "press",
+                    "(Lnet/minecraft/client/gui/GuiButton;)V", false));
+            ps.instructions.insert(pp);
+            pressPulsePatched = true;
+            System.out.println("[S1mp1e/ASM] patched GuiButton.playPressSound (press pulse)");
+        }
         return write(cn);
     }
 
@@ -600,6 +760,45 @@ public final class S1mp1eTransformer implements IClassTransformer {
             System.out.println("[S1mp1e/ASM] background-layer call not found in drawScreen");
             return basic;
         }
+
+        // Item flights (PORT_DELTA_ITEM_FLIGHT / group 7). Three seams, all stack-neutral:
+        //  (1) drawScreen HEAD: ItemFlightHook.observe(this) — per-frame slot diff, no click hooks.
+        //  (2) before INVOKEVIRTUAL drawGuiContainerForegroundLayer(II)V: ItemFlightHook.draw(this) — inside the
+        //      pushMatrix/translate(guiLeft,guiTop) of the slot loop (container-local space).
+        //  (3) drawSlot HEAD: if (ItemFlightHook.hideSlot(this, slot)) return; — a landing slot waits for its item.
+        InsnList obs = new InsnList();
+        obs.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        obs.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_FLIGHT, "observe", FLIGHT_GC_DESC, false));
+        m.instructions.insert(obs);
+        int fg = 0;
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() != Opcodes.INVOKEVIRTUAL) continue;
+            MethodInsnNode call = (MethodInsnNode) insn;
+            if ((FG_LAYER_MCP.equals(call.name) || FG_LAYER_SRG.equals(call.name)) && FG_LAYER_DESC.equals(call.desc)) {
+                // The call's operands (this, mx, my) are already on the stack; a push + void static call here
+                // leaves them exactly as they were (stack-neutral, branch-free -> no frame).
+                InsnList fl = new InsnList();
+                fl.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                fl.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_FLIGHT, "draw", FLIGHT_GC_DESC, false));
+                m.instructions.insertBefore(call, fl);
+                fg++;
+                break;
+            }
+        }
+        if (slotM != null) {
+            LabelNode hpass = new LabelNode();
+            InsnList hpre = new InsnList();
+            hpre.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            hpre.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            hpre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_FLIGHT, "hideSlot", FLIGHT_HIDE_DESC, false));
+            hpre.add(new JumpInsnNode(Opcodes.IFEQ, hpass));
+            hpre.add(new InsnNode(Opcodes.RETURN));
+            hpre.add(hpass);
+            hpre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+            slotM.instructions.insert(hpre);
+        }
+        itemFlightPatched = fg == 1 && slotM != null;
+        System.out.println("[S1mp1e/ASM] item flights: observe+hide spliced, foreground draw sites=" + fg);
         containerPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiContainer.drawScreen (hover redirects: " + hover + ")");
         return write(cn);
@@ -687,6 +886,26 @@ public final class S1mp1eTransformer implements IClassTransformer {
         } else {
             System.out.println("[S1mp1e/ASM] GuiContainerCreative.mouseClicked not found, glide-snap skipped");
         }
+        spliceTab(cn, CREATIVE_TAB_MCP, CREATIVE_TAB_SRG, CREATIVE_TAB_DESC, "creative",
+                "(Lnet/minecraft/client/gui/inventory/GuiContainerCreative;Lnet/minecraft/creativetab/CreativeTabs;)V",
+                Opcodes.ALOAD);
+        // 2026-10-04 分類 pill 改成正方形、放在玻璃帶正中之後，圖示也要移到正中：drawTab(func_147051_a) 裡的
+        // renderItemAndEffectIntoGUI／renderItemOverlays 轉到 GlassCreativeTabs.tabIcon／tabIconOverlay
+        // （INVOKEVIRTUAL 換成第一個參數是 receiver 的 INVOKESTATIC：堆疊形狀不變、沒有分支）。
+        MethodNode tab = find(cn, "drawTab", "func_147051_a", "(Lnet/minecraft/creativetab/CreativeTabs;)V");
+        int icons = 0;
+        if (tab != null) {
+            icons += redirectInvokeVirtual(tab, "renderItemAndEffectIntoGUI", "func_180450_b",
+                    "(Lnet/minecraft/item/ItemStack;II)V", "dev/s1mp1e/glass/render/GlassCreativeTabs", "tabIcon",
+                    "(Lnet/minecraft/client/renderer/RenderItem;Lnet/minecraft/item/ItemStack;II)V", 0);
+            icons += redirectInvokeVirtual(tab, "renderItemOverlays", "func_175030_a",
+                    "(Lnet/minecraft/client/gui/FontRenderer;Lnet/minecraft/item/ItemStack;II)V",
+                    "dev/s1mp1e/glass/render/GlassCreativeTabs", "tabIconOverlay",
+                    "(Lnet/minecraft/client/renderer/RenderItem;Lnet/minecraft/client/gui/FontRenderer;"
+                            + "Lnet/minecraft/item/ItemStack;II)V", 0);
+        }
+        creativeTabIconPatched = icons == 2;
+        System.out.println("[S1mp1e/ASM] creative tab icons centred in the glass band: " + icons);
         return write(cn);
     }
 
@@ -737,6 +956,9 @@ public final class S1mp1eTransformer implements IClassTransformer {
         }
         advancementsPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiScreenAdvancements (glass window)");
+        spliceTab(cn, ADV_SELECT_MCP, ADV_SELECT_SRG, ADV_SELECT_DESC, "advancements",
+                "(Lnet/minecraft/client/gui/advancements/GuiScreenAdvancements;Lnet/minecraft/advancements/Advancement;)V",
+                Opcodes.ALOAD);
         return write(cn);
     }
 
@@ -824,6 +1046,41 @@ public final class S1mp1eTransformer implements IClassTransformer {
             System.out.println("[S1mp1e/ASM] patched GuiScreen.drawHoveringText");
         } else {
             System.out.println("[S1mp1e/ASM] drawHoveringText not found, tooltips stay vanilla");
+        }
+
+        // Settings shell input gates (group 1). mouseClicked(III)V head:
+        //   if (SettingsShell.mouseClicked(this, mx, my, btn)) return;
+        MethodNode mcm = find(cn, MOUSE_CLICKED_MCP, MOUSE_CLICKED_SRG, MOUSE_CLICKED_DESC);
+        if (mcm != null) {
+            LabelNode cpass = new LabelNode();
+            InsnList cpre = new InsnList();
+            cpre.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this
+            cpre.add(new VarInsnNode(Opcodes.ILOAD, 1));   // mouseX
+            cpre.add(new VarInsnNode(Opcodes.ILOAD, 2));   // mouseY
+            cpre.add(new VarInsnNode(Opcodes.ILOAD, 3));   // mouseButton
+            cpre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SHELL, "mouseClicked", SHELL_CLICK_DESC, false));
+            cpre.add(new JumpInsnNode(Opcodes.IFEQ, cpass));
+            cpre.add(new InsnNode(Opcodes.RETURN));
+            cpre.add(cpass);
+            cpre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+            mcm.instructions.insert(cpre);
+            settingsClickPatched = true;
+            System.out.println("[S1mp1e/ASM] patched GuiScreen.mouseClicked (settings shell gate)");
+        }
+        // handleMouseInput()V head: if (SettingsShell.handleWheel(this)) return;
+        MethodNode hmi = find(cn, HANDLE_MOUSE_MCP, HANDLE_MOUSE_SRG, HANDLE_MOUSE_DESC);
+        if (hmi != null) {
+            LabelNode wpass = new LabelNode();
+            InsnList wpre = new InsnList();
+            wpre.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this
+            wpre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SHELL, "handleWheel", SHELL_WHEEL_DESC, false));
+            wpre.add(new JumpInsnNode(Opcodes.IFEQ, wpass));
+            wpre.add(new InsnNode(Opcodes.RETURN));
+            wpre.add(wpass);
+            wpre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+            hmi.instructions.insert(wpre);
+            settingsWheelPatched = true;
+            System.out.println("[S1mp1e/ASM] patched GuiScreen.handleMouseInput (settings shell wheel gate)");
         }
 
         screenBgPatched = true;
@@ -922,6 +1179,35 @@ public final class S1mp1eTransformer implements IClassTransformer {
             System.out.println("[S1mp1e/ASM] GuiSlot.overlayBackground not found, skipping");
         }
 
+        // Group 6 — smooth wheel scrolling (ListMotionHook): handleMouseInput HEAD before(this) + before every
+        // RETURN after(this); drawScreen HEAD step(this). All plain push/void-static calls: stack-neutral, no branch.
+        MethodNode hmi = find(cn, SLOT_INPUT_MCP, SLOT_INPUT_SRG, "()V");
+        MethodNode dsc = find(cn, SLOT_DRAW_MCP, SLOT_DRAW_SRG, "(IIF)V");
+        if (hmi != null && dsc != null) {
+            int rets = 0;
+            for (AbstractInsnNode insn = hmi.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() != Opcodes.RETURN) continue;
+                InsnList a = new InsnList();
+                a.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                a.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LIST, "after", LIST_DESC, false));
+                hmi.instructions.insertBefore(insn, a);
+                rets++;
+            }
+            InsnList b = new InsnList();
+            b.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            b.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LIST, "before", LIST_DESC, false));
+            hmi.instructions.insert(b);
+            InsnList st = new InsnList();
+            st.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            st.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LIST, "step", LIST_DESC, false));
+            dsc.instructions.insert(st);
+            listMotionPatched = rets > 0;
+            System.out.println("[S1mp1e/ASM] patched GuiSlot smooth wheel (returns: " + rets + ")");
+            done++;
+        } else {
+            System.out.println("[S1mp1e/ASM] GuiSlot handleMouseInput/drawScreen not found, smooth wheel skipped");
+        }
+
         if (done == 0) return basic;
         guiSlotPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiSlot list background (sites: " + done + ")");
@@ -1003,6 +1289,31 @@ public final class S1mp1eTransformer implements IClassTransformer {
         int rects = redirectStaticRect(m, HOOKS_CHAT, "rect", 0);
         chatPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiNewChat.drawChat (rect redirects: " + rects + ")");
+        // Group 7 chat arrival: the FIRST GlStateManager.translate(FFF) (the chat pose) and every per-line
+        // drawStringWithShadow are redirected to GlassChatHud (same args, same return: stack-neutral).
+        int tr = 0, tx = 0;
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (!(insn instanceof MethodInsnNode)) continue;
+            MethodInsnNode c = (MethodInsnNode) insn;
+            if (tr == 0 && c.getOpcode() == Opcodes.INVOKESTATIC && "net/minecraft/client/renderer/GlStateManager".equals(c.owner)
+                    && ("translate".equals(c.name) || "func_179109_b".equals(c.name)) && "(FFF)V".equals(c.desc)) {
+                m.instructions.set(c, new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_CHAT, "translate", "(FFF)V", false));
+                tr++;
+                insn = m.instructions.getFirst();   // restart the walk: the node was replaced
+                continue;
+            }
+            if (c.getOpcode() == Opcodes.INVOKEVIRTUAL && "net/minecraft/client/gui/FontRenderer".equals(c.owner)
+                    && ("drawStringWithShadow".equals(c.name) || "func_175063_a".equals(c.name))
+                    && "(Ljava/lang/String;FFI)I".equals(c.desc)) {
+                MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_CHAT, "text",
+                        "(Lnet/minecraft/client/gui/FontRenderer;Ljava/lang/String;FFI)I", false);
+                m.instructions.set(c, n);
+                insn = n;
+                tx++;
+            }
+        }
+        chatArrivalPatched = tr == 1 && tx >= 1;
+        System.out.println("[S1mp1e/ASM] chat arrival: pose translate " + tr + ", line text " + tx);
         return write(cn);
     }
 
@@ -1021,6 +1332,17 @@ public final class S1mp1eTransformer implements IClassTransformer {
         }
         chatInputPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiChat.drawScreen (input bar)");
+        // Group 7 chat close fade: onGuiClosed()V HEAD -> ChatCloseHook.closed(this) (records the input text).
+        MethodNode closed = find(cn, "onGuiClosed", "func_146281_b", "()V");
+        if (closed != null) {
+            InsnList cc = new InsnList();
+            cc.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            cc.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/ChatCloseHook", "closed",
+                    "(Lnet/minecraft/client/gui/GuiChat;)V", false));
+            closed.instructions.insert(cc);
+            chatClosePatched = true;
+            System.out.println("[S1mp1e/ASM] patched GuiChat.onGuiClosed (chat close fade)");
+        }
         return write(cn);
     }
 
@@ -1150,6 +1472,260 @@ public final class S1mp1eTransformer implements IClassTransformer {
             insn = next;
         }
         return n;
+    }
+
+    // -----------------------------------------------------------------------
+    // Settings shell — splice `if (SettingsShell.render(this,mx,my,pt)) return;` onto
+    // the head of an options screen's drawScreen(IIF)V. this=0, mx=1, my=2, pt=3(float).
+    // -----------------------------------------------------------------------
+    private static byte[] patchSettingsDraw(byte[] basic, String className) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, DRAW_SCREEN_MCP, DRAW_SCREEN_SRG, DRAW_SCREEN_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] " + className + ".drawScreen not found, settings shell skipped");
+            return basic;
+        }
+        LabelNode pass = new LabelNode();
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0));   // this (GuiScreen)
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 1));   // mouseX
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 2));   // mouseY
+        pre.add(new VarInsnNode(Opcodes.FLOAD, 3));   // partialTicks
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SHELL, "render", SHELL_RENDER_DESC, false));
+        pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+        pre.add(new InsnNode(Opcodes.RETURN));
+        pre.add(pass);
+        pre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+        m.instructions.insert(pre);
+        settingsDrawCount++;
+        System.out.println("[S1mp1e/ASM] patched " + className + ".drawScreen (settings shell)");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // No text shadow — FontRenderer.renderString: force dropShadow (slot 5) false
+    // at the method head. `ICONST_0; ISTORE 5` is stack-neutral at the entry and
+    // branch-free, so no stack-map frame is needed.
+    // -----------------------------------------------------------------------
+    private static byte[] patchFontShadow(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, RENDERSTRING_MCP, RENDERSTRING_SRG, RENDERSTRING_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] FontRenderer.renderString not found, text shadow left as-is");
+            return basic;
+        }
+        InsnList pre = new InsnList();
+        pre.add(new InsnNode(Opcodes.ICONST_0));
+        pre.add(new VarInsnNode(Opcodes.ISTORE, 5));   // dropShadow = false
+        m.instructions.insert(pre);
+        textShadowPatched = true;
+        System.out.println("[S1mp1e/ASM] patched FontRenderer.renderString (no text shadow)");
+        return write(cn);
+    }
+
+    /**
+     * Head splice {@code TabSwitchHook.<hook>(this, arg1)} — a plain push/call of a void static at the method entry:
+     * stack-neutral and branch-free, so no frame. {@code argLoad} is the opcode that loads the single argument.
+     */
+    private static boolean spliceTab(ClassNode cn, String mcp, String srg, String desc, String hook, String hookDesc,
+                                     int argLoad) {
+        MethodNode m = find(cn, mcp, srg, desc);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] tab switch " + mcp + " not found, dissolve skipped");
+            return false;
+        }
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        pre.add(new VarInsnNode(argLoad, 1));
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_TAB, hook, hookDesc, false));
+        m.instructions.insert(pre);
+        tabSwitchCount++;
+        System.out.println("[S1mp1e/ASM] patched " + mcp + " (tab-switch dissolve)");
+        return true;
+    }
+
+    // -----------------------------------------------------------------------
+    // Group 7 — tab list fade + health damage trail (HudMotionHook)
+    // -----------------------------------------------------------------------
+    private static final String HOOKS_HUD = "dev/s1mp1e/glass/hook/HudMotionHook";
+
+    private static boolean isCall(AbstractInsnNode insn, int op, String owner, String mcp, String srg, String desc) {
+        if (insn == null || insn.getOpcode() != op || !(insn instanceof MethodInsnNode)) return false;
+        MethodInsnNode c = (MethodInsnNode) insn;
+        return (owner == null || owner.equals(c.owner)) && (mcp.equals(c.name) || srg.equals(c.name)) && desc.equals(c.desc);
+    }
+
+    /** GuiPlayerTabOverlay: renderPlayerlist / drawPing / drawScoreboardValues colour + text take the tab-list alpha. */
+    private static byte[] patchTabMotion(byte[] basic) {
+        try {
+            ClassNode cn = read(basic);
+            int col = 0, txt = 0;
+            String[][] methods = {
+                { "renderPlayerlist", "func_175249_a", TAB_DESC },
+                { "drawPing", "func_175245_a", "(IIILnet/minecraft/client/network/NetworkPlayerInfo;)V" },
+                { "drawScoreboardValues", "func_175247_a",
+                  "(Lnet/minecraft/scoreboard/ScoreObjective;ILjava/lang/String;IILnet/minecraft/client/network/NetworkPlayerInfo;)V" } };
+            for (String[] md : methods) {
+                MethodNode m = find(cn, md[0], md[1], md[2]);
+                if (m == null) continue;
+                for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (isCall(insn, Opcodes.INVOKESTATIC, "net/minecraft/client/renderer/GlStateManager", "color", "func_179131_c", "(FFFF)V")) {
+                        MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "tabColor", "(FFFF)V", false);
+                        m.instructions.set(insn, n); insn = n; col++;
+                    } else if (isCall(insn, Opcodes.INVOKEVIRTUAL, "net/minecraft/client/gui/FontRenderer", "drawStringWithShadow", "func_175063_a", "(Ljava/lang/String;FFI)I")) {
+                        MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "tabText",
+                                "(Lnet/minecraft/client/gui/FontRenderer;Ljava/lang/String;FFI)I", false);
+                        m.instructions.set(insn, n); insn = n; txt++;
+                    }
+                }
+            }
+            System.out.println("[S1mp1e/ASM] tab list fade: colour " + col + ", text " + txt);
+            tabFadePatched = tabFadePatched || (col > 0 && txt > 0);
+            return write(cn);
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e/ASM] tab list fade patch failed: " + t);
+            return basic;
+        }
+    }
+
+    /** GuiIngameForge: renderPlayerList key gate (tab fade) + renderHealth damage trail. */
+    private static byte[] patchIngameMotion(byte[] basic) {
+        try {
+            ClassNode cn = read(basic);
+            // (1) tab list gate: keyBindPlayerList.isKeyDown() -> HudMotionHook.tabGate(KeyBinding)
+            MethodNode rpl = find(cn, "renderPlayerList", "renderPlayerList", "(II)V");
+            int gate = 0;
+            if (rpl != null) {
+                for (AbstractInsnNode insn = rpl.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (isCall(insn, Opcodes.INVOKEVIRTUAL, "net/minecraft/client/settings/KeyBinding", "isKeyDown", "func_151470_d", "()Z")) {
+                        MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "tabGate",
+                                "(Lnet/minecraft/client/settings/KeyBinding;)Z", false);
+                        rpl.instructions.set(insn, n); insn = n; gate++;
+                    }
+                }
+            }
+            tabGatePatched = gate == 1;
+            // (2) health trail
+            MethodNode rh = find(cn, "renderHealth", "renderHealth", "(II)V");
+            boolean trail = false;
+            if (rh != null) {
+                int healthIdx = -1;
+                VarInsnNode highlightStore = null, lastStore = null;
+                for (AbstractInsnNode insn = rh.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (healthIdx < 0 && isCall(insn, Opcodes.INVOKESTATIC, "net/minecraft/util/math/MathHelper", "ceil", "func_76123_f", "(F)I")) {
+                        AbstractInsnNode nx = insn.getNext();
+                        while (nx != null && nx.getOpcode() < 0) nx = nx.getNext();
+                        if (nx != null && nx.getOpcode() == Opcodes.ISTORE) { healthIdx = ((VarInsnNode) nx).var; insn = nx; }
+                        continue;
+                    }
+                    if (healthIdx >= 0 && highlightStore == null && insn.getOpcode() == Opcodes.ISTORE) {
+                        highlightStore = (VarInsnNode) insn;
+                        continue;
+                    }
+                    if (highlightStore != null && lastStore == null && insn.getOpcode() == Opcodes.ISTORE) {
+                        // healthLast: ILOAD health; PUTFIELD I; ALOAD 0; GETFIELD I; ISTORE n
+                        AbstractInsnNode g = prevReal(insn), a0 = prevReal(g), pf = prevReal(a0), il = prevReal(pf);
+                        if (g != null && g.getOpcode() == Opcodes.GETFIELD && a0 != null && a0.getOpcode() == Opcodes.ALOAD
+                                && pf != null && pf.getOpcode() == Opcodes.PUTFIELD && il != null && il.getOpcode() == Opcodes.ILOAD
+                                && ((VarInsnNode) il).var == healthIdx) {
+                            lastStore = (VarInsnNode) insn;
+                        }
+                    }
+                }
+                if (healthIdx >= 0 && highlightStore != null && lastStore != null) {
+                    InsnList h = new InsnList();
+                    h.add(new VarInsnNode(Opcodes.ILOAD, healthIdx));
+                    h.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "heartBlink", "(I)Z", false));
+                    h.add(new VarInsnNode(Opcodes.ISTORE, highlightStore.var));
+                    rh.instructions.insert(highlightStore, h);
+                    InsnList l = new InsnList();
+                    l.add(new VarInsnNode(Opcodes.ILOAD, lastStore.var));
+                    l.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_HUD, "heartTop", "(I)I", false));
+                    l.add(new VarInsnNode(Opcodes.ISTORE, lastStore.var));
+                    rh.instructions.insert(lastStore, l);
+                    int blits = redirectInvokeVirtual(rh, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_HUD, "heartBlit",
+                            "(Lnet/minecraft/client/gui/Gui;IIIIII)V", 0);
+                    trail = blits > 0;
+                    System.out.println("[S1mp1e/ASM] health trail: health=" + healthIdx + " highlight=" + highlightStore.var
+                            + " healthLast=" + lastStore.var + " blits=" + blits);
+                } else {
+                    System.out.println("[S1mp1e/ASM] health trail locals not found (" + healthIdx + "," + highlightStore + "," + lastStore + ")");
+                }
+            }
+            healthTrailPatched = trail;
+            // (3) scoreboard sidebar fade: every getObjectiveInDisplaySlot(I) in renderGameOverlay -> ScoreboardHook.sidebar
+            MethodNode rgo = find(cn, "renderGameOverlay", "func_175180_a", "(F)V");
+            int sb = 0;
+            if (rgo != null) {
+                for (AbstractInsnNode insn = rgo.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (isCall(insn, Opcodes.INVOKEVIRTUAL, "net/minecraft/scoreboard/Scoreboard", "getObjectiveInDisplaySlot",
+                            "func_96539_a", "(I)Lnet/minecraft/scoreboard/ScoreObjective;")) {
+                        MethodInsnNode n = new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/ScoreboardHook",
+                                "sidebar", "(Lnet/minecraft/scoreboard/Scoreboard;I)Lnet/minecraft/scoreboard/ScoreObjective;", false);
+                        rgo.instructions.set(insn, n); insn = n; sb++;
+                    }
+                }
+            }
+            scoreboardLookupPatched = sb > 0;
+            System.out.println("[S1mp1e/ASM] scoreboard sidebar lookups redirected: " + sb);
+            return write(cn);
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e/ASM] in-game motion patch failed: " + t);
+            return basic;
+        }
+    }
+
+    /**
+     * Group 10 loading card: right AFTER the first background call of drawScreen ({@code drawDefaultBackground()V} or
+     * {@code drawBackground(I)V}), call {@code LoadingHook.card(this)} — a void push/call, stack-neutral.
+     */
+    private static byte[] patchLoadingCard(byte[] basic, String name) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, DRAW_SCREEN_MCP, DRAW_SCREEN_SRG, DRAW_SCREEN_DESC);
+        if (m == null) return basic;
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() != Opcodes.INVOKEVIRTUAL) continue;
+            MethodInsnNode c = (MethodInsnNode) insn;
+            boolean bg = (("drawDefaultBackground".equals(c.name) || "func_146276_q_".equals(c.name)) && "()V".equals(c.desc))
+                    || ((DIRT_MCP.equals(c.name) || DIRT_SRG.equals(c.name)) && DIRT_DESC.equals(c.desc));
+            if (!bg) continue;
+            InsnList after = new InsnList();
+            after.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            after.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "dev/s1mp1e/glass/hook/LoadingHook", "card",
+                    "(Lnet/minecraft/client/gui/GuiScreen;)V", false));
+            m.instructions.insert(c, after);
+            loadingCardCount++;
+            System.out.println("[S1mp1e/ASM] patched " + name + ".drawScreen (loading card)");
+            return write(cn);
+        }
+        System.out.println("[S1mp1e/ASM] " + name + ": background call not found, loading card skipped");
+        return basic;
+    }
+
+    /** GuiIngame.renderScoreboard: record bracket + drawRect / drawString through ScoreboardHook (group 7). */
+    private static byte[] patchScoreboardRecord(byte[] basic) {
+        try {
+            ClassNode cn = read(basic);
+            MethodNode m = find(cn, "renderScoreboard", "func_180475_a",
+                    "(Lnet/minecraft/scoreboard/ScoreObjective;Lnet/minecraft/client/gui/ScaledResolution;)V");
+            if (m == null) { System.out.println("[S1mp1e/ASM] GuiIngame.renderScoreboard not found"); return basic; }
+            String H = "dev/s1mp1e/glass/hook/ScoreboardHook";
+            int fills = redirectStaticRect(m, H, "fill", 0);
+            int texts = redirectInvokeVirtual(m, FDRAW_MCP, FDRAW_SRG, FDRAW_DESC, H, "text",
+                    "(Lnet/minecraft/client/gui/FontRenderer;Ljava/lang/String;III)I", 0);
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() == Opcodes.RETURN) {
+                    m.instructions.insertBefore(insn, new MethodInsnNode(Opcodes.INVOKESTATIC, H, "end", "()V", false));
+                }
+            }
+            m.instructions.insert(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "begin", "()V", false));
+            scoreboardRecordPatched = fills > 0 && texts > 0;
+            System.out.println("[S1mp1e/ASM] patched GuiIngame.renderScoreboard (fade: fills " + fills + ", texts " + texts + ")");
+            return write(cn);
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e/ASM] scoreboard fade patch failed: " + t);
+            return basic;
+        }
     }
 
     // ---- helpers ----------------------------------------------------------

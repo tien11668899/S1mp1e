@@ -107,6 +107,17 @@ public final class ButtonHook {
                 return true;
             }
 
+            // Group 9 tap pulse: the whole button (capsule + label) dips around its centre after a press.
+            float pulse = dev.s1mp1e.glass.anim.PressPulse.scale(button);
+            boolean pulsing = pulse < 0.9995f;
+            if (pulsing) {
+                float pcx = button.x + button.width / 2f, pcy = button.y + button.height / 2f;
+                GlStateManager.pushMatrix();
+                GlStateManager.translate(pcx, pcy, 0f);
+                GlStateManager.scale(pulse, pulse, 1f);
+                GlStateManager.translate(-pcx, -pcy, 0f);
+            }
+            try {
             GlassButtonPainter.paint(button, hovered, opacity);
 
             // Sliders (and anything else overriding mouseDragged) do their value
@@ -149,12 +160,17 @@ public final class ButtonHook {
                     }
                     int col = (a << 24) | rgb;
                     GlStateManager.enableBlend();
-                    fr.drawStringWithShadow(s,
-                            button.x + button.width  / 2f
-                                - fr.getStringWidth(s) / 2f,
-                            button.y + (button.height - 8) / 2f,
-                            col);
+                    if (!rollLabel(button, fr, s, col)) {
+                        fr.drawStringWithShadow(s,
+                                button.x + button.width  / 2f
+                                    - fr.getStringWidth(s) / 2f,
+                                button.y + (button.height - 8) / 2f,
+                                col);
+                    }
                 }
+            }
+            } finally {
+                if (pulsing) GlStateManager.popMatrix();
             }
             return true;
         } catch (Throwable t) {
@@ -237,6 +253,31 @@ public final class ButtonHook {
                 GlStateManager.enableBlend();
                 fr.drawStringWithShadow(s, tx, ty, (a << 24) | rgb);
             }
+        }
+    }
+
+    // ---- group 9: cycle-button value roll ---------------------------------
+
+    private static final WeakHashMap<GuiButton, dev.s1mp1e.glass.render.TypingAnim> ROLLS =
+            new WeakHashMap<GuiButton, dev.s1mp1e.glass.render.TypingAnim>();
+
+    /**
+     * A "Name: Value" (cycle) button's label: when the value changes the old value leaves upward and the new one rises
+     * in (TypingAnim's centred-label mode keeps the common prefix — the name — still). Plain labels stay plain.
+     * Returns false to let the caller draw vanilla-style (no colon, or the roll is broken for this button).
+     */
+    private static boolean rollLabel(GuiButton button, FontRenderer fr, String s, int col) {
+        if (s.indexOf(':') < 0 && s.indexOf('\uff1a') < 0) return false;
+        dev.s1mp1e.glass.render.TypingAnim roll = ROLLS.get(button);
+        if (roll == null) { roll = new dev.s1mp1e.glass.render.TypingAnim(); ROLLS.put(button, roll); }
+        if (roll.broken) return false;
+        try {
+            roll.extractLabel(fr, s, s, button.x + button.width / 2, button.y + (button.height - 8) / 2,
+                    button.x + 2, button.x + button.width - 2, col, false);
+            return true;
+        } catch (Throwable t) {
+            roll.broken = true;
+            return false;
         }
     }
 

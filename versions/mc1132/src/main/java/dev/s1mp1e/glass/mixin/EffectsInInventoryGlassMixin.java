@@ -154,7 +154,8 @@ public abstract class EffectsInInventoryGlassMixin {
             int x0 = x, y0 = y;
             int x1 = x + (this.s1mp1e$compact ? COMPACT_W : BOX_W);
             int y1 = y0 + (this.s1mp1e$count - 1) * this.s1mp1e$spacing + h;
-            SceneCapture.grabNow();                                     // R4 — fresh backdrop, boxes not yet drawn
+            // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+            if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
             this.s1mp1e$stripActive =
                     GlassEffects.strip(x0, y0, x1, y1, this.s1mp1e$spacing, this.s1mp1e$count, this.s1mp1e$fade);
             this.s1mp1e$stripDrawn = this.s1mp1e$stripActive;

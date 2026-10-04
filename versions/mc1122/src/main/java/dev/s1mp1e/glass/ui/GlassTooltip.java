@@ -12,6 +12,7 @@ import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraftforge.fml.client.config.GuiUtils;
+import org.lwjgl.opengl.GL11;
 
 /**
  * Liquid-glass tooltip — the 1.12.2 counterpart of LiquidGlass26's
@@ -76,6 +77,59 @@ public final class GlassTooltip {
             GuiUtils.drawHoveringText(lines, mouseX, mouseY, screenW, screenH, -1, font);
             return;
         }
+        if (deferEnabled) {
+            // Design rule R1: the tooltip card is the VERY TOP layer. 1.12.2 draws the toasts AFTER the screen pass,
+            // so a card drawn here would sit under a toast: record it (with the modelview it was asked for under) and
+            // let GlassTopLayer draw it at RenderTickEvent END, above the toasts. The last tooltip of a frame wins.
+            pendingLines = new ArrayList<String>(lines);
+            pendingX = mouseX; pendingY = mouseY; pendingW = screenW; pendingH = screenH; pendingFont = font;
+            try {
+                MV.clear();
+                GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MV);
+                for (int i = 0; i < 16; i++) pendingMv[i] = MV.get(i);
+            } catch (Throwable t) {
+                pendingMv[0] = Float.NaN;
+            }
+            return;
+        }
+        drawNow(lines, mouseX, mouseY, screenW, screenH, font);
+    }
+
+    // ---- deferred (top-layer) path --------------------------------------------------------------------------
+
+    /** Set once {@code GlassTopLayer} is registered: tooltips are drawn at the top of the frame. */
+    public static boolean deferEnabled;
+    private static List<String> pendingLines;
+    private static int pendingX, pendingY, pendingW, pendingH;
+    private static FontRenderer pendingFont;
+    private static final float[] pendingMv = new float[16];
+    private static final java.nio.FloatBuffer MV = org.lwjgl.BufferUtils.createFloatBuffer(16);
+
+    public static boolean hasDeferred() { return pendingLines != null; }
+
+    /** True while the fade-out ghost still has something to show (the top layer must keep running). */
+    public static boolean ghostVisible() { return alpha > 0.02f && sx != null; }
+
+    /** GlassTopLayer: draw the tooltip recorded this frame under the modelview it was recorded with. */
+    public static void drawDeferred() {
+        List<String> lines = pendingLines;
+        if (lines == null) return;
+        pendingLines = null;
+        GlStateManager.pushMatrix();
+        try {
+            if (!Float.isNaN(pendingMv[0])) {
+                MV.clear();
+                MV.put(pendingMv).flip();
+                GL11.glLoadMatrix(MV);
+            }
+            drawNow(lines, pendingX, pendingY, pendingW, pendingH, pendingFont);
+        } finally {
+            GlStateManager.popMatrix();
+        }
+    }
+
+    private static void drawNow(List<String> lines, int mouseX, int mouseY,
+                                int screenW, int screenH, FontRenderer font) {
 
         // GuiUtils.drawHoveringText's own GL prelude: item lighting/rescale off and
         // depth off, so the text draws pure white (not shaded by the item lighting

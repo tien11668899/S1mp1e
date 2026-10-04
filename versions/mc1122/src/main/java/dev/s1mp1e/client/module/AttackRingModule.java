@@ -72,13 +72,13 @@ public final class AttackRingModule extends Module {
     public void onRenderCrosshair(RenderGameOverlayEvent.Pre e) {
         if (!enabled || e.getType() != RenderGameOverlayEvent.ElementType.CROSSHAIRS) return;
         try {
-            draw();
+            draw(e.getPartialTicks());
         } catch (Throwable t) {
             // cosmetic: a failed ring must never take the HUD down
         }
     }
 
-    private void draw() {
+    private void draw(float partialTicks) {
         Minecraft mc = Minecraft.getMinecraft();
         EntityPlayerSP p = mc.player;
         long now = System.nanoTime();
@@ -86,7 +86,11 @@ public final class AttackRingModule extends Module {
         lastNanos = now;
         if (p == null || mc.gameSettings.hideGUI || mc.gameSettings.thirdPersonView != 0) { vis = 0f; return; }
 
-        float strength = p.getCooledAttackStrength(0f);
+        // Read the cooldown WITH the partial tick, not 0f: the attack-strength is a 20 Hz
+        // step function, so sampling it at the tick boundary makes the ring fill in visible
+        // jumps. getCooledAttackStrength(partialTicks) interpolates across the frame (same
+        // fix the newer lines made), so the arc sweeps smoothly.
+        float strength = p.getCooledAttackStrength(partialTicks);
         boolean charging = strength < 0.999f;
         boolean full = !charging && ready.boolValue && p.getCooldownPeriod() > 5.0f
                 && mc.pointedEntity instanceof EntityLivingBase && ((EntityLivingBase) mc.pointedEntity).isEntityAlive();

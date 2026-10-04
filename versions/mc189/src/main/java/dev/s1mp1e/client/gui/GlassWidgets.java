@@ -310,7 +310,11 @@ public final class GlassWidgets {
     }
 
     public static int strW(String s) { return Math.round(GlassFont.width(s)); }
-    public static int fontH() { return Math.round(GlassFont.height()); }
+    /**
+     * 拿來置中的字高（呼叫端用 {@code 中心 − fontH()/2} 放字）。GlassFont 讓墨跡中心落在字頂＋4，
+     * 所以置中用的字高是 8——不是字型的 ascent+descent（那會讓字偏上，使用者回報過）。
+     */
+    public static int fontH() { return 8; }
 
     // ---- misc ----
 

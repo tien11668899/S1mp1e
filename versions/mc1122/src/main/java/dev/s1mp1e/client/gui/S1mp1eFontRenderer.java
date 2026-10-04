@@ -81,7 +81,9 @@ public final class S1mp1eFontRenderer extends FontRenderer {
             return super.drawString(text, x, y, color, shadow);   // super. = vanilla funnel, no recursion
         }
         if ((color & 0xFC000000) == 0) color |= 0xFF000000;        // default to opaque
-        if (shadow) drawRuns(text, x + 1f, y + 1f, color, true);
+        // No drop shadow under any text, anywhere (global rule): drawStringWithShadow lands here with shadow=true and
+        // used to get its own offset dark pass (x+1, y+1) — GlassFont's flag never saw it. The shadow pass is gone;
+        // the return value still advances like vanilla's (shadowed text is 1 px wider in vanilla, unused by callers).
         return (int) drawRuns(text, x, y, color, false);
     }
 

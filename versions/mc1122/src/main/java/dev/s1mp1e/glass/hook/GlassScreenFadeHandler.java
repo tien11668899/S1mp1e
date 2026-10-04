@@ -1,51 +1,34 @@
 package dev.s1mp1e.glass.hook;
 
-import dev.s1mp1e.glass.render.ScreenFade;
+import dev.s1mp1e.glass.render.ScreenDissolve;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.client.event.GuiOpenEvent;
-import net.minecraftforge.client.event.GuiScreenEvent;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Cross-dissolves every GUI screen change — title to Singleplayer, Multiplayer,
- * Options, the in-game menu, and closing back to the world.
- *
- * <p>{@link GuiOpenEvent} only STARTS the dissolve. It fires during tick/input,
- * outside the render pass, so capturing there produced an unfilled (and
- * therefore incomplete) texture, which OpenGL renders as a flat white quad —
- * the white flash. The frame is instead captured at the end of every rendered
- * frame, from inside the render pass, so the snapshot is always last frame's
- * finished image.
- *
- * <p>Draw runs before capture within a frame, and capture pauses for the
- * duration of a dissolve, so the fade is never captured into its own snapshot.
+ * Starts the menu-to-menu cross-dissolve ({@link ScreenDissolve}) on every real screen change. {@link GuiOpenEvent}
+ * is posted at the head of {@code Minecraft.displayGuiScreen}, while {@code currentScreen} is still the OUTGOING screen
+ * and the main framebuffer still holds its last finished frame — exactly what is snapshot. LOWEST priority so the
+ * event's final screen is what we compare against. A resize re-sets the identical instance and must not dissolve.
+ * The snapshot is DRAWN by {@link GlassTopLayer} (the frame's top layer).
  */
 public final class GlassScreenFadeHandler {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onGuiOpen(GuiOpenEvent e) {
+        if (e.isCanceled()) return;
         Minecraft mc = Minecraft.getMinecraft();
-        // Only dissolve on a real change; MC re-sets the same screen on resize
-        // and that must not flash.
         if (mc.currentScreen == e.getGui()) return;
-        ScreenFade.trigger();
-    }
-
-    /** Screen open: dissolve above the screen, then snapshot the finished frame. */
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onScreenPost(GuiScreenEvent.DrawScreenEvent.Post e) {
-        ScreenFade.draw();
-        ScreenFade.captureFrame();
-    }
-
-    /** No screen (back in the world): dissolve above the HUD, then snapshot. */
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onOverlayPost(RenderGameOverlayEvent.Post e) {
-        if (e.getType() != RenderGameOverlayEvent.ElementType.ALL) return;
-        if (Minecraft.getMinecraft().currentScreen != null) return;
-        ScreenFade.draw();
-        ScreenFade.captureFrame();
+        // DEV-only diagnostics (DevShot active): who closes a settings page?
+        if (e.getGui() == null && dev.s1mp1e.client.gui.SettingsShell.handles(mc.currentScreen)
+                && System.getenv("S1MP1E_SHOT") != null) {
+            new Throwable("[S1mp1e][diag] settings page closed").printStackTrace(System.out);
+        }
+        try {
+            ScreenDissolve.onSetScreen(mc.currentScreen, e.getGui());
+        } catch (Throwable t) {
+            // cosmetic: a failed snapshot is just a hard cut
+        }
     }
 }

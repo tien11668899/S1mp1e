@@ -108,7 +108,8 @@ public abstract class CreativeGlassMixin implements GlassGlideHost, dev.s1mp1e.c
             return;
         }
         if (s1mp1e$openFade == null) s1mp1e$openFade = new Fade(0f, PanelGhost.FADE_MS);
-        SceneCapture.grabNow();   // frame-primary panel: fresh backdrop (R4)
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
         if (!s1mp1e$opened) {
             s1mp1e$opened = true;
             s1mp1e$openFade.snap(0f);

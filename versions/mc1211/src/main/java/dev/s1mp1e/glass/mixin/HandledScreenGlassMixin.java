@@ -175,7 +175,8 @@ public abstract class HandledScreenGlassMixin {
         // Backdrop = world + dim, grabbed the instant before any glass draws. grabNow
         // (not the deduped grab) so the panel deterministically owns a world+dim backdrop
         // every frame; the recipe book / tooltip then fold onto it via grab() within 3ms.
-        SceneCapture.grabNow();
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         long now = System.nanoTime();
         if (!s1mp1e$opened) {

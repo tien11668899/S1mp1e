@@ -82,7 +82,10 @@ public final class S1mp1eConfigScreen extends GuiScreen {
                           modKeyRect  = new float[4], menuKeyRect = new float[4];
 
     @Override public boolean doesGuiPauseGame() { return true; }
-    @Override public void initGui() { openFade.snap(0f); openFade.to(1f); rebuildTab(); }
+    @Override public void initGui() {
+        // under a running screen cross-dissolve the page is complete from its first frame (ScreenOpenFade.held)
+        openFade.snap(ScreenOpenFade.held() ? 1f : 0f); openFade.to(1f); rebuildTab();
+    }
 
     private void rebuildTab() {
         modules.clear(); moduleToggles.clear();
@@ -449,6 +452,13 @@ public final class S1mp1eConfigScreen extends GuiScreen {
      *  once openFade reaches 0. ESC and the menu key both route through this. */
     private void requestClose() {
         if (closing) return;
+        // With the cross-dissolve available, switch immediately and let it carry the close (fading ourselves out
+        // first would drop to the bare dimmed world and then snap to the game) — mc1144's onClose rule.
+        if (dev.s1mp1e.glass.render.ScreenDissolve.canDissolve()) {
+            S1mp1eConfig.save();
+            mc.displayGuiScreen(null);
+            return;
+        }
         closing = true;
         openFade.to(0f);
         S1mp1eConfig.save();

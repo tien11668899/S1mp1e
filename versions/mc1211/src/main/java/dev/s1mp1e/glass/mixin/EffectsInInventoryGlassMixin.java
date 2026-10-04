@@ -54,7 +54,8 @@ public abstract class EffectsInInventoryGlassMixin {
         // Flush batched GUI draws (dim, panel, slots, items) so the backdrop contains them, then grab a FRESH copy
         // (grabNow, not the deduped grab) so the strip deterministically refracts the clean world+dim every frame (R4).
         ctx.draw();
-        SceneCapture.grabNow();
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         // fades in with the panel (26.2: opacity = the panel open fade) — the shared 150 ms screen-open ramp
         float fade = dev.s1mp1e.client.gui.ScreenOpenFade.value(

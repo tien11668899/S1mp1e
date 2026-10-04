@@ -88,7 +88,8 @@ public final class ContainerGlass {
         // captures world+dim as the backdrop the panel refracts (post-1.17 deferred-dim regression, see the generic
         // mixin). grabNow (not the deduped grab) -> a fresh backdrop every frame, so no self-sampling / hi-fps flicker.
         context.draw();
-        SceneCapture.grabNow();
+        // 2026-10-04：沿用 HUD 這一幀在 InGameHud.render 開頭拍的「只有世界」背景（26.2 的做法）；在暗色漸層之後重拍會讓整個背包發暗
+        if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
 
         long now = System.nanoTime();
         if (!st.opened) {
