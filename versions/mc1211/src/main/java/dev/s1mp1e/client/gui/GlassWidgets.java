@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.gui;
 
+import dev.s1mp1e.glass.render.GlassCorners;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
@@ -59,6 +60,30 @@ public final class GlassWidgets {
         int argb = (clampByte(alpha * 0.58f) << 24) | 0x1C1C1E;
         if (GlassProgram.roundUsable()) GlassRenderer.roundRect(x0, y0, x1, y1, 14f, argb);
         else fillCheap(ctx, x0, y0, x1, y1, argb, 14f);
+    }
+
+    /**
+     * {@link #panel} with an explicit corner RADIUS (GUI px) and scrim strength — for small glass surfaces that must
+     * carry the shared hotbar corner rather than the fullscreen-panel's fraction (e.g. the Glass name-tag plate). The
+     * refraction + frost come from the same {@code glass()} program as the container panel; the scrim is a whisper of
+     * dark {@code roundRect} laid on top (0 = none). Falls back to a frosted dark fill when the glass program / backdrop
+     * is unavailable.
+     */
+    public static void panel(DrawContext ctx, float x0, float y0, float x1, float y1,
+                             float alpha, float radiusPx, float scrim) {
+        float w = x1 - x0, h = y1 - y0;
+        float r = Math.min(radiusPx, Math.min(w, h) * 0.5f);
+        if (GlassProgram.usable() && SceneCapture.hasBackdrop()) {
+            float corner = GlassCorners.cornerFrac(w, h, radiusPx);
+            GlassRenderer.glass(x0, y0, x1, y1, GlassRenderer.PAD_PANEL,
+                                corner, 0f, alpha, GlassRenderer.FROST_PANEL);
+            if (scrim > 0f && GlassProgram.roundUsable())
+                GlassRenderer.roundRect(x0, y0, x1, y1, r, (clampByte(alpha * scrim) << 24) | 0x1C1C1E);
+            return;
+        }
+        int argb = (clampByte(alpha * 0.58f) << 24) | 0x1C1C1E;
+        if (GlassProgram.roundUsable()) GlassRenderer.roundRect(x0, y0, x1, y1, r, argb);
+        else fillCheap(ctx, x0, y0, x1, y1, argb, r);
     }
 
     /**

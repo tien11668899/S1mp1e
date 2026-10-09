@@ -130,6 +130,10 @@ public final class S1mp1eClient implements ClientModInitializer {
         HudRenderCallback.EVENT.register((ctx, tickCounter) -> {
             MinecraftClient c = MinecraftClient.getInstance();
             if (c.player == null) return;
+            // Glass name-tag plates (NameTags module, Glass mode): the labels were captured + cancelled in world space
+            // this frame; draw the refractive glass + text here, over the world backdrop grabbed at InGameHud HEAD. A
+            // no-op when nothing was captured (Vanilla / Off / module off), so it costs nothing in those modes.
+            try { dev.s1mp1e.client.gui.NameTagGlass.render(ctx); } catch (Throwable ignored) {}
             for (Module m : ModuleManager.all()) {
                 if (!(m instanceof HudRenderer)) continue;
                 float vis = HudFade.visibility(m, m.enabled);

@@ -5,8 +5,12 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.screen.option.VideoOptionsScreen;
+import net.minecraft.block.Blocks;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.texture.NativeImage;
+import net.minecraft.entity.decoration.ArmorStandEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.effect.StatusEffectInstance;
@@ -104,6 +108,9 @@ public final class DevShot {
     // ESSENTIAL mode (S1MP1E_SHOT_MODE=essential): menu-only shots of Essential's UI (title overlay, then its settings
     // screen opened by reflection) for the liquid-glass + zh_TW Essential compat. Never accepts anything.
     private static final int P_ESSENTIAL = 90;
+    // NAMETAGS mode (S1MP1E_SHOT_MODE=nametags): after the world settles, spawn named armor stands against striped
+    // walls and capture one frame per NameTags Background look (Glass / Vanilla / Off). Inert unless that mode is set.
+    private static final int P_NAMETAGS = 100;
 
     private static boolean resolved;      // env vars checked exactly once
     private static String  mode;          // S1MP1E_SHOT_MODE (null => base pipeline only)
@@ -126,6 +133,10 @@ public final class DevShot {
     private static int targetW = SHOT_W, targetH = SHOT_H;
 
     // ---- intro mode state (S1MP1E_SHOT_MODE=intro) ----
+    private static boolean nameTagsMode;   // S1MP1E_SHOT_MODE=nametags: the three Background looks
+    private static int     ntStage;        // name-tag sweep stage index (0..NT_MODES.length)
+    private static final String[] NT_MODES = { "Glass", "Vanilla", "Off" };
+
     private static boolean introMode;     // boot brand-intro capture path active
     private static int     introCount;    // boot overlay frame index
     private static long    introLastMs;   // last boot-overlay capture time (ms spacing)
@@ -164,6 +175,7 @@ public final class DevShot {
                 String m = System.getenv("S1MP1E_SHOT_MODE");
                 mode = (m == null || m.trim().isEmpty()) ? null : m.trim().toLowerCase();
                 introMode = "intro".equals(mode);
+                nameTagsMode = "nametags".equals(mode);
             } catch (Throwable t) {
                 mode = null;
             }
@@ -233,6 +245,7 @@ public final class DevShot {
                 case P_LOOPPREV:           stepLoopPreview(client);              break;
                 case P_AUDIT:              if (DevAudit.step(client)) phase = P_STOP; break;
                 case P_ESSENTIAL:          stepEssential(client);                break;
+                case P_NAMETAGS:           stepNameTags(client);                 break;
                 case P_STOP:               stepStop(client);                     break;
                 default:                   break;
             }
@@ -542,6 +555,7 @@ public final class DevShot {
         }
         if (frames < WORLD_SETTLE) return;
         applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
+        if (nameTagsMode) { ntStage = 0; frames = 0; phase = P_NAMETAGS; return; }
         frames = 0; phase = P_WORLD;
     }
 
@@ -688,6 +702,99 @@ public final class DevShot {
         capture(client, "advancements.png");
         close(client);
         phase = P_STOP;
+    }
+
+    // ---- name-tag sweep (S1MP1E_SHOT_MODE=nametags): the three Background looks (Glass / Vanilla / Off) ----
+
+    /**
+     * Spawns three named armor stands at different distances against high-contrast striped walls once, then captures one
+     * frame per {@code NameTags} Background look, cycling Glass -> Vanilla -> Off via the live setting. Inert unless
+     * {@code S1MP1E_SHOT_MODE=nametags}. Fully guarded.
+     */
+    private static void stepNameTags(MinecraftClient client) {
+        if (client.player == null || client.inGameHud == null) { phase = P_STOP; return; }
+        try { client.getToastManager().clear(); } catch (Throwable ignored) {}
+        try { client.inGameHud.getChatHud().clear(false); } catch (Throwable ignored) {}
+
+        if (ntStage >= NT_MODES.length) { phase = P_STOP; return; }
+
+        if (ntStage == 0 && frames == 0) { nameTagCamera(client); spawnNameTags(client); }  // aim + spawn once
+        nameTagCamera(client);                                 // hold the aim every frame (vanilla may drift it)
+        frames++;
+
+        if (frames == 1) nameTagSetMode(NT_MODES[ntStage]);    // flip the live Background setting
+        int warm = (ntStage == 0 ? 40 : 10);                   // first stage waits for the stands + walls to sync/render
+        if (frames == warm + 6) {
+            capture(client, "nametag-" + NT_MODES[ntStage].toLowerCase(java.util.Locale.ROOT) + ".png");
+        } else if (frames >= warm + 6 + 3) {
+            ntStage++; frames = 0;
+        }
+    }
+
+    /** Point the camera at the terrain (yaw 0 = +Z, a gentle downward pitch) so the name tags sit against ground, not
+     *  sky — the only way to see the Glass mode actually refract the world behind each tag. */
+    private static void nameTagCamera(MinecraftClient client) {
+        try {
+            ClientPlayerEntity cp = client.player;
+            if (cp != null) {
+                cp.setYaw(0f);  cp.prevYaw = 0f;  cp.setHeadYaw(0f);
+                cp.setPitch(14f); cp.prevPitch = 14f;
+            }
+        } catch (Throwable t) { skip("nametag camera", t); }
+    }
+
+    /** Spawn three named armor stands in front of the camera at different distances + lateral offsets, each against a
+     *  5-wide/7-tall vertical obsidian/snow striped wall, so the Glass mode visibly refracts sharp vertical edges. */
+    private static void spawnNameTags(MinecraftClient client) {
+        try {
+            MinecraftServer server = client.getServer();
+            if (server == null) return;
+            if (server.getPlayerManager().getPlayerList().isEmpty()) return;
+            ServerPlayerEntity sp = server.getPlayerManager().getPlayerList().get(0);
+            ServerWorld level = sp.getServerWorld();
+            double bx = sp.getX(), by = sp.getEyeY() - 1.85, bz = sp.getZ();   // feet height; name floats ~eye level
+            int floorY = (int) Math.floor(by);
+            spawnNameTag(level, bx - 1.3, by, bz + 3.2,  "S1mp1e", floorY);
+            spawnNameTag(level, bx + 0.9, by, bz + 6.2,  "Near",   floorY);
+            spawnNameTag(level, bx - 0.6, by, bz + 11.0, "Far",    floorY);
+        } catch (Throwable t) {
+            skip("hud name tag spawn", t);
+        }
+    }
+
+    private static void spawnNameTag(ServerWorld level, double x, double y, double z, String name, int floorY) {
+        try {
+            ArmorStandEntity stand = new ArmorStandEntity(level, x, y, z);
+            stand.setCustomName(Text.literal(name));
+            stand.setCustomNameVisible(true);
+            stand.setNoGravity(true);
+            level.spawnEntity(stand);
+            nameTagWall(level, (int) Math.floor(x), floorY, (int) Math.floor(z) + 2);
+        } catch (Throwable t) { skip("name tag spawn " + name, t); }
+    }
+
+    /** A 5-wide, 7-tall wall of vertical obsidian / snow stripes behind a name tag: the plate is short but wide, so
+     *  vertical stripes put several sharp edges behind it — the glass visibly bends those straight edges (proof of real
+     *  refraction; a uniform sky would hide the distortion). */
+    private static void nameTagWall(ServerWorld level, int cx, int floorY, int cz) {
+        try {
+            for (int dx = -2; dx <= 2; dx++) {
+                var state = (dx % 2 == 0 ? Blocks.SNOW_BLOCK : Blocks.OBSIDIAN).getDefaultState();
+                for (int dy = 0; dy <= 7; dy++) {
+                    level.setBlockState(new BlockPos(cx + dx, floorY + dy, cz), state);
+                }
+            }
+        } catch (Throwable t) { skip("name tag wall", t); }
+    }
+
+    private static void nameTagSetMode(String m) {
+        try {
+            dev.s1mp1e.client.Module mod = dev.s1mp1e.client.ModuleManager.byName("NameTags");
+            if (mod != null) {
+                dev.s1mp1e.client.Setting s = mod.setting("Background");
+                if (s != null) s.setMode(m);
+            }
+        } catch (Throwable t) { skip("nametag set mode", t); }
     }
 
     private static void stepStop(MinecraftClient client) {

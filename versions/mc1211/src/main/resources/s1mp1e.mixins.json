@@ -76,6 +76,7 @@
     "ToastGlassMixin",
     "ActionBarGlassMixin",
     "NameTagGlassMixin",
+    "NameTagProjectionMixin",
     "BlockOutlineMixin",
     "RenderPhaseLineWidthMixin",
     "SplashOverlayIntroMixin",

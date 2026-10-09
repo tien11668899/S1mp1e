@@ -113,6 +113,8 @@ public final class ModuleManager {
         add("HitMarkerModule",     safeHitMarker());
         // particles: one switch for every particle (reduced share or none)
         add("ParticlesModule",     safeParticles());
+        // name-tag background look (Glass / Vanilla / Off), ported from 26.2, ON by default (frosted plate).
+        add("NameTagModule",       safeNameTag());
 
         S1mp1eConfig.load();
 
@@ -145,6 +147,10 @@ public final class ModuleManager {
 
     private static Module safeParticles() {
         try { return new dev.s1mp1e.client.module.ParticlesModule(); } catch (Throwable t) { return fail("ParticlesModule", t); }
+    }
+
+    private static Module safeNameTag() {
+        try { return new dev.s1mp1e.client.module.NameTagModule(); } catch (Throwable t) { return fail("NameTagModule", t); }
     }
 
     private static Module safeLowFire() {

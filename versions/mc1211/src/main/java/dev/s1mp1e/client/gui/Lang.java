@@ -40,6 +40,7 @@ public final class Lang {
         MODULE.put("Particles", "粒子");
         MODULE.put("AttackRing", "攻擊冷卻玻璃環");
         MODULE.put("HitMarker", "命中標記");
+        MODULE.put("NameTags", "名牌");
 
         SETTING.put("X", "X 位置");
         // LowFire
@@ -140,6 +141,10 @@ public final class Lang {
         MODE.put("Same", "同上");
         MODE.put("Reduced", "減少");
         MODE.put("None", "無");
+        // NameTags Background look
+        MODE.put("Glass", "液態玻璃");
+        MODE.put("Vanilla", "原版");
+        MODE.put("Off", "關閉");
     }
 
     public static String module(String id)  { String v = MODULE.get(id);  return v != null ? v : id; }
