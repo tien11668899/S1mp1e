@@ -379,6 +379,8 @@ pub struct LaunchPlan {
     pub java_exe: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    /// 主類別名稱（args 裡它之前的是 JVM 參數）
+    pub main_class: String,
 }
 
 /// Per-version instance directory. Each MC version launches with its OWN gameDir
@@ -647,7 +649,7 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
         args.push(settings.res_height.to_string());
     }
 
-    Ok(LaunchPlan { java_exe, args, cwd: gamedir })
+    Ok(LaunchPlan { java_exe, args, cwd: gamedir, main_class: merged.main_class.clone() })
 }
 
 /// Spawn the JVM, streaming stdout+stderr lines via `on_line`, and return the

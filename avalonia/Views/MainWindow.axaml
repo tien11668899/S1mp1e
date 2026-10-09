@@ -452,19 +452,12 @@
                          acrylic re-composites during dropdown open/close). -->
                     <Panel Grid.Row="2" ClipToBounds="True">
                         <Canvas x:Name="PillLayer" ClipToBounds="True">
-                            <!-- Hover highlight (under the selection pill): a subtle grey box
-                                 that fades in on the hovered nav row and slides smoothly between
-                                 rows while the pointer stays in the bar — Minecraft-inventory feel.
-                                 Wired in code (WireSidebarHover). -->
-                            <Border x:Name="HoverPill" Width="212" Height="40" CornerRadius="10"
-                                    Canvas.Left="0" Canvas.Top="0" Opacity="0" IsHitTestVisible="False"
-                                    Background="{DynamicResource MenuHover}"/>
                             <!-- Apple Liquid Glass: EDGE-ONLY optics. No body tint, no body
                                  blur. The visible effect is a rim refraction band (that bends
                                  what's underneath, giving the convex-lens look) plus a rim
                                  highlight — the interior stays clear and colourless. -->
                             <!-- Restore the pre-7934894 gentle CIRCLE-MAP lens. The regression commit both excluded the
-                                 NavRows (→ nothing to refract → opaque box; that exclusion is now removed above) AND swapped
+                                 NavRows (re-applied since — see the NavRows note below) AND swapped
                                  this pill onto the strong Snell edge band (thickness 13.15, offset 55) which, sitting directly
                                  over the selected row's own label, scrambled that label into a rainbow smear instead of a clean
                                  rim. A gentle circle-map refraction (height 7 / amount 14, no Snell) bends only a thin rim of the
@@ -484,13 +477,13 @@
                                                    ShadowColor="#26000000" ShadowOpacity="1"/>
                         </Canvas>
 
-                        <!-- NavRows are NOT excluded from the pill's backdrop capture: the sidebar SelPill is a real
-                             refractive lens and its ONLY refraction content is the selected row's icon + label sitting at
-                             its location (behind the acrylic, which the capture renders flat). Excluding them (the 7934894
-                             "text not drawn twice" change) left the lens with nothing to bend, so it read as an opaque box.
-                             The pill sits BEHIND the rows (PillLayer is z-below NavRows), so the crisp label still renders
-                             on top; only the rim refraction of that same content shows through — the iOS liquid-glass look. -->
-                        <StackPanel x:Name="NavRows" Spacing="4">
+                        <!-- NavRows ARE excluded from the pill's backdrop capture (2026-10-08, user: the bar composited the
+                             row's icon + label into itself — a misaligned ghost copy of 「帳號」 and its icon showed through the
+                             lens). The pill now refracts only the sidebar material behind it; the icons and labels are drawn
+                             exactly once, crisp, ON TOP of the glass. Earlier history: excluding them made the lens read as
+                             an opaque box, so it was un-excluded — the ghosting that caused is the worse defect. -->
+                        <StackPanel x:Name="NavRows" Spacing="4"
+                                    lg:LiquidGlassBackdrop.IsExcludedFromCapture="True">
                             <!-- 開始遊戲 -->
                             <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="0">
@@ -540,6 +533,16 @@
                                 </StackPanel>
                             </Border>
                         </StackPanel>
+                        <!-- Hover highlight — TOP layer (above the rows' icons + labels and above the selection pill), a
+                             subtle translucent grey box that fades in on the hovered row and slides between rows while the
+                             pointer stays in the bar. Never hit-tested, and excluded from the pill's backdrop capture so the
+                             glass never refracts it. Wired in code (WireSidebarHover). -->
+                        <Canvas x:Name="HoverLayer" ClipToBounds="True" IsHitTestVisible="False"
+                                lg:LiquidGlassBackdrop.IsExcludedFromCapture="True">
+                            <Border x:Name="HoverPill" Width="212" Height="40" CornerRadius="10"
+                                    Canvas.Left="0" Canvas.Top="0" Opacity="0" IsHitTestVisible="False"
+                                    Background="{DynamicResource MenuHover}"/>
+                        </Canvas>
                     </Panel>
 
                     <!-- Account area at the sidebar bottom. TWO overlaid views:
@@ -720,7 +723,7 @@
                                  ModSortBox hides in browse mode (local mods don't sort by heat).
                                  The row's Margin.Top animates smaller in browse mode so the
                                  search box "moves up" per the design brief. -->
-                            <Grid x:Name="ModSearchRow" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                            <Grid x:Name="ModSearchRow" ColumnDefinitions="*,Auto,Auto" Margin="0,4,0,0">
                                 <Border Grid.Column="0" HorizontalAlignment="Left"
                                         Width="360" Height="32" CornerRadius="10"
                                         Background="{DynamicResource FieldBg}">
@@ -736,7 +739,11 @@
                                                  TextChanged="OnModSearchTextChanged"/>
                                     </Grid>
                                 </Border>
-                                <ctl:GlassSelect Grid.Column="1" x:Name="ModSortBox"
+                                <ctl:GlassSelect Grid.Column="1" x:Name="ModTypeBox"
+                                                 Options="模組|資源包|光影" SelectedIndex="0"
+                                                 VerticalAlignment="Center" FontSize="13" Margin="0,0,8,0"
+                                                 SelectionChanged="OnModTypeChanged"/>
+                                <ctl:GlassSelect Grid.Column="2" x:Name="ModSortBox"
                                                  Options="熱度|日期|相關性" SelectedIndex="0"
                                                  VerticalAlignment="Center" FontSize="13"
                                                  SelectionChanged="OnModSortChanged"/>
@@ -763,6 +770,12 @@
                                 </StackPanel>
                                 <StackPanel x:Name="LocalBrowsePane" IsVisible="False" Opacity="0">
                                     <TextBlock x:Name="LocalModStatus" IsVisible="False"/>
+                                    <!-- Browse filter chips (全部 / 有更新 / 已停用 / 手動 / 不會載入), built in code (BuildLocalFilterChips). -->
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                        <StackPanel x:Name="LocalFilterChips" Orientation="Horizontal" Spacing="8"/>
+                                        <!-- Right-side actions (sort / manage / open folder / export-import), built in code (BuildLocalToolbar). -->
+                                        <StackPanel x:Name="LocalToolbar" Grid.Column="1" Orientation="Horizontal" Spacing="8"/>
+                                    </Grid>
                                     <ItemsControl x:Name="LocalModList"/>
                                 </StackPanel>
                             </Panel>
@@ -860,6 +873,12 @@
                                         <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/sparkles.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="效能優化" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="自動載入經實測的優化模組與 Java 設定，不改畫質" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
                                         <ctl:LiquidToggle x:Name="PerfToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnPerfToggleChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/circle.righthalf.fill.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="模組更新含測試版" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="檢查模組更新時也納入 beta / alpha，而不只是正式版" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:LiquidToggle x:Name="PrereleaseToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnPrereleaseToggleChanged"/>
                                     </Grid>
                                 </StackPanel>
                             </Border>

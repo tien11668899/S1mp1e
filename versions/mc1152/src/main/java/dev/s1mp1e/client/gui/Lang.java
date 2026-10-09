@@ -89,6 +89,8 @@ public final class Lang {
         SETTING.put("Sheen colour", "掃光顏色");
         SETTING.put("Glow", "散發微光");
         SETTING.put("Hide vanilla effects", "隱藏原版效果");
+        SETTING.put("Show time", "顯示時間");
+        SETTING.put("Colour fill", "顏色填滿");
         // (H1) Block Outline settings
         SETTING.put("Line width", "線寬");
         SETTING.put("Chroma", "彩虹色");

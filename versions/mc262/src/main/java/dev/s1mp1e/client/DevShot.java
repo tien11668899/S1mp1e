@@ -37,8 +37,10 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.npc.ClientSideMerchant;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -139,7 +141,8 @@ public final class DevShot {
                              P_SCREENS = 17, P_VERIFY = 18, P_HUD = 19, P_MODULES = 20,
                              P_FLICKER = 21, P_TABS = 22, P_SCROLL = 23, P_CLICKS = 24, P_GLIDE = 25,
                              P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28, P_TRANS = 29, P_INGAME = 30, P_LISTS = 31,
-                             P_LOOPPREV = 32;
+                             P_LOOPPREV = 32, P_AUDIT = 34, P_GLASSHUD = 35, P_ESSENTIAL = 36,
+                             P_NAMETAGS = 37;
 
     /** Per-screen shot timing for the {@code screens} sweep. */
     private static final int SCREEN_SETTLE = 45;   // frames rendered before the capture request
@@ -149,6 +152,8 @@ public final class DevShot {
     private static File    outDir;        // null => shot pipeline inert
     /** When set (env {@code S1MP1E_SHOT_MODE=screens}) the run skips the default sweep and shoots each new glass screen. */
     private static boolean screensMode;
+    private static boolean auditMode;
+    private static boolean glassHudMode;
     /** When set (env {@code S1MP1E_SHOT_MODE=verify}) the run does the independent verifier sweep: consecutive frames of a
      *  full-screen glass surface (flicker/self-ghost check) plus a forced creative item-tab capture. Inert otherwise. */
     private static boolean verifyMode;
@@ -200,6 +205,9 @@ public final class DevShot {
      *  narrow GUI-scale survival inventory where the COMPACT icon-only layout shows plus its top-layer hover tooltip
      *  (armed through {@link GuiLayerProbe}). Inert otherwise. */
     private static boolean effectsMode;
+    private static boolean nameTagsMode;
+    private static int ntStage;
+    private static final String[] NT_MODES = { "Glass", "Vanilla", "Off" };
     /** When set (env {@code S1MP1E_SHOT_MODE=trans}) the run stays in the main menu and walks menu-to-menu screen
      *  switches, capturing the last frame before each switch and every frame of the first 12 after it. */
     private static boolean transMode;
@@ -213,6 +221,9 @@ public final class DevShot {
     /** {@code S1MP1E_SHOT_MODE=lists}: menu-only sweep of the selection-list animations (smooth wheel scroll, gliding
      *  selection box) on the language list; logs the list's scroll amount at every capture. */
     private static boolean listsMode;
+    /** {@code S1MP1E_SHOT_MODE=essential}: menu-only shots of Essential's UI (title-screen overlay / first-run modal, then
+     *  its settings screen opened by reflection), for the liquid-glass + zh_TW Essential compat. Never accepts anything. */
+    private static boolean essentialMode;
     /** {@code S1MP1E_SHOT_MODE=intro}: capture the real boot {@code LoadingOverlay} frame by frame (the brand intro,
      *  held up ~3.9 s by {@link com.seagull.liquidglass.client.mixin.LoadingOverlayIntroMixin}) into {@code intro_NNN.png},
      *  time-sampled ~33 fps, then quit. Lets the ported intro shader be compared against the prototype. */
@@ -269,6 +280,8 @@ public final class DevShot {
                     startMs = System.currentTimeMillis();
                     String mode = System.getenv("S1MP1E_SHOT_MODE");
                     screensMode = mode != null && mode.trim().equalsIgnoreCase("screens");
+                    auditMode = mode != null && mode.trim().equalsIgnoreCase("audit");
+                    glassHudMode = mode != null && mode.trim().equalsIgnoreCase("glasshud");
                     verifyMode = mode != null && mode.trim().equalsIgnoreCase("verify");
                     hudMode = mode != null && mode.trim().equalsIgnoreCase("hud");
                     modulesMode = mode != null && mode.trim().equalsIgnoreCase("modules");
@@ -279,10 +292,12 @@ public final class DevShot {
                     glideMode = mode != null && mode.trim().equalsIgnoreCase("glide");
                     tooltipsMode = mode != null && mode.trim().equalsIgnoreCase("tooltips");
                     effectsMode = mode != null && mode.trim().equalsIgnoreCase("effects");
+                    nameTagsMode = mode != null && mode.trim().equalsIgnoreCase("nametags");
                     combatMode = mode != null && mode.trim().equalsIgnoreCase("combat");
                     transMode = mode != null && mode.trim().equalsIgnoreCase("trans");
                     ingameMode = mode != null && mode.trim().equalsIgnoreCase("ingame");
                     listsMode = mode != null && mode.trim().equalsIgnoreCase("lists");
+                    essentialMode = mode != null && mode.trim().equalsIgnoreCase("essential");
                     introMode = mode != null && mode.trim().equalsIgnoreCase("intro");
                     try {   // S1MP1E_SHOT_INGAME_FROM=<stage>: start the ingame sweep at that stage (e.g. 7 = typing only)
                         String from = System.getenv("S1MP1E_SHOT_INGAME_FROM");
@@ -362,6 +377,8 @@ public final class DevShot {
                 case P_WAIT_OPTIONS: stepWaitOptions(client);              break;
                 case P_OPTIONS:      stepOptions(client);                  break;
                 case P_SCREENS:      stepScreens(client);                  break;
+                case P_GLASSHUD:     stepGlassHud(client);                 break;
+                case P_AUDIT:        if (DevAudit.step(client)) { frames = 0; phase = P_DRAIN; } break;
                 case P_VERIFY:       stepVerify(client);                   break;
                 case P_HUD:          stepHud(client);                      break;
                 case P_MODULES:      stepModules(client);                  break;
@@ -372,10 +389,12 @@ public final class DevShot {
                 case P_GLIDE:        stepGlide(client);                    break;
                 case P_TOOLTIPS:     stepTooltips(client);                 break;
                 case P_EFFECTS:      stepEffects(client);                  break;
+                case P_NAMETAGS:     stepNameTags(client);                 break;
                 case P_COMBAT:       stepCombat(client);                   break;
                 case P_TRANS:        stepTrans(client);                    break;
                 case P_INGAME:       stepIngame(client);                   break;
                 case P_LISTS:        stepLists(client);                    break;
+                case P_ESSENTIAL:    stepEssential(client);                break;
                 case P_LOOPPREV:     stepLoopPreview(client);              break;
                 case P_DRAIN:        stepDrain(client);                    break;
                 case P_STOP:         stepStop(client);                     break;
@@ -533,7 +552,8 @@ public final class DevShot {
             }
             if (transMode) { frames = 0; transStep = 0; phase = P_TRANS; return; }   // menus only, no world
             if (listsMode) { frames = 0; phase = P_LISTS; return; }
-            if (screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode) {
+            if (essentialMode) { frames = 0; phase = P_ESSENTIAL; return; }   // menus only, no world
+            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode) {
                 // Screens / HUD / modules / flicker / tabs / scroll / clicks / effects sweep: skip the title/config baseline shots and head straight for the world.
                 if (createWorld(client)) {
                     frames = 0; phase = P_WAIT_WORLD;
@@ -607,10 +627,10 @@ public final class DevShot {
             return;
         }
         applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
-        frames = 0; phase = transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
+        frames = 0; phase = glassHudMode ? P_GLASSHUD : auditMode ? P_AUDIT : transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
                 : modulesMode ? P_MODULES : flickerMode ? P_FLICKER : tabsMode ? P_TABS
                 : scrollMode ? P_SCROLL : clicksMode ? P_CLICKS : glideMode ? P_GLIDE : tooltipsMode ? P_TOOLTIPS
-                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : P_WORLD;
+                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : P_WORLD;
     }
 
     private static void stepWorld(Minecraft client) {
@@ -928,6 +948,7 @@ public final class DevShot {
             // Potion HUD rows (zh_tw names: 力量 Strength sorts before 加速 Speed): a new row fades in, the others glide.
             case 9: {   // Speed alone -> row 0 fades in
                 if (frames == 0) {
+                    try { client.gui.hud.getChat().clearMessages(false); } catch (Throwable ignored) {}
                     hudCmd(client, "effect clear @p");
                     hudCmd(client, "effect give @p minecraft:speed 120 0 true");
                 }
@@ -1039,7 +1060,24 @@ public final class DevShot {
         }
     }
 
-    /** Spawn a named armor stand a couple blocks in front of the camera so its glass name-tag plate is visible. */
+    /** Point the camera at the terrain (yaw 0 = +Z, a gentle downward pitch) so the name tags sit against ground, not
+     *  sky — the ONLY way to see the Glass mode actually refract the world behind each tag. */
+    private static void nameTagCamera(Minecraft client) {
+        try {
+            LocalPlayer cp = client.player;
+            if (cp != null) {
+                cp.setYRot(0f);  cp.yRotO = 0f;  cp.setYHeadRot(0f);
+                cp.setXRot(14f); cp.xRotO = 14f;
+            }
+        } catch (Throwable t) { skip("nametag camera", t); }
+    }
+
+    /**
+     * Spawn several named armor stands in front of the camera (which {@link #nameTagCamera} has aimed at +Z, pitched
+     * down a little) at different DISTANCES and lateral offsets, so the name-tag sweep can verify (a) the glass plate
+     * sits precisely on each tag at any projected size, (b) the terrain behind refracts, and (c) nearer tags layer over
+     * farther ones (depth sort). Called once at the start of the sweep.
+     */
     private static void hudNameTag(Minecraft client) {
         try {
             MinecraftServer server = client.getSingleplayerServer();
@@ -1048,17 +1086,79 @@ public final class DevShot {
             ServerPlayer sp = players.isEmpty() ? null : players.get(0);
             if (sp == null) return;
             ServerLevel level = sp.level();
-            Vec3 look = sp.getLookAngle();
-            double dist = 2.8;
-            ArmorStand stand = new ArmorStand(level,
-                    sp.getX() + look.x * dist, sp.getEyeY() - 1.85, sp.getZ() + look.z * dist);
-            stand.setCustomName(Component.literal("S1mp1e"));
-            stand.setCustomNameVisible(true);
-            stand.setNoGravity(true);
-            level.addFreshEntity(stand);
+            double bx = sp.getX(), by = sp.getEyeY() - 1.85, bz = sp.getZ();   // feet height; name floats ~eye level
+            int floorY = (int) Math.floor(by);
+            // (lateral X, forward +Z distance, name) — spread so they do not occlude and span near..far. Each gets a
+            // high-contrast striped wall two blocks behind it, tall enough to sit behind the floating name — so the
+            // Glass mode visibly REFRACTS a patterned backdrop (uniform sky would hide the distortion).
+            spawnNameTag(level, bx - 1.3, by, bz + 3.2,  "S1mp1e", floorY);
+            spawnNameTag(level, bx + 0.9, by, bz + 6.2,  "Near",   floorY);
+            spawnNameTag(level, bx - 0.6, by, bz + 11.0, "Far",    floorY);
         } catch (Throwable t) {
             skip("hud name tag spawn", t);
         }
+    }
+
+    private static void spawnNameTag(ServerLevel level, double x, double y, double z, String name, int floorY) {
+        try {
+            ArmorStand stand = new ArmorStand(level, x, y, z);
+            stand.setCustomName(Component.literal(name));
+            stand.setCustomNameVisible(true);
+            stand.setNoGravity(true);
+            level.addFreshEntity(stand);
+            nameTagWall(level, (int) Math.floor(x), floorY, (int) Math.floor(z) + 2);
+        } catch (Throwable t) { skip("name tag spawn " + name, t); }
+    }
+
+    /** A 5-wide, 7-tall wall of VERTICAL OBSIDIAN / SNOW_BLOCK stripes behind a name tag. The plate is ~0.25 blocks tall
+     *  (shorter than any 1-block horizontal band) but ~2 blocks wide, so vertical stripes put several sharp edges BEHIND
+     *  the plate — the glass then visibly bends those straight edges, which is the clearest proof of real refraction. */
+    private static void nameTagWall(ServerLevel level, int cx, int floorY, int cz) {
+        try {
+            for (int dx = -2; dx <= 2; dx++) {
+                var state = (dx % 2 == 0 ? Blocks.SNOW_BLOCK : Blocks.OBSIDIAN).defaultBlockState();
+                for (int dy = 0; dy <= 7; dy++) {
+                    level.setBlockAndUpdate(new BlockPos(cx + dx, floorY + dy, cz), state);
+                }
+            }
+        } catch (Throwable t) { skip("name tag wall", t); }
+    }
+
+    // ---- name-tag sweep (S1MP1E_SHOT_MODE=nametags): the three Background looks (Glass/Vanilla/Off) ----
+    /**
+     * Spawns the named "S1mp1e" armor stand in front of the player once, then captures one frame per
+     * {@code NameTags} Background mode, cycling Glass -> Vanilla -> Off via the live setting. Inert unless
+     * {@code S1MP1E_SHOT_MODE=nametags}. Fully guarded.
+     */
+    private static void stepNameTags(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        try { client.gui.hud.getChat().clearMessages(false); } catch (Throwable ignored) {}
+
+        if (ntStage >= NT_MODES.length) { frames = 0; phase = P_DRAIN; return; }
+
+        if (ntStage == 0 && frames == 0) { nameTagCamera(client); hudNameTag(client); }   // aim + spawn once
+        nameTagCamera(client);                                 // hold the aim every frame (vanilla may drift it)
+        frames++;
+
+        if (frames == 1) nameTagSetMode(NT_MODES[ntStage]);    // flip the live Background setting
+        int warm = (ntStage == 0 ? 24 : 6);                    // first stage waits for the stands to sync/render
+        if (frames == warm + 6) {
+            capture(client, "nametag-" + NT_MODES[ntStage].toLowerCase(java.util.Locale.ROOT) + ".png");
+        } else if (frames >= warm + 6 + 3) {
+            ntStage++; frames = 0;
+        }
+    }
+
+    private static void nameTagSetMode(String m) {
+        try {
+            dev.s1mp1e.client.Module mod = dev.s1mp1e.client.ModuleManager.byName("NameTags");
+            if (mod != null) {
+                dev.s1mp1e.client.Setting s = mod.setting("Background");
+                if (s != null) s.setMode(m);
+            }
+        } catch (Throwable t) { skip("nametag set mode", t); }
     }
 
     // ---- flicker sweep (S1MP1E_SHOT_MODE=flicker): consecutive-frame self-ghost check ---------------
@@ -1980,25 +2080,168 @@ public final class DevShot {
         } catch (Throwable t) { skip("ingame cmd: " + cmd, t); }
     }
 
+    // ---- glass HUD extras: XP bar, F3 cards ----
+    private static void stepGlassHud(Minecraft client) {
+        if (client.player == null) { frames = 0; phase = P_DRAIN; return; }
+        frames++;
+        if (frames == 1) {
+            try {
+                var sp = client.getSingleplayerServer().getPlayerList().getPlayers().get(0);
+                sp.giveExperienceLevels(7);
+                sp.giveExperiencePoints(40);
+            } catch (Throwable t) { skip("glasshud xp", t); }
+        }
+        if (frames == 40) capture(client, "gh-xp.png");
+        if (frames == 42) { try { client.debugEntries.setOverlayVisible(true); } catch (Throwable t) { skip("glasshud f3 on", t); } }
+        if (frames == 80) capture(client, "gh-f3.png");
+        if (frames == 82) { try { client.debugEntries.setOverlayVisible(false); } catch (Throwable t) { skip("glasshud f3 off", t); } }
+        if (frames >= 90) { frames = 0; phase = P_DRAIN; }
+    }
+
     // ---- lists sweep --------------------------------------------------------------------------------------------
     private static net.minecraft.client.gui.components.AbstractSelectionList<?> lsList;
+    private static net.minecraft.client.gui.components.AbstractScrollArea lsArea;
+
+    /** First scrollable scroll area anywhere under these children (depth-first). */
+    private static net.minecraft.client.gui.components.AbstractScrollArea lsFindArea(java.util.List<? extends net.minecraft.client.gui.components.events.GuiEventListener> ch) {
+        for (Object c : ch) {
+            if (c instanceof net.minecraft.client.gui.components.AbstractScrollArea a && a.maxScrollAmount() > 0) return a;
+            if (c instanceof net.minecraft.client.gui.components.events.ContainerEventHandler ce) {
+                net.minecraft.client.gui.components.AbstractScrollArea r = lsFindArea(ce.children());
+                if (r != null) return r;
+            }
+        }
+        return null;
+    }
+
+    // ---- essential sweep: Essential's own UI (compat glass + zh_TW) ----
+    private static void stepEssential(Minecraft client) {
+        frames++;
+        if (frames == 90) { esNote(client, "title"); capture(client, "ess-title.png"); return; }
+        if (frames == 91) {
+            try {
+                Class<?> c = Class.forName("gg.essential.config.McEssentialConfig");
+                Object inst = c.getField("INSTANCE").get(null);
+                java.lang.reflect.Method m = c.getMethod("gui$default", c, String.class, int.class, Object.class);
+                // a long category ("Quality of Life") so the scrolled shot shows how glass clips under the header
+                open(client, (Screen) m.invoke(null, inst, "Quality of Life", 0, null), "open Essential settings");
+            } catch (Throwable t) {
+                skip("essential: open settings", t);
+                frames = 329;   // no Essential: go straight to the Mod Menu shot
+            }
+            return;
+        }
+        if (frames == 150) { esNote(client, "settings"); capture(client, "ess-settings.png"); return; }
+        if (frames >= 200 && frames <= 215 && frames % 5 == 0) { esScroll(client, 0.72, -5); return; }   // scrolled list: glass must clip under the header
+        if (frames == 260) { esNote(client, "settings-late"); capture(client, "ess-settings2.png"); return; }
+        if (frames == 262) { close(client); return; }
+        if (frames == 330) { esNote(client, "after-close"); capture(client, "ess-after.png"); return; }
+        if (frames == 332) {   // Essential's "Select world to host" modal over the title screen (no ToS needed to open it)
+            try {
+                Class<?> gu = Class.forName("gg.essential.util.GuiUtil");
+                Object inst = gu.getField("INSTANCE").get(null);
+                Class<?> wsm = Class.forName("gg.essential.gui.sps.WorldSelectionModal");
+                java.lang.reflect.Constructor<?> ctor = null;
+                for (java.lang.reflect.Constructor<?> k : wsm.getConstructors()) if (k.getParameterCount() == 1) ctor = k;
+                final java.lang.reflect.Constructor<?> fc = ctor;
+                kotlin.jvm.functions.Function1<Object, Object> fn = mgr -> {
+                    try { return fc.newInstance(mgr); } catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
+                };
+                gu.getMethod("pushModal", kotlin.jvm.functions.Function1.class).invoke(inst, fn);
+            } catch (ClassNotFoundException e) {   // Essential 1.5+: the modal is reached through its invite-or-host flow
+                try {
+                    Class.forName("gg.essential.gui.sps.InviteOrHostModalFlowKt").getMethod("launchInviteOrHostModalFlow").invoke(null);
+                } catch (Throwable t) { skip("essential: host-world flow", t); }
+            } catch (Throwable t) { skip("essential: host-world modal", t); }
+            return;
+        }
+        if (frames >= 360 && frames <= 375 && frames % 5 == 0) { esScroll(client, 0.5, -2); return; }   // glass rows cross the list top
+        if (frames == 400) { esNote(client, "host-modal"); capture(client, "ess-host.png"); return; }
+        if (frames == 402) { open(client, new net.minecraft.client.gui.screens.TitleScreen(), "back to title"); return; }
+        if (frames == 405) {   // Essential's screenshot browser (no login needed): header bar vs window corner, scrolling
+            try {
+                open(client, (Screen) Class.forName("gg.essential.gui.screenshot.components.ScreenshotBrowser")
+                        .getConstructor().newInstance(), "open Essential pictures");
+            } catch (Throwable t) { skip("essential: pictures", t); }
+            return;
+        }
+        if (frames == 470) { esNote(client, "pictures"); capture(client, "ess-pics.png"); return; }
+        if (frames >= 472 && frames <= 487 && frames % 5 == 2) { esScroll(client, 0.5, -5); return; }
+        if (frames == 530) { esNote(client, "pictures-scroll"); capture(client, "ess-pics-scroll.png"); return; }
+        if (frames == 532) { open(client, new net.minecraft.client.gui.screens.TitleScreen(), "back to title"); return; }
+        if (frames > 330 && frames < 540) return;
+        if (frames == 541) {   // Mod Menu (if installed): its list pane corner + its own selection highlight
+            try {
+                Class<?> c = Class.forName("com.terraformersmc.modmenu.gui.ModsScreen");
+                open(client, (Screen) c.getConstructor(Screen.class).newInstance(currentScreen(client)), "open Mod Menu");
+            } catch (Throwable t) { frames = 600; }
+            return;
+        }
+        if (frames == 570) {
+            try {   // select the first entry so the selection highlight is in the shot
+                Screen s = currentScreen(client);
+                for (var ch : s.children()) {
+                    if (ch instanceof net.minecraft.client.gui.components.AbstractSelectionList<?> l && !l.children().isEmpty()) {
+                        for (java.lang.reflect.Method m : net.minecraft.client.gui.components.AbstractSelectionList.class.getDeclaredMethods()) {
+                            if (m.getName().equals("setSelected") && m.getParameterCount() == 1) {
+                                m.setAccessible(true);
+                                m.invoke(l, l.children().get(0));
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            } catch (Throwable ignored) { }
+            return;
+        }
+        if (frames == 630) { esNote(client, "modmenu"); capture(client, "ess-modmenu.png"); return; }
+        if (frames >= 636) { frames = 0; phase = P_DRAIN; }
+    }
+
+    /** Mouse-wheel the current screen at (fx · width, middle): negative = scroll the content up. */
+    private static void esScroll(Minecraft client, double fx, double amount) {
+        try {
+            Screen s = currentScreen(client);
+            if (s == null) return;
+            double w = client.getWindow().getGuiScaledWidth(), h = client.getWindow().getGuiScaledHeight();
+            // Essential reads the mouse from MouseHandler, not from the event: park it there (the OS cursor is not moved)
+            java.lang.reflect.Field mx = net.minecraft.client.MouseHandler.class.getDeclaredField("xpos");
+            java.lang.reflect.Field my = net.minecraft.client.MouseHandler.class.getDeclaredField("ypos");
+            mx.setAccessible(true);
+            my.setAccessible(true);
+            mx.setDouble(client.mouseHandler, client.getWindow().getScreenWidth() * fx);
+            my.setDouble(client.mouseHandler, client.getWindow().getScreenHeight() * 0.5);
+            s.mouseScrolled(w * fx, h * 0.5, 0, amount);
+        } catch (Throwable t) { skip("essential: scroll", t); }
+    }
+
+    private static void esNote(Minecraft client, String tag) {
+        try {
+            String dir = System.getenv("S1MP1E_SHOT");
+            if (dir == null) return;
+            Screen s = currentScreen(client);
+            java.nio.file.Files.writeString(java.nio.file.Path.of(dir, "ess-screens.txt"),
+                    tag + " -> " + (s == null ? "null" : s.getClass().getName()) + System.lineSeparator(),
+                    java.nio.charset.StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Throwable ignored) { }
+    }
 
     private static void stepLists(Minecraft client) {
         if (lsPhase > 0) { stepListsLoad(client); return; }
         frames++;
         if (frames == 1) {
-            open(client, new net.minecraft.client.gui.screens.options.LanguageSelectScreen(
-                    currentScreen(client), client.options, client.getLanguageManager()), "lists language");
+            open(client, new net.minecraft.client.gui.screens.telemetry.TelemetryInfoScreen(
+                    currentScreen(client), client.options), "lists telemetry (long vanilla scroll area)");
             return;
         }
         if (frames < 6) return;
         if (tyEvents == null) {
             Screen s = currentScreen(client);
-            lsList = null;
-            if (s != null) for (Object c : s.children())
-                if (c instanceof net.minecraft.client.gui.components.AbstractSelectionList<?> l) { lsList = l; break; }
-            if (lsList == null) { skip("lists: no selection list", new IllegalStateException()); phase = P_DRAIN; return; }
-            tyEvents = lsSchedule(client, lsList);
+            lsArea = s == null ? null : lsFindArea(s.children());
+            if (lsArea == null) { skip("lists: no scroll area", new IllegalStateException()); phase = P_DRAIN; return; }
+            tyEvents = lsSchedule(client, lsArea);
             tyNext = 0;
             tyT0 = System.currentTimeMillis();
         }
@@ -2181,24 +2424,41 @@ public final class DevShot {
                 + " box=" + lsCycle.getX() + "," + lsCycle.getY() + "," + lsCycle.getWidth() + "," + lsCycle.getHeight());
     }
 
-    private static java.util.List<TyEv> lsSchedule(Minecraft client, net.minecraft.client.gui.components.AbstractSelectionList<?> list) {
+    private static java.util.List<TyEv> lsSchedule(Minecraft client, net.minecraft.client.gui.components.AbstractScrollArea list) {
         java.util.List<TyEv> ev = new java.util.ArrayList<>();
         double cx = list.getX() + list.getWidth() / 2.0, cy = list.getY() + list.getHeight() / 2.0;
         // W: two wheel notches down
         lsShots(ev, client, list, "w", 300, 40, 1);
-        ev.add(new TyEv(360, () -> list.mouseScrolled(cx, cy, 0, 3)));   // up: the language list opens at the bottom
+        ev.add(new TyEv(360, () -> list.mouseScrolled(cx, cy, 0, list.scrollAmount() > 0 ? 3 : -3)));   // toward the far end
         lsShots(ev, client, list, "w", 380, 40, 14, 2);
         // S: select a row a few below the first visible one, then one far below
-        ev.add(new TyEv(1400, () -> lsSelect(list, 2)));
+        ev.add(new TyEv(1400, () -> { if (list instanceof net.minecraft.client.gui.components.AbstractSelectionList<?> sl) lsSelect(sl, 2); }));
         lsShots(ev, client, list, "s", 1420, 40, 10);
-        ev.add(new TyEv(2300, () -> lsSelect(list, 7)));
+        ev.add(new TyEv(2300, () -> { if (list instanceof net.minecraft.client.gui.components.AbstractSelectionList<?> sl) lsSelect(sl, 7); }));
         lsShots(ev, client, list, "t", 2320, 40, 10);
         // F: a quick flick of five notches
-        for (int i = 0; i < 6; i++) ev.add(new TyEv(3200 + 45L * i, () -> list.mouseScrolled(cx, cy, 0, 1)));
+        for (int i = 0; i < 6; i++) ev.add(new TyEv(3200 + 45L * i, () -> list.mouseScrolled(cx, cy, 0, -1)));
         lsShots(ev, client, list, "f", 3210, 40, 20);
-        ev.add(new TyEv(4600, () -> {}));
+        // Apple overlay scroller: pointer onto the strip (widens over a glass track), then away and idle (lingers 1 s,
+        // fades out over 0.3 s).
+        ev.add(new TyEv(4600, () -> sodPark(client, (int) lsStripX(list), (int) cy)));
+        lsShots(ev, client, list, "h", 4620, 40, 8);
+        ev.add(new TyEv(5000, () -> sodPark(client, (int) cx, (int) cy)));
+        lsShots(ev, client, list, "i", 5100, 200, 11);
+        ev.add(new TyEv(7400, () -> {}));
         ev.sort(java.util.Comparator.comparingLong(TyEv::t));
         return ev;
+    }
+
+    /** Middle of the list's scrollbar strip ({@code scrollBarX()} is protected and overridden per list). */
+    private static double lsStripX(net.minecraft.client.gui.components.AbstractScrollArea list) {
+        try {
+            java.lang.reflect.Method m = net.minecraft.client.gui.components.AbstractScrollArea.class.getDeclaredMethod("scrollBarX");
+            m.setAccessible(true);
+            return (Integer) m.invoke(list) + list.scrollbarWidth() / 2.0;
+        } catch (Throwable t) {
+            return list.getRight() - 3.0;
+        }
     }
 
     /** Select the {@code k}-th row below the first row currently visible (Entry is protected: LayoutElement + reflection). */
@@ -2216,10 +2476,10 @@ public final class DevShot {
         } catch (Throwable t) { skip("lists select", t); }
     }
 
-    private static void lsShots(java.util.List<TyEv> ev, Minecraft client, net.minecraft.client.gui.components.AbstractSelectionList<?> list,
+    private static void lsShots(java.util.List<TyEv> ev, Minecraft client, net.minecraft.client.gui.components.AbstractScrollArea list,
                                 String tag, long start, long step, int n) { lsShots(ev, client, list, tag, start, step, n, 1); }
 
-    private static void lsShots(java.util.List<TyEv> ev, Minecraft client, net.minecraft.client.gui.components.AbstractSelectionList<?> list,
+    private static void lsShots(java.util.List<TyEv> ev, Minecraft client, net.minecraft.client.gui.components.AbstractScrollArea list,
                                 String tag, long start, long step, int n, int firstIndex) {
         for (int k = 0; k < n; k++) {
             final String name = String.format("ls-%s-%02d.png", tag, firstIndex + k);
@@ -4504,7 +4764,7 @@ public final class DevShot {
      * consumer (which writes the PNG and closes the image) a frame or two later. The drain phase renders extra
      * frames afterwards so the write completes before quit.
      */
-    private static void capture(Minecraft client, String name) {
+    static void capture(Minecraft client, String name) {
         try {
             RenderTarget target = client.gameRenderer.mainRenderTarget();
             final File out = new File(outDir, name);

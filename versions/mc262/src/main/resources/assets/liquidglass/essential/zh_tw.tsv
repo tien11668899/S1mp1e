@@ -1,0 +1,830 @@
+# Essential (mc262) UI strings -> 台灣繁體中文 對照表
+# 術語: Friend 好友 / Block 封鎖 / Online 線上 / Wardrobe 衣櫃 / Cosmetic 裝飾品 / Outfit 套裝
+#        Emote 表情動作 / Skin 外觀 / Cape 披風 / Host 主持世界 / Screenshot 截圖 / Coins 金幣
+#        Settings 設定 / session(帳號) 工作階段 / session(主持) 連線
+# 格式: 靜態 英文<TAB>中文 ; 動態 re:<regex><TAB>中文($n)
+
+You cannot invite players to this server.	你無法邀請玩家加入這個伺服器。
+You cannot invite yourself.	你無法邀請自己。
+You cannot remove an invite from yourself.	你無法移除對自己的邀請。
+You cannot kick yourself.	你無法踢出自己。
+Error!	錯誤！
+Cheats must be enabled to use the op command.	必須啟用作弊才能使用 op 指令。
+Cannot start session, one is already running.	無法開始連線，已有一個正在執行。
+Cannot start session, your current world does not support invites	無法開始連線，你目前的世界不支援邀請
+Closed session	已關閉連線
+Invited Players: 	已邀請的玩家：
+No session running	沒有執行中的連線
+Cannot cancel invite because you are not currently on a session that supports invites	無法取消邀請，因為你目前不在支援邀請的連線中
+From everyone	來自所有人
+From myself & friends	來自我自己與好友
+From myself only	僅來自我自己
+From nobody	不接收任何人
+Cosmetics and armor	裝飾品與盔甲
+Only armor	僅盔甲
+Only cosmetics	僅裝飾品
+System	系統
+Full	完整
+Minimal	精簡
+Off	關閉
+Copy Image	複製圖片
+Copy URL	複製網址
+Nothing	無
+No	否
+Unknown	未知
+Yes	是
+Confirm	確認
+Revoking Essential's Terms of Service and Privacy Policy will cause Essential features not to work. Are you sure you want to proceed?	撤回 Essential 的服務條款與隱私權政策將導致 Essential 的功能無法使用。你確定要繼續嗎？
+12 Hour	12 小時制
+24 Hour	24 小時制
+Accessibility	無障礙
+Activity Sharing	活動分享
+Allow emote sounds	允許表情動作音效
+Appear offline	顯示為離線
+Appearance	外觀
+Automatic Essential updates	自動更新 Essential
+Automatically refresh session	自動重新整理工作階段
+Automatically refreshes your Minecraft session when it’s expired, upon connecting to a server.	在連線到伺服器時，若你的 Minecraft 工作階段已過期，會自動重新整理。
+Automatically trigger an action after taking a screenshot.	截圖後自動觸發一個動作。
+Better express yourself with emotes.	透過表情動作更好地表達自己。
+Chat Safety	聊天安全
+Chat filter	聊天過濾
+Choose between using 12 or 24 hour time for dates/timestamps in Essential menus.	選擇 Essential 選單中日期/時間戳記要使用 12 或 24 小時制。
+Choose the layout of the Essential buttons on the main and pause menu.	選擇主選單與暫停選單上 Essential 按鈕的版面。
+Collect optional telemetry data	收集選用的遙測資料
+Control for how long the screenshot preview will be shown.	控制截圖預覽顯示的時間長度。
+Cosmetics	裝飾品
+Cosmetics & armor visibility on me	我身上的裝飾品與盔甲顯示
+Cosmetics & armor visibility on others	其他玩家身上的裝飾品與盔甲顯示
+Cosmetics and armor may conflict with each other on other players. This setting does not affect what other players see.	裝飾品與盔甲在其他玩家身上可能會互相衝突。此設定不會影響其他玩家看到的內容。
+Cosmetics and armor may conflict with each other on your player. This setting does not affect what other players see.	裝飾品與盔甲在你的角色身上可能會互相衝突。此設定不會影響其他玩家看到的內容。
+Darken Minecraft button texture	加深 Minecraft 按鈕材質
+Date & Time	日期與時間
+Deny TOS & PP	拒絕服務條款與隱私權政策
+Deny the Essential terms of service and privacy policy. Warning! This will prevent the use of Essential features.	拒絕 Essential 的服務條款與隱私權政策。警告！這將使你無法使用 Essential 的功能。
+Determines who can send you a friend request on Essential.	決定誰可以在 Essential 上向你傳送好友邀請。
+Direct message notifications	私人訊息通知
+Display Essential as your current activity on Discord.	在 Discord 上將 Essential 顯示為你目前的活動。
+Displays a notification modal after Essential has been updated.	在 Essential 更新後顯示通知視窗。
+Displays the last time you were online to your friends.	向好友顯示你上次上線的時間。
+Displays the server or world you are currently playing on to your friends.	向好友顯示你目前所在的伺服器或世界。
+Downloads and installs new Essential updates on launch, when available.	在啟動時下載並安裝可用的 Essential 更新。
+Emote preview	表情動作預覽
+Emotes	表情動作
+Emotes will be shown in third-person view. You can still toggle between front and back view.	表情動作將以第三人稱視角顯示。你仍可在正面與背面視角之間切換。
+Enables smooth camera while zooming.	啟用縮放時的平滑鏡頭。
+Enables windowed fullscreen, allowing focusing on other windows.	啟用視窗化全螢幕，讓你可以切換焦點到其他視窗。
+Enhance your Minecraft character with cosmetics.	用裝飾品強化你的 Minecraft 角色。
+Enlarge social menu chat metadata	放大社交選單聊天的中繼資料
+Essential Settings	Essential 設定
+Essential adds features that make playing Minecraft easier.	Essential 新增了讓遊玩 Minecraft 更輕鬆的功能。
+Essential icon in tab-list	玩家列表中的 Essential 圖示
+Essential icon on nameplates	名牌上的 Essential 圖示
+Essential menu layout	Essential 選單版面
+Essential update notifications	Essential 更新通知
+Everyone	所有人
+Friend Requests	好友邀請
+Friend online alert	好友上線提醒
+Friend request permission	好友邀請權限
+Friends	好友
+Friends of friends	好友的好友
+Fullscreen	全螢幕
+General	一般
+Give Essential permission to collect additional telemetry data to help improve your experience.	授權 Essential 收集額外的遙測資料，以協助改善你的體驗。
+Group message notifications	群組訊息通知
+Hide cosmetic particles in first person	在第一人稱時隱藏裝飾品粒子
+Hide cosmetics in inventory	在物品欄中隱藏裝飾品
+Hide cosmetics on server skins	在伺服器外觀上隱藏裝飾品
+Hide particle effects coming from your equipped cosmetics in first person.	在第一人稱時隱藏你所裝備裝飾品產生的粒子效果。
+Hide your cosmetics	隱藏你的裝飾品
+Hide your equipped cosmetics for everyone.	對所有人隱藏你所裝備的裝飾品。
+Hides cosmetics on players when the joined server modifies the user’s skins.	當所加入的伺服器修改了使用者外觀時，隱藏玩家身上的裝飾品。
+Hides your equipped cosmetics on the player preview inside your inventory.	在你物品欄的角色預覽中隱藏你所裝備的裝飾品。
+Hides your online and activity status.	隱藏你的線上與活動狀態。
+Link opening warning	開啟連結警告
+Main & Pause Menu	主選單與暫停選單
+Message received sound	收到訊息音效
+Nameplate in third-person	第三人稱名牌
+Nameplates	名牌
+Nobody	無人
+Notifications	通知
+Notifications appear in the bottom right corner.	通知會出現在右下角。
+Play emotes in third person view	以第三人稱視角播放表情動作
+Plays a capture sound when taking a screenshot.	截圖時播放快門音效。
+Plays a sound when receiving a message.	收到訊息時播放音效。
+Post screenshot action	截圖後動作
+Press the zoom key to toggle zoom, rather than hold.	按下縮放鍵以切換縮放，而非按住。
+Prevents inappropriate or offensive language from appearing in chat	防止不當或冒犯性的語言出現在聊天中
+Privacy & Data	隱私與資料
+Quality of Life	生活品質
+Receive a notification when a friend comes online.	當好友上線時接收通知。
+Receive a notification when you get a direct message in Essential chat.	當你在 Essential 聊天中收到私人訊息時接收通知。
+Receive a notification when you get a group message in Essential chat.	當你在 Essential 聊天中收到群組訊息時接收通知。
+Screenshot message	截圖訊息
+Screenshot preview	截圖預覽
+Screenshot preview duration	截圖預覽持續時間
+Screenshot quick-action #1	截圖快速動作 #1
+Screenshot quick-action #2	截圖快速動作 #2
+Screenshot quick-action #3	截圖快速動作 #3
+Screenshot quick-action #4	截圖快速動作 #4
+Screenshot sounds	截圖音效
+Screenshots	截圖
+Select an action for the bottom left screenshot quick-action slot.	為左下角的截圖快速動作欄位選擇一個動作。
+Select an action for the bottom right screenshot quick-action slot.	為右下角的截圖快速動作欄位選擇一個動作。
+Select an action for the top left screenshot quick-action slot.	為左上角的截圖快速動作欄位選擇一個動作。
+Select an action for the top right screenshot quick-action slot.	為右上角的截圖快速動作欄位選擇一個動作。
+Select who you can hear emote sounds from.	選擇你可以聽到誰的表情動作音效。
+Session	工作階段
+Share activity status on Discord	在 Discord 上分享活動狀態
+Share game activity with friends	與好友分享遊戲活動
+Share last online time with friends	與好友分享上次上線時間
+Show a confirmation modal before opening any third-party link.	開啟任何第三方連結前顯示確認視窗。
+Show an IP warning modal when hosting a world.	主持世界時顯示 IP 警告視窗。
+Shows a screenshot preview with quick-actions on capture.	截圖時顯示帶有快速動作的截圖預覽。
+Shows the Essential icon on Essential players in the tab-list.	在玩家列表中的 Essential 玩家旁顯示 Essential 圖示。
+Shows the Essential icon on Essential players’ nameplates.	在 Essential 玩家的名牌上顯示 Essential 圖示。
+Shows the vanilla screenshot capture message in in-game chat.	在遊戲內聊天中顯示原版截圖訊息。
+Shows your own nameplate when in third-person perspective.	在第三人稱視角時顯示你自己的名牌。
+Smooth zoomed camera	平滑縮放鏡頭
+Smooth zooming	平滑縮放
+Tab-list	玩家列表
+Terms of Service and Privacy Policy	服務條款與隱私權政策
+Timestamps format	時間戳記格式
+Tints Essential main and pause menu buttons darker to increase read-ability.	將 Essential 主選單與暫停選單按鈕染得更深以提高可讀性。
+Toggle to zoom	切換以縮放
+Use Minecraft button texture	使用 Minecraft 按鈕材質
+Uses Minecraft’s button texture on Essential main and pause menu buttons. If you have a resource pack equipped, it will use the resource pack’s button texture.	在 Essential 主選單與暫停選單按鈕上使用 Minecraft 的按鈕材質。若你套用了資源包，將會使用資源包的按鈕材質。
+Uses a larger font for usernames and timestamps in the social menu’s chat.	在社交選單的聊天中，為使用者名稱與時間戳記使用較大的字型。
+Uses a smooth animation when zooming in and out.	在放大與縮小時使用平滑動畫。
+Warnings	警告
+When playing emotes, show a model of your character performing the emote in the upper left corner of the screen.	播放表情動作時，在螢幕左上角顯示你的角色執行該表情動作的模型。
+Windowed fullscreen	視窗化全螢幕
+World hosting IP visibility warning	主持世界 IP 顯示警告
+Zoom	縮放
+Error	錯誤
+Failed to toggle Collect Optional Telemetry. Please try again.	無法切換「收集選用的遙測資料」。請再試一次。
+Failed to toggle Chat Filter. Please try again.	無法切換「聊天過濾」。請再試一次。
+An unexpected error occurred. Please try again.	發生非預期的錯誤。請再試一次。
+Essential Network Error	Essential 網路錯誤
+Failed to toggle cosmetic visibility. Please try again.	無法切換裝飾品顯示。請再試一次。
+Unable to establish connection with the Essential Network.	無法與 Essential 網路建立連線。
+You cannot disable Essential while hosting a world.	主持世界時無法停用 Essential。
+Remove	移除
+Data	資料
+Difficulty	難度
+Picture copied to clipboard	圖片已複製到剪貼簿
+Re-authentication with Microsoft required	需要重新透過 Microsoft 驗證
+Account Error	帳號錯誤
+Failed to load accounts. Please add them again.	無法載入帳號。請重新新增。
+Successfully migrated accounts	已成功移轉帳號
+Unable to migrate accounts	無法移轉帳號
+Unable to save your accounts.	無法儲存你的帳號。
+Cosmetics Disabled	裝飾品已停用
+Cosmetics Hidden	裝飾品已隱藏
+Do you want to\nenable cosmetics?	你要\n啟用裝飾品嗎？
+Do you want to\nenable emotes?	你要\n啟用表情動作嗎？
+Do you want to show\nyour cosmetics?	你要顯示\n你的裝飾品嗎？
+Emotes Disabled	表情動作已停用
+Enable	啟用
+Show	顯示
+Vanilla	原版
+Left	左
+Right	右
+Copy	複製
+Cut	剪下
+Paste	貼上
+Clear	清除
+Now	現在
+Cancel	取消
+Continue	繼續
+Open	開啟
+You are about to visit:	你即將前往：
+Close	關閉
+Image Properties	圖片屬性
+Nothing Found	找不到任何項目
+Search	搜尋
+Add	新增
+Too many requests,\nplease wait	要求次數過多，\n請稍候
+Unknown error occurred	發生未知錯誤
+Username doesn't exist	使用者名稱不存在
+Edit	編輯
+Add Friend	新增好友
+Block	封鎖
+Invite Friends	邀請好友
+Invite to Game	邀請加入遊戲
+Join Game	加入遊戲
+Leave Group	離開群組
+Mark as Read	標示為已讀
+Mute Friend	靜音好友
+Mute Group	靜音群組
+Remove Friend	移除好友
+Rename Group	重新命名群組
+Send Message	傳送訊息
+Unblock	解除封鎖
+Unmute Friend	取消靜音好友
+Unmute Group	取消靜音群組
+Messaging friends	與好友傳訊
+Social	社交
+World invite expired	世界邀請已過期
+Chat	聊天
+Attach Pictures	附加圖片
+Editing Message	編輯訊息中
+Message is too long	訊息太長
+Remaining characters	剩餘字元
+Replying to	回覆
+Too many characters	字元過多
+Remove from group	從群組移除
+Temporarily suspended from Essential social features	已暫時停權，無法使用 Essential 社交功能
+Report 	檢舉 
+Select the option that best\ndescribes the problem.	選擇最能\n描述問題的選項。
+Submit	送出
+Blocked	已封鎖
+Done	完成
+Mute	靜音
+Muted	已靜音
+Thank you!	謝謝你！
+Your report has been submitted.\nYour feedback helps keep\nEssential safe.	你的檢舉已送出。\n你的回饋有助於維護\nEssential 的安全。
+Remove attachment	移除附件
+Failed: An unknown error occurred	失敗：發生未知錯誤
+Screenshot was uploaded.	截圖已上傳。
+Unable to upload image 	無法上傳圖片 
+Select Pictures - [	選擇圖片 - [
+Message Unavailable: Please update Essential	訊息無法使用：請更新 Essential
+Gift	禮物
+Gift sent	已送出禮物
+View	檢視
+Image failed to load.	圖片載入失敗。
+Failed to open link	無法開啟連結
+Open Original	開啟原始圖片
+Error downloading image	下載圖片時發生錯誤
+Error parsing image	解析圖片時發生錯誤
+Already joined	已加入
+Invite Expired	邀請已過期
+Join	加入
+Offline	離線
+Server is offline	伺服器已離線
+World	世界
+Message deleted	訊息已刪除
+Are you sure you want to delete this message?	你確定要刪除這則訊息嗎？
+Delete	刪除
+Copy Link	複製連結
+Copy Picture	複製圖片
+Deleted Message	已刪除的訊息
+Failed to copy link	無法複製連結
+Image	圖片
+Link copied to clipboard	連結已複製到剪貼簿
+Link copied to clipboard.	連結已複製到剪貼簿。
+Mark Unread	標示為未讀
+Open in Browser	在瀏覽器中開啟
+Reply	回覆
+Report	檢舉
+Save Picture	儲存圖片
+Retry	重試
+An error occurred while editing your message	編輯訊息時發生錯誤
+Error editing message	編輯訊息時發生錯誤
+Send a message to begin chatting!	傳送訊息以開始聊天！
+Message not sent: This isn't allowed	訊息未送出：此操作不被允許
+Message not sent: This link is not allowed	訊息未送出：此連結不被允許
+You cannot send this message	你無法傳送這則訊息
+You cannot share this link	你無法分享這個連結
+Confirmed	已確認
+Failed	失敗
+Sending	傳送中
+Error adding skin	新增外觀時發生錯誤
+You have the maximum number of skins!	你的外觀數量已達上限！
+Enter a Minecraft username\nto add them as a friend.	輸入 Minecraft 使用者名稱\n以將對方加為好友。
+Add friends to group	將好友加入群組
+Block Player	封鎖玩家
+Enter a Minecraft username\nto block them.	輸入 Minecraft 使用者名稱\n以封鎖對方。
+Are you sure you want to leave this group?	你確定要離開這個群組嗎？
+Are you sure you want to join 	你確定要加入 
+Are you sure you want to remove 	你確定要移除 
+Back	返回
+Enter a name for your group.	為你的群組輸入一個名稱。
+Make Group	建立群組
+Select friends to make group	選擇好友以建立群組
+Enter a new name for your group.	為你的群組輸入一個新名稱。
+Rename	重新命名
+Unblock 	解除封鎖 
+Click to send a message!	點擊以傳送訊息！
+Gift: 	禮物：
+Online	線上
+Shared a skin	分享了一個外觀
+There are no announcements	目前沒有公告
+Yesterday	昨天
+In World	在世界中
+Last online 	上次上線 
+Singleplayer	單人遊戲
+Accept	接受
+Incoming Request	收到的邀請
+New Incoming Request	新收到的邀請
+Outgoing Request	送出的邀請
+Announcements	公告
+Failed to create group	無法建立群組
+Blocked Players	已封鎖的玩家
+Friend List	好友列表
+No Friend Requests	沒有好友邀請
+No Friends	沒有好友
+No Players Blocked	沒有已封鎖的玩家
+Friend request sent to 	已傳送好友邀請給 
+Not an Essential user	不是 Essential 使用者
+This player is suspended	此玩家已被停權
+This player is temporarily suspended	此玩家已被暫時停權
+Unknown account	未知帳號
+Something went wrong\nduring login.	登入時\n發生錯誤。
+Add Account	新增帳號
+Cannot sign out of account\nused to launch Minecraft	無法登出\n用來啟動 Minecraft 的帳號
+Sign Out	登出
+Your Accounts	你的帳號
+Switching account...	正在切換帳號…
+Wardrobe	衣櫃
+Account	帳號
+Host	主持世界
+Invite	邀請
+Pictures	圖片
+Settings	設定
+Update Available!	有可用更新！
+World Host Settings	世界主持設定
+To enable activity status on Discord,\ngo to {settings}\nand enable {setting-name-first}\n{setting-name-second}	若要在 Discord 上啟用活動狀態，\n請前往 {settings}\n並啟用 {setting-name-first}\n{setting-name-second}
+User Settings > Activity Privacy	使用者設定 > 活動隱私
+Firewall > Options 	防火牆 > 選項 
+System Settings > Network >\n	系統設定 > 網路 >\n
+The macOS firewall is preventing\nplayers from connecting to your\ncomputer. 	macOS 防火牆正在阻止\n玩家連線到你的\n電腦。 
+The macOS firewall is preventing\nyou from connecting to 	macOS 防火牆正在阻止\n你連線到 
+To disable this, go to 	若要停用此功能，請前往 
+Try Again	重試
+Warning!	警告！
+Log into your account on our website to securely add it in-game.	在我們的網站登入你的帳號，以安全地在遊戲中新增。
+Open Browser	開啟瀏覽器
+Community & Chat Rules	社群與聊天規則
+I've read and agree to all rules	我已閱讀並同意所有規則
+Read our full {rules}\nand always follow them.	請閱讀我們完整的 {rules}\n並始終遵守。
+Account authentication failed	帳號驗證失敗
+Essential connection error	Essential 連線錯誤
+Get help	取得協助
+Ignore	忽略
+Log into xbox.com to accept\ntheir terms of service.	登入 xbox.com 以接受\n其服務條款。
+Login	登入
+Make sure you are signed into\na Microsoft account that owns\nMinecraft Java Edition.	請確認你已登入\n擁有 Minecraft Java 版的\nMicrosoft 帳號。
+Minecraft multiplayer and Essential\nare unavailable as you are\nbanned from Xbox Live.	Minecraft 多人遊戲與 Essential\n無法使用，因為你已被\nXbox Live 封鎖。
+Minecraft multiplayer and Essential\nare unavailable due to an\nXbox Live ban in your country.	Minecraft 多人遊戲與 Essential\n無法使用，因為你所在的國家\n受到 Xbox Live 封鎖。
+Missing multiplayer permission	缺少多人遊戲權限
+Okay	好
+Playing Minecraft together\nrequires your Xbox Account\nto have Multiplayer enabled.	一起遊玩 Minecraft\n需要你的 Xbox 帳號\n已啟用多人遊戲。
+Unable to establish connection\nwith the Essential Network.	無法與 Essential 網路\n建立連線。
+Unknown authentication exception	未知的驗證例外
+View guide	檢視指南
+View status	檢視狀態
+Wait a little bit before trying again.\nIf the issue persists, please\ncontact our support.	請稍候片刻再試一次。\n若問題持續發生，請\n聯絡我們的支援團隊。
+We couldn't authenticate your\nMicrosoft account. Try again later or\nget help with our wiki.	我們無法驗證你的\nMicrosoft 帳號。請稍後再試，或\n透過我們的 wiki 取得協助。
+We were not able to authenticate\nyour Minecraft Account. Please login\nto your account again.	我們無法驗證\n你的 Minecraft 帳號。請重新登入\n你的帳號。
+Xbox Live is banned in your country	Xbox Live 在你所在的國家被封鎖
+You are banned from Xbox Live	你已被 Xbox Live 封鎖
+You are redirecting traffic from\nMojang's authentication servers to\nsomewhere else. Reverse the\nchanges made to your game.	你正將 Mojang 驗證伺服器的\n流量重新導向到其他地方。\n請復原你對遊戲\n所做的變更。
+You don't own Minecraft	你未擁有 Minecraft
+You haven't accepted Xbox ToS	你尚未接受 Xbox 服務條款
+Your 'hosts' file is hijacked	你的「hosts」檔案已被劫持
+Your Xbox multiplayer is disabled	你的 Xbox 多人遊戲已停用
+Your account is ratelimited	你的帳號已被限制速率
+Your account was logged out	你的帳號已被登出
+Your current network setup\ncan’t establish a connection\nwith the Essential network.	你目前的網路設定\n無法與 Essential 網路\n建立連線。
+Your guardian needs to add\nyour account to a family group\nto play multiplayer games.	你的監護人需要將\n你的帳號加入家庭群組\n才能遊玩多人遊戲。
+Your guardian needs to grant\nyou permission to access\nmultiplayer games.	你的監護人需要授予\n你存取多人遊戲的\n權限。
+Your network setup has an issue	你的網路設定有問題
+Loading Wardrobe...	正在載入衣櫃…
+Connection Lost	連線中斷
+The host has been suspended.	主持者已被停權。
+Understood	了解
+Essential Mod has been installed\nbecause its libraries are required	Essential Mod 已被安裝，\n因為需要它的函式庫
+Learn More	了解更多
+Essential will update next time you launch the game!	Essential 將在你下次啟動遊戲時更新！
+Update Confirmed	已確認更新
+Essential will update the next time\nyou launch the game.	Essential 將在你下次\n啟動遊戲時更新。
+Quit & Update	結束並更新
+This will close your game!	這將會關閉你的遊戲！
+Experimental Features	實驗性功能
+This is an experimental version of Essential, it has these new features:	這是 Essential 的實驗性版本，具有以下新功能：
+Connecting to Essential...	正在連線到 Essential…
+Essential Quick Access Menu	Essential 快速存取選單
+Help	協助
+Reason: 	原因：
+You broke Essential's community\nguidelines and have been temporarily\nsuspended from social features	你違反了 Essential 的社群\n規範，已被暫時停權\n無法使用社交功能
+You broke Essential’s community\nguidelines and have been permanently\nsuspended from Essential	你違反了 Essential 的社群\n規範，已被永久停權\n無法使用 Essential
+You broke Essential’s terms of\nservice and have been permanently\nsuspended from Essential	你違反了 Essential 的服務\n條款，已被永久停權\n無法使用 Essential
+You broke Essential’s terms of\nservice and have been temporarily\nsuspended from Essential	你違反了 Essential 的服務\n條款，已被暫時停權\n無法使用 Essential
+Agree	同意
+I accept {tos} & {privacy}	我接受 {tos} 與 {privacy}
+I'm 13+ with parental consent, or 18+	我已滿 13 歲並取得家長同意，或已滿 18 歲
+Privacy Policy	隱私權政策
+Terms of Use	使用條款
+We care about your safety and privacy.\nPlease confirm your age and accept our terms.	我們重視你的安全與隱私。\n請確認你的年齡並接受我們的條款。
+Welcome to Essential Mod	歡迎使用 Essential Mod
+Auto-updates	自動更新
+Update	更新
+Update Denied	已拒絕更新
+Changelog	更新日誌
+Don’t notify me about updates	不要通知我更新
+Essential has been updated!	Essential 已更新！
+Sorry, you are on an outdated version of Essential. Restart your game to update.	抱歉，你使用的是過時的 Essential 版本。請重新啟動遊戲以更新。
+Selected	已選取
+Friends & Groups	好友與群組
+Groups	群組
+You haven't added any friends yet. You can add them in the social menu.	你還沒有新增任何好友。你可以在社交選單中新增好友。
+This placement has been paid for	此版位已付費刊登
+Display the server or world you\nare playing on to your friends in\nthe social and multiplayer menu.	在社交與多人遊戲選單中，\n向好友顯示你正在遊玩的\n伺服器或世界。
+Share your activity with friends?	要與好友分享你的活動嗎？
+Discover	探索
+Favorite	收藏
+Favorites	收藏
+Join Friend	加入好友
+Refresh	重新整理
+Featured	精選
+Loading username…	正在載入使用者名稱…
+Recommended	推薦
+Server	伺服器
+Always refresh session:	一律重新整理工作階段：
+If you add your Minecraft account to the account switcher in the main menu, you can refresh your session without restarting.	若你將 Minecraft 帳號新增到主選單的帳號切換器，就能在不重新啟動的情況下重新整理工作階段。
+Refresh session and rejoin	重新整理工作階段並重新加入
+An issue occurred while trying to send you to checkout. Please try again later.	將你導向結帳時發生問題。請稍後再試。
+Terms of Service	服務條款
+This feature requires you to accept the Essential ToS.	此功能需要你接受 Essential 服務條款。
+Deny	拒絕
+Earlier This Month	本月稍早
+Earlier This Week	本週稍早
+Last Month	上個月
+Last Week	上週
+Today	今天
+Remove Favorite	移除收藏
+Send to Friends	傳送給好友
+An unknown error occurred. Check logs for details	發生未知錯誤。請查看記錄檔以取得詳細資訊
+Creator	建立者
+Date	日期
+Dimensions	尺寸
+Edit Date	編輯日期
+Edit Time	編輯時間
+Error Copying Screenshot	複製截圖時發生錯誤
+Failed to copy picture	無法複製圖片
+Location	位置
+Menu	選單
+Name	名稱
+Picture saved	圖片已儲存
+Shared World	已分享的世界
+Time	時間
+Are you sure you want to quit without saving?	你確定要不儲存就結束嗎？
+Save	儲存
+Redo	重做
+Undo	復原
+Properties	屬性
+File can not be read	無法讀取檔案
+Screenshot Folder	截圖資料夾
+Browsing pictures	瀏覽圖片中
+Options	選項
+All	全部
+Uploads	已上傳
+No favorite screenshots	沒有收藏的截圖
+No screenshots uploaded	沒有已上傳的截圖
+You have no screenshots	你沒有任何截圖
+File Location	檔案位置
+Remove Upload	移除上傳
+Share	分享
+Share picture	分享圖片
+Picture export failed	圖片匯出失敗
+Brush Size: 	筆刷大小：
+List	列表
+Are you sure you want to delete 	你確定要刪除 
+Are you sure you want to remove the upload of 	你確定要移除上傳的 
+Upload has been removed.	上傳已移除。
+Share to Friends	分享給好友
+Download	下載
+Easily install the required version\nusing the Essential Installer.	使用 Essential 安裝程式\n輕鬆安裝所需的版本。
+Your Minecraft version is not\nsupported. We recommend\nMinecraft 	你的 Minecraft 版本\n不受支援。我們建議\nMinecraft 
+Shared a skin.	分享了一個外觀。
+Failed to share skin	無法分享外觀
+Share Skin	分享外觀
+Are you sure you want to close the Player Hosting session?	你確定要關閉玩家主持連線嗎？
+Cheats	作弊
+Configure a few basic world settings to get started. You can access more detailed settings later.	設定一些基本的世界選項以開始。你稍後可以存取更詳細的設定。
+Configure world settings	設定世界選項
+Game Mode	遊戲模式
+Host World	主持世界
+Invite friends to server	邀請好友加入伺服器
+Invite friends to world	邀請好友加入世界
+Next	下一步
+Re-invite	重新邀請
+Share RP	分享資源包
+Share your equipped Resource Pack	分享你所套用的資源包
+Your friends will not be able to join your world.	你的好友將無法加入你的世界。
+1 day ago	1 天前
+1 hour ago	1 小時前
+1 minute ago	1 分鐘前
+Create New World	建立新世界
+No worlds found.	找不到世界。
+Select world to host	選擇要主持的世界
+Game Rules	遊戲規則
+No description available.	沒有可用的說明。
+No game rules found	找不到遊戲規則
+No players found	找不到玩家
+Players & Permissions	玩家與權限
+Allow the use of cheating commands	允許使用作弊指令
+No settings found	找不到設定
+Share Resource Pack	分享資源包
+Cancel invite	取消邀請
+Make Operator	設為管理員
+Remove Operator	移除管理員
+The host is always OP when cheats are enabled	啟用作弊時主持者永遠是 OP
+The host kicked you from the session	主持者已將你從連線中踢出
+Invited	已邀請
+Pin	釘選
+Playing	遊玩中
+Unpin	取消釘選
+Version information copied to clipboard	版本資訊已複製到剪貼簿
+Open Minecraft Folder	開啟 Minecraft 資料夾
+Website	網站
+No matching settings found :(	找不到符合的設定 :(
+Common	普通
+Epic	史詩
+Legendary	傳說
+Rare	稀有
+Uncommon	罕見
+Delete a skin to make space for purchasing this bundle.	刪除一個外觀以騰出空間購買此組合包。
+Delete an outfit to make space for purchasing this bundle.	刪除一套套裝以騰出空間購買此組合包。
+Outfit created	已建立套裝
+Your outfit library is full!	你的套裝庫已滿！
+Your skin library is full!	你的外觀庫已滿！
+§r bundle has been unlocked.	§r 組合包已解鎖。
+Okay!	好！
+Unowned items equipped...	已裝備未擁有的項目…
+Unowned items will\nnot be visible in-game.	未擁有的項目將\n不會在遊戲中顯示。
+By URL	透過網址
+Select File	選擇檔案
+Username	使用者名稱
++ Add Skin	+ 新增外觀
+Customizing their character	正在自訂角色
+Skin limit reached	已達外觀上限
+Diagnostics	診斷
+Outfits	套裝
+Skins	外觀
+All Items	所有項目
+Alphabetical	依字母順序
+Default	預設
+Owned	已擁有
+Owned Only	僅已擁有
+Price	價格
+Emote wheel keybind is conflicting. [View Keybinds](essential://minecraft/settings/keybinds)	表情動作輪盤的按鍵綁定有衝突。[檢視按鍵綁定](essential://minecraft/settings/keybinds)
+Emote wheel keybind is not assigned. [View Keybinds](essential://minecraft/settings/keybinds)	尚未指定表情動作輪盤的按鍵綁定。[檢視按鍵綁定](essential://minecraft/settings/keybinds)
+Open the emote wheel in-game by pressing [	在遊戲中開啟表情動作輪盤，請按 [
+Loading	載入中
+Error loading featured page!	載入精選頁面時發生錯誤！
+Error loading item.	載入項目時發生錯誤。
+Not enough space to show page!\n\nTry making your window wider!	空間不足，無法顯示頁面！\n\n請試著將視窗加寬！
+Library	收藏庫
+Contains unowned items	包含未擁有的項目
+Expired	已過期
+Gifted by 	贈送者：
+Join 	加入 
+Leaving in 	剩餘 
+Owned (Legacy)	已擁有（舊版）
+Owned items not included in price	價格不包含已擁有的項目
+Used on\nmultiple outfits	用於\n多套套裝
+Used on outfit:\n	用於套裝：\n
+Claim	領取
+Copy ID	複製 ID
+Emote wheel is full.	表情動作輪盤已滿。
+Failed to claim item.	領取項目失敗。
+Gift to Friend	贈送給好友
+Please try again later or contact our support.	請稍後再試，或聯絡我們的支援團隊。
+Purchase	購買
+Purchase failed	購買失敗
+Replace	取代
+Swap	交換
+Cosmetic already unlocked.	裝飾品已解鎖。
+Something went wrong, please try again.	發生錯誤，請再試一次。
+Gifting failed	贈送失敗
+Select friends to gift\nthem 	選擇好友以贈送：\n
+You can only send gifts	你只能贈送禮物
+You can't gift yet...	你還不能贈送…
+Your friends already own this item.	你的好友已擁有此項目。
+No items found.	找不到任何項目。
+Please try again later.	請稍後再試。
+Unable to add new outfit.	無法新增套裝。
+New Outfit	新套裝
+Outfit limit reached	已達套裝上限
+Duplicate	建立副本
+Emote Wheel	表情動作輪盤
+No changes	沒有變更
+Unknown Outfit	未知套裝
+Wheel #	輪盤 #
+Redeem	兌換
+Redeem Code	兌換代碼
+Enter a new name for your outfit.	為你的套裝輸入一個新名稱。
+Outfit Name	套裝名稱
+Rename Outfit	重新命名套裝
+Reset	重設
+Create	建立
+Ok	好
+Description	說明
+Your purchase supports 	你的購買支持著 
+Bonus! 	加贈！
+Creator Code	創作者代碼
+Essential Coins	Essential 金幣
+Invalid Creator Code	無效的創作者代碼
+Most Popular	最熱門
+Other currencies coming soon!	其他貨幣即將推出！
+Please try again later or contact support...	請稍後再試，或聯絡支援團隊…
+Support your favorite creator\nusing their Essential Creator Code.	使用你最愛創作者的\nEssential 創作者代碼來支持他們。
+Unlock cosmetics and emotes with Essential Coins	使用 Essential 金幣解鎖裝飾品與表情動作
+You need...	你需要…
+Claim!	領取！
+Purchased	已購買
+Received	已收到
+Welcome <3	歡迎 <3
+Confirm your purchase!	確認你的購買！
+Discount	折扣
+Total	總計
+Unknown Item	未知項目
+An unknown error has occurred	發生未知錯誤
+Invalid or expired code	無效或已過期的代碼
+You already own all of these items	你已擁有所有這些項目
+You have already redeemed this code	你已兌換過此代碼
+Enter Code	輸入代碼
+Add Skin	新增外觀
+An error occurred while updating skin	更新外觀時發生錯誤
+An unexpected error has occurred. Try again.	發生非預期的錯誤。請再試一次。
+Banned Skin	已封禁的外觀
+Choose Skin	選擇外觀
+Enter a Minecraft username\nto add their skin to your library.	輸入 Minecraft 使用者名稱\n以將其外觀新增到你的收藏庫。
+Enter a link to a skin file to add the\nskin to your library.	輸入外觀檔案的連結，\n以將外觀新增到你的收藏庫。
+Error adding skin!	新增外觀時發生錯誤！
+Error parsing skin file!	解析外觀檔案時發生錯誤！
+Failed to upload skin	無法上傳外觀
+Incorrect size, must be 64x64 or 64x32 pixels	尺寸不正確，必須為 64x64 或 64x32 像素
+Invalid URL	無效的網址
+Invalid username	無效的使用者名稱
+Page could not be loaded	無法載入頁面
+Skin Upload	外觀上傳
+Skin Upload failed!	外觀上傳失敗！
+Skin file must be a PNG image with a resolution of 64x64 or 64x32 pixels.	外觀檔案必須是解析度為 64x64 或 64x32 像素的 PNG 圖片。
+Skin has been added.	外觀已新增。
+Skin upload failed!	外觀上傳失敗！
+Steal	盜取
+The skin you tried to upload is banned by Mojang	你嘗試上傳的外觀已被 Mojang 封禁
+This PNG file is broken	此 PNG 檔案已損毀
+Unexpected error	非預期的錯誤
+Incorrect File Format	檔案格式不正確
+Select New File	選擇新檔案
+Choose a skin file in the file browser.	在檔案瀏覽器中選擇一個外觀檔案。
+Skin Name	外觀名稱
+Slim	纖細
+Wide	寬版
+Failed to upload skin, please try again	上傳外觀失敗，請再試一次
+Skin	外觀
+Can't invite to this world	無法邀請加入這個世界
+Don't show this warning again	不要再顯示此警告
+Only hosts can send invites	只有主持者可以傳送邀請
+Proceed	繼續
+This world will be hosted through your internet. Your host's IP will be visible through network logs! \n\nDo you want to proceed?	這個世界將透過你的網路進行主持。你的主機 IP 會在網路記錄中可見！\n\n你要繼續嗎？
+Unable to establish connection with the Essential Network	無法與 Essential 網路建立連線
+Install	安裝
+Local Server	本機伺服器
+Need Help?	需要協助嗎？
+Visit Wiki	造訪 Wiki
+Visit our wiki for more information.	造訪我們的 wiki 以取得更多資訊。
+Error during login. Please close browser and try again.	登入時發生錯誤。請關閉瀏覽器並再試一次。
+Failed to find `code` parameter. Please close browser and try again.	找不到 `code` 參數。請關閉瀏覽器並再試一次。
+Internal error	內部錯誤
+Internal server error. Contact support	內部伺服器錯誤。請聯絡支援團隊
+On Server	在伺服器上
+Hosting World	正在主持世界
+One or more of your tokens have expired.	你的一個或多個權杖已過期。
+Your request has been rate-limited, please try again later.	你的要求已被限制速率，請稍後再試。
+The user is not allowed to perform this operation.	不允許使用者執行此操作。
+This profile does not own Minecraft.	此設定檔未擁有 Minecraft。
+Your account is a child (under 18), and cannot use Xbox Live Services until added to a Family.	你的帳號屬於兒童（未滿 18 歲），在加入家庭之前無法使用 Xbox Live 服務。
+This Microsoft Account is banned from Xbox.	此 Microsoft 帳號已被 Xbox 封鎖。
+Your parent needs to grant permission for your account to play multiplayer games.	你的家長需要授予你的帳號遊玩多人遊戲的權限。
+This Microsoft Account does not have an Xbox Live account associated with it.	此 Microsoft 帳號沒有關聯的 Xbox Live 帳號。
+You need to verify that you are an adult on the Xbox website before using Xbox Live Services.	你需要先在 Xbox 網站上驗證你已成年，才能使用 Xbox Live 服務。
+Your account has not accepted the Xbox Live terms of service.	你的帳號尚未接受 Xbox Live 服務條款。
+Xbox Live is unavailable in your country/region.	Xbox Live 在你的國家/地區無法使用。
+Failed to add player to group. Please try again.	無法將玩家加入群組。請再試一次。
+Failed to create group.\nPlease try again.	無法建立群組。\n請再試一次。
+Failed to mute channel.\nPlease try again.	無法靜音頻道。\n請再試一次。
+Failed to remove player from group. Please try again.	無法將玩家從群組移除。請再試一次。
+Failed to report player.\nPlease try again.	無法檢舉玩家。\n請再試一次。
+Group is full	群組已滿
+New Group	新群組
+Report Failed	檢舉失敗
+Unknown Error	未知錯誤
+Error validating creator code	驗證創作者代碼時發生錯誤
+Wardrobe items are not visible on offline-mode servers.	在離線模式伺服器上看不到衣櫃項目。
+Wardrobe items unavailable	衣櫃項目無法使用
+Outfit #	套裝 #
+Sent you a picture	傳送了一張圖片給你
+Access to Discord cosmetics have been revoked. You left or unlinked your account.	你對 Discord 裝飾品的存取權已被撤銷。你已離開或解除連結你的帳號。
+Cosmetic revoked	裝飾品已撤銷
+Discord Cosmetics revoked	Discord 裝飾品已撤銷
+Error Deleting Screenshot	刪除截圖時發生錯誤
+Error: Failed to share pictures	錯誤：無法分享圖片
+Error: Media link not supplied	錯誤：未提供媒體連結
+Media systems currently unavailable	媒體系統目前無法使用
+No response	沒有回應
+Picture saved as copy	圖片已另存為副本
+Picture shared	圖片已分享
+Server gave unexpected response	伺服器傳回非預期的回應
+Decline	拒絕
+Friend Request	好友邀請
+Failed to block 	無法封鎖 
+Friend request already sent to 	已傳送過好友邀請給 
+Friend request declined	已拒絕好友邀請
+Friend request failed	好友邀請失敗
+No pending friend request to accept.	沒有待接受的好友邀請。
+You have blocked 	你已封鎖 
+You have too many pending friend requests. Remove some to make space for new ones.	你有太多待處理的好友邀請。請移除一些以騰出空間接收新的邀請。
+Your friends list is full. Remove friends before adding new ones.	你的好友列表已滿。請先移除好友再新增。
+A timeout occurred please try again.	發生逾時，請再試一次。
+Already blocked this player	已封鎖此玩家
+Already invited to be friend	已邀請成為好友
+Already your friend	已經是你的好友
+An unknown error occurred	發生未知錯誤
+An unknown error occurred. Please contact support if issues persist.	發生未知錯誤。若問題持續發生，請聯絡支援團隊。
+Cannot add yourself	無法新增自己
+Cannot block yourself	無法封鎖自己
+This player blocked you	此玩家已封鎖你
+This player is not blocked	此玩家未被封鎖
+You are not friends with this player	你與此玩家不是好友
+You blocked this player	你已封鎖此玩家
+You do not have a friend request from this player	你沒有來自此玩家的好友邀請
+You do not have a friend request to this player	你沒有傳送給此玩家的好友邀請
+Are you sure you want to delete\n	你確定要刪除\n
+Error deleting skin	刪除外觀時發生錯誤
+Can’t delete skin	無法刪除外觀
+Error updating skin	更新外觀時發生錯誤
+Skin #	外觀 #
+Skin is currently used on one or more outfits.	此外觀目前正用於一套或多套套裝。
+Easy	簡單
+Hard	困難
+Normal	普通
+Peaceful	和平
+Adventure	冒險
+Creative	創造
+Spectator	旁觀
+Survival	生存
+An error occurred fetching the changelog.	擷取更新日誌時發生錯誤。
+Loader Update Available	載入器更新可用
+Update Available	有可用更新
+Update Required	需要更新
+macOS Firewall is blocking connections	macOS 防火牆正在阻擋連線
+Hang on...	請稍候…
+An error occurred while uploading a skin to Mojang	將外觀上傳到 Mojang 時發生錯誤
+Can't open browser	無法開啟瀏覽器
+Link opened in browser	已在瀏覽器中開啟連結
+Unable to open link in browser.	無法在瀏覽器中開啟連結。
+Rate limit exceeded	已超過速率限制
+Player not found	找不到玩家
+Don't show again	不要再顯示
+Essential has replaced ModCore!	Essential 已取代 ModCore！
+Please update all mods that use ModCore.	請更新所有使用 ModCore 的模組。
+You can find updated versions of all our mods at	你可以在以下網址找到我們所有模組的更新版本：
+re:Invalid argument for type (.+?)	類型 $1 的引數無效
+re:Needed (.+?) words!	需要 $1 個字！
+re:Removed op from (.+?)\.	已移除 $1 的 OP 權限。
+re:Invited (.+?) to your world\.	已邀請 $1 加入你的世界。
+re:Invited (.+?)\.	已邀請 $1。
+re:Sent picture to (.+?)	已傳送圖片給 $1
+re:§dTo (.+?)§r: (.+?)	§d給 $1§r：$2
+re:Cannot deop (.+?) because they are not invited to your world	無法移除 $1 的 OP 權限，因為他們未受邀加入你的世界
+re:Cannot op (.+?) because they are not invited to your world	無法給予 $1 OP 權限，因為他們未受邀加入你的世界
+re:Cheats for all: (.+?)	全員作弊：$1
+re:Default gamemode: (.+?)	預設遊戲模式：$1
+re:Difficulty: (.+?)	難度：$1
+re:Privacy setting: (.+?)	隱私設定：$1
+re:World uptime: (.+?)	世界運行時間：$1
+re:Canceled invite to (.+?)	已取消對 $1 的邀請
+re:Cancelled invite to (.+?)	已取消對 $1 的邀請
+re:Cannot cancel invite because (.+?) is not invited to your current session	無法取消邀請，因為 $1 未受邀加入你目前的連線
+re:Kicked (.+?)	已踢出 $1
+re:Failed to update '(.+?)' setting\. Try again\.	無法更新「$1」設定。請再試一次。
+re:An error occurred while trying to keep (.+?) signed in\. Please add this account again\.	嘗試讓 $1 保持登入時發生錯誤。請重新新增此帳號。
+re:Press (.+?) to Stop Emote	按 $1 停止表情動作
+re:Wheel #(.+?)	輪盤 #$1
+re:Friend request sent to (.+?)	已傳送好友邀請給 $1
+re:Are you sure you want to remove the account (.+?)\?	你確定要移除帳號 $1 嗎？
+re:Logged in as (.+?)	已登入為 $1
+re:Account Error: (.+?)	帳號錯誤：$1
+re:An error occurred fetching the changelog for version (.+?)	擷取版本 $1 的更新日誌時發生錯誤
+re:Online friends:\\n(.+?)	線上好友：\n$1
+re:Are you sure you want to kick (.+?)\?	你確定要踢出 $1 嗎？
+re:Failed to add (.+?) to group\. Please try again\.	無法將 $1 加入群組。請再試一次。
+re:Failed to remove (.+?) from group\. Please try again\.	無法將 $1 從群組移除。請再試一次。
+re:Friend request already sent to (.+?)\.	已傳送過好友邀請給 $1。
+re:You are already friends with (.+?)\.	你已經和 $1 是好友了。
+re:You have blocked (.+?)\. Unblock them before sending them a friend request\.	你已封鎖 $1。請先解除封鎖再向對方傳送好友邀請。
+re:Connecting to (.+?)(.+?)(.+?) will disconnect you from your current world or server\.	連線到 $1$2$3 將會中斷你與目前世界或伺服器的連線。
+Members	成員
+Packs	資源包
+Status	狀態
+Start Hosting	開始主持
+Stop Hosting	停止主持
+Add Members	新增成員
+Manage Members	管理成員
+re:Playing \[(\d+)/(\d+)\]	遊玩中 [$1/$2]

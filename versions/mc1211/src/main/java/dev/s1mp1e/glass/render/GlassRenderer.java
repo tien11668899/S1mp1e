@@ -242,6 +242,11 @@ public final class GlassRenderer {
         glass(x0, y0, x1, y1, PAD_PANEL, 0.19f, 0f, opacity, FROST_PANEL);
     }
 
+    /** {@link #panel} with an explicit shader corner (body radius = min-side · 0.25 · corner). */
+    public static void panel(float x0, float y0, float x1, float y1, float opacity, float corner) {
+        glass(x0, y0, x1, y1, PAD_PANEL, corner, 0f, opacity, FROST_PANEL);
+    }
+
     /**
      * One slot-separator cell. {@code mask} is the 4-bit neighbour mask
      * (1=E 2=W 4=S 8=N) the lattice shader reads from vertex alpha.

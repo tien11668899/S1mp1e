@@ -57,9 +57,25 @@ public abstract class AdvancementsGlassMixin {
         Screen self = (Screen) (Object) this;
         int x = (self.width - 252) / 2;
         int y = (self.height - 140) / 2;
+        // Creative-inventory style: each tab row is a band of the SAME glass sheet (no separate tab tiles) — extend the
+        // panel by one tab's depth (28) on each side that carries tabs. Vanilla draws the tab row only when >1 tab; match
+        // it. AdvancementTabType is package-private and .name() is unreliable under intermediary runtime remapping — so
+        // switch on the declaration-order ordinal: 0 ABOVE, 1 BELOW, 2 LEFT, 3 RIGHT.
+        int x0 = x, y0 = y, x1 = x + 252, y1 = y + 140;
+        if (this.tabs != null && this.tabs.size() > 1) {
+            for (net.minecraft.client.gui.screen.advancement.AdvancementTab t : this.tabs.values()) {
+                switch (((Enum<?>) (Object) t.getType()).ordinal()) {
+                    case 0: y0 = y - 28; break;
+                    case 1: y1 = y + 140 + 28; break;
+                    case 2: x0 = x - 28; break;
+                    case 3: x1 = x + 252 + 28; break;
+                    default: break;
+                }
+            }
+        }
         // Frame-primary surface: fresh backdrop this frame (the dim was drawn by renderBackground just above). R4.
         SceneCapture.grabNow();
-        GlassSurface.plateOrPaint(context, x, y, x + 252, y + 140, 1.0f, 0x99101014);
+        GlassSurface.plateOrPaint(context, x0, y0, x1, y1, 1.0f, 0x99101014);
     }
 
     /** Drop the wooden window frame — the glass plate replaces it. Tabs (a different method) stay vanilla. */

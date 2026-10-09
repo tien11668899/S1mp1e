@@ -109,7 +109,17 @@ public final class DevShot {
                              // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title (glass intact
                              // after the intro ran during the first reload) -> world-entry loop preview -> real world
                              // entry loop -> after-world. Inert otherwise.
-                             P_LOOPPREV = 130;
+                             P_LOOPPREV = 130,
+                             // AUDIT mode (S1MP1E_SHOT_MODE=audit): open EVERY vanilla screen in turn and shoot it
+                             // (DevAudit). Runs after the world is loaded so container/world screens build.
+                             P_AUDIT = 140,
+                             // ALLGLASS mode (S1MP1E_SHOT_MODE=allglass): state-dependent all-glass evidence shots
+                             // (XP/jump/spectator bars, F3, chat suggestions/usage, subtitles, F3+F4, anvil/enchant,
+                             // advancement tab band, telemetry, report reason, create-world) — DevAllGlass.
+                             P_ALLGLASS = 150,
+                             // MENUS mode (S1MP1E_SHOT_MODE=menus): world-less menus from the title (all-glass #26
+                             // blurred-panorama background) — DevMenus. Never creates a world.
+                             P_MENUS = 160;
 
     // ---- intro mode state (S1MP1E_SHOT_MODE=intro) ----
     private static boolean introMode;     // boot brand-intro capture path active
@@ -229,7 +239,9 @@ public final class DevShot {
         }
 
         // Global watchdog — never hang.
-        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L : WATCHDOG_MS;
+        long watchdog = (DevShotVerify.handles(mode) || "audit".equalsIgnoreCase(mode) || "allglass".equalsIgnoreCase(mode)
+                         || "menus".equalsIgnoreCase(mode))
+                ? 1_500_000L : WATCHDOG_MS;
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
             System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
@@ -275,6 +287,9 @@ public final class DevShot {
                 case P_FLICKER:            stepFlicker(client);                  break;
                 case P_VERIFY:             if (DevShotVerify.step(client)) phase = P_STOP; break;
                 case P_LOOPPREV:           stepLoopPreview(client);              break;
+                case P_AUDIT:              if (DevAudit.step(client)) phase = P_STOP; break;
+                case P_ALLGLASS:           if (DevAllGlass.step(client)) { frames = 0; phase = P_STOP; } break;
+                case P_MENUS:              if (DevMenus.step(client)) { frames = 0; phase = P_STOP; } break;
                 default:                   break;
             }
         } catch (Throwable t) {
@@ -359,6 +374,7 @@ public final class DevShot {
                 return;
             }
             capture(client, "title.png");
+            if ("menus".equalsIgnoreCase(mode)) { frames = 0; phase = P_MENUS; return; }   // world-less menus only
             open(client, new S1mp1eConfigScreen(), "open settings (over title)");
             frames = 0; phase = P_WAIT_CONFIG;
         }
@@ -527,6 +543,8 @@ public final class DevShot {
             if ("hud".equalsIgnoreCase(mode))    { hudStage = 0; frames = 0; phase = P_HUD;     return; }  // BATCH-B G
             if ("modules".equalsIgnoreCase(mode)){ modStage = 0; frames = 0; phase = P_MODULES; return; }  // BATCH-B H
             if ("flicker".equalsIgnoreCase(mode)){ flkStage = 0; frames = 0; phase = P_FLICKER; return; }  // R4 flicker
+            if ("audit".equalsIgnoreCase(mode)) { frames = 0; phase = P_AUDIT; return; }                     // full-screen audit
+            if ("allglass".equalsIgnoreCase(mode)) { frames = 0; phase = P_ALLGLASS; return; }               // state shots
             if (DevShotVerify.handles(mode)) {                                                              // 1.21.1 sweeps
                 DevShotVerify.init(outDir, mode);
                 frames = 0; phase = P_VERIFY;

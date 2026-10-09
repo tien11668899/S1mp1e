@@ -3,6 +3,7 @@ package dev.s1mp1e.o.mixin;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
+import dev.s1mp1e.o.glass.hook.ContextualBarHook;
 import dev.s1mp1e.o.glass.hook.GlassActionBar;
 import dev.s1mp1e.o.glass.hook.GlassBossBar;
 import dev.s1mp1e.o.glass.hook.HudMotionHook;
@@ -96,5 +97,13 @@ public abstract class GameGuiGlassMixin {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GameGui;drawTexture(IIIIII)V"))
     private void s1mp1e$heartBlit(GameGui self, int x, int y, int u, int v, int w, int h, Operation<Void> op) {
         HudMotionHook.heartBlit(self, x, y, u, v, w, h);
+    }
+
+    // ---- ALLGLASS #17 — the horse jump bar as a glass capsule (track v=84, fill v=89). The XP bar is owned by
+    // GlassHudHandler (vanilla's is cancelled), which routes its own blits through ContextualBarHook separately. ----
+    @WrapOperation(method = "renderJumpBar", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/GameGui;drawTexture(IIIIII)V"))
+    private void s1mp1e$jumpBar(GameGui self, int x, int y, int u, int v, int w, int h, Operation<Void> op) {
+        ContextualBarHook.bar(self, x, y, u, v, w, h);
     }
 }

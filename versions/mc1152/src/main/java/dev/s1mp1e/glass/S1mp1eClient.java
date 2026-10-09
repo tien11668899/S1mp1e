@@ -112,7 +112,14 @@ public final class S1mp1eClient implements ClientModInitializer {
                     "net.minecraft.client.gui.screen.ingame.SignEditScreen",
                     "net.minecraft.client.render.WorldRenderer",
                     "net.minecraft.client.render.entity.EntityRenderer",
-                    "net.minecraft.client.render.RenderPhase$LineWidth" }) {
+                    "net.minecraft.client.render.RenderPhase$LineWidth",
+                    // all-glass round (#1-#26)
+                    "net.minecraft.client.gui.hud.SubtitlesHud",
+                    "net.minecraft.client.gui.hud.DebugHud",
+                    "net.minecraft.client.gui.hud.SpectatorHud",
+                    "net.minecraft.client.gui.widget.LockButtonWidget",
+                    "net.minecraft.client.gui.screen.advancement.AdvancementTabType",
+                    "net.minecraft.client.gui.screen.CreditsScreen" }) {
                 try {
                     // load WITHOUT initialising: mixins are applied when the class is defined, and a static initialiser
                     // may need the GL context (LivingEntityRenderer creates a texture) that does not exist yet

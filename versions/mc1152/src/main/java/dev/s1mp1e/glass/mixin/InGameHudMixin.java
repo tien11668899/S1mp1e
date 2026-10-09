@@ -109,6 +109,25 @@ public abstract class InGameHudMixin {
         RenderSystem.translatef(0f, -DECO_LIFT, 0f);
         try { original.call(self, x); } finally { RenderSystem.popMatrix(); }
     }
+    // #17: lift the horse-jump bar + mount-health hearts the same DECO_LIFT so they rise with the cluster instead of
+    // sitting pressed onto the raised hotbar (both are separate INVOKE sites in render(F), javap-verified). The glass jump
+    // bar (ContextualBarGlassMixin) follows this GL model-view lift by itself.
+    @WrapOperation(method = "render",
+                   at = @At(value = "INVOKE",
+                            target = "Lnet/minecraft/client/gui/hud/InGameHud;renderMountJumpBar(I)V"))
+    private void s1mp1e$liftJump(InGameHud self, int x, Operation<Void> original) {
+        RenderSystem.pushMatrix();
+        RenderSystem.translatef(0f, -DECO_LIFT, 0f);
+        try { original.call(self, x); } finally { RenderSystem.popMatrix(); }
+    }
+    @WrapOperation(method = "render",
+                   at = @At(value = "INVOKE",
+                            target = "Lnet/minecraft/client/gui/hud/InGameHud;renderMountHealth()V"))
+    private void s1mp1e$liftMountHealth(InGameHud self, Operation<Void> original) {
+        RenderSystem.pushMatrix();
+        RenderSystem.translatef(0f, -DECO_LIFT, 0f);
+        try { original.call(self); } finally { RenderSystem.popMatrix(); }
+    }
 
     // Move the XP LEVEL number up onto the status row. renderExperienceBar's only TextRenderer.draw calls
     // ARE the level (its 4-way outline + green centre), so wrapping them retargets exactly those five. y-4

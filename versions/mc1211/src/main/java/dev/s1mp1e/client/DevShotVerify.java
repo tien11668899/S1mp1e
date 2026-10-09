@@ -77,7 +77,7 @@ final class DevShotVerify {
             if (t.equals("all") || t.equals("screens") || t.equals("tabs") || t.equals("lists") || t.equals("tooltips")
                     || t.equals("effects") || t.equals("hud") || t.equals("modules") || t.equals("flicker")
                     || t.equals("combat") || t.equals("newmenu") || t.equals("newanim") || t.equals("sodium") || t.equals("settings")
-                    || t.equals("trans") || t.equals("gap")) return true;
+                    || t.equals("trans") || t.equals("gap") || t.equals("appear")) return true;
         }
         return false;
     }
@@ -167,6 +167,7 @@ final class DevShotVerify {
             case "settings": buildSettings(); break;
             case "trans":    buildTrans();    break;
             case "gap":      buildGap();      break;
+            case "appear":   buildAppear();   break;
             default: say("unknown mode " + mode);
         }
         add(action(c -> { close(c); hx = hy = -1; }));
@@ -343,6 +344,17 @@ final class DevShotVerify {
     }
 
     // ---- (G) HUD overlays, staged with integrated-server commands -------------------------------------------------
+
+    /** Appear fades (2026-10-07 port): the chat input bar joins the screen-open fade, the action bar fades in. */
+    private static void buildAppear() {
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); lookDown(c, 12f); emptyHand(c); clearChat(c); }));
+        add(waitMs(800));
+        add(burst("ap-chat-open", 8, c -> open(c, new net.minecraft.client.gui.screen.ChatScreen("")), null));
+        add(action(c -> close(c)));
+        add(waitMs(900));
+        add(burst("ap-actionbar", 10, c -> cmd(c, "title @a actionbar \"液態玻璃動作列 — Action bar pill\""), null));
+        add(waitMs(400));
+    }
 
     private static void buildHud() {
         add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); lookDown(c, 12f); emptyHand(c); }));

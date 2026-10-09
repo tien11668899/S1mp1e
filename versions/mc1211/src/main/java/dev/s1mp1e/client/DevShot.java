@@ -100,6 +100,10 @@ public final class DevShot {
     // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title (glass intact after the intro ran
     // during the first reload) -> world-entry loop preview -> real world entry loop -> after-world. Inert otherwise.
     private static final int P_LOOPPREV = 70;
+    private static final int P_AUDIT = 80;
+    // ESSENTIAL mode (S1MP1E_SHOT_MODE=essential): menu-only shots of Essential's UI (title overlay, then its settings
+    // screen opened by reflection) for the liquid-glass + zh_TW Essential compat. Never accepts anything.
+    private static final int P_ESSENTIAL = 90;
 
     private static boolean resolved;      // env vars checked exactly once
     private static String  mode;          // S1MP1E_SHOT_MODE (null => base pipeline only)
@@ -227,6 +231,8 @@ public final class DevShot {
                 case P_BA_ADV:             stepBatchaAdv(client);                break;
                 case P_VERIFY:             if (DevShotVerify.step(client)) phase = P_STOP; break;
                 case P_LOOPPREV:           stepLoopPreview(client);              break;
+                case P_AUDIT:              if (DevAudit.step(client)) phase = P_STOP; break;
+                case P_ESSENTIAL:          stepEssential(client);                break;
                 case P_STOP:               stepStop(client);                     break;
                 default:                   break;
             }
@@ -300,6 +306,91 @@ public final class DevShot {
         }
     }
 
+    private static void stepEssential(MinecraftClient client) {
+        frames++;
+        if (frames == 90) { esNote(client, "title"); capture(client, "ess-title.png"); return; }
+        if (frames == 91) {
+            try {
+                Class<?> c = Class.forName("gg.essential.config.McEssentialConfig");
+                Object inst = c.getField("INSTANCE").get(null);
+                java.lang.reflect.Method m = c.getMethod("gui$default", c, String.class, int.class, Object.class);
+                // a long category ("Quality of Life") so the scrolled shot shows how glass clips under the header
+                open(client, (net.minecraft.client.gui.screen.Screen) m.invoke(null, inst, "Quality of Life", 0, null), "open Essential settings");
+            } catch (Throwable t) {
+                skip("essential: open settings", t);
+                frames = 0; phase = P_STOP;
+            }
+            return;
+        }
+        if (frames == 150) { esNote(client, "settings"); capture(client, "ess-settings.png"); return; }
+        if (frames >= 200 && frames <= 215 && frames % 5 == 0) { esScroll(client, 0.72, -5); return; }   // glass must clip under the header
+        if (frames == 260) { esNote(client, "settings-late"); capture(client, "ess-settings2.png"); return; }
+        if (frames == 262) { close(client); return; }
+        if (frames == 330) { esNote(client, "after-close"); capture(client, "ess-after.png"); return; }
+        if (frames == 332) {   // Essential's "Select world to host" modal over the title screen (no ToS needed to open it)
+            try {
+                Class<?> gu = Class.forName("gg.essential.util.GuiUtil");
+                Object inst = gu.getField("INSTANCE").get(null);
+                Class<?> wsm = Class.forName("gg.essential.gui.sps.WorldSelectionModal");
+                java.lang.reflect.Constructor<?> ctor = null;
+                for (java.lang.reflect.Constructor<?> k : wsm.getConstructors()) if (k.getParameterCount() == 1) ctor = k;
+                final java.lang.reflect.Constructor<?> fc = ctor;
+                kotlin.jvm.functions.Function1<Object, Object> fn = mgr -> {
+                    try { return fc.newInstance(mgr); } catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
+                };
+                gu.getMethod("pushModal", kotlin.jvm.functions.Function1.class).invoke(inst, fn);
+            } catch (ClassNotFoundException e) {   // Essential 1.5+: the modal is reached through its invite-or-host flow
+                try {
+                    Class.forName("gg.essential.gui.sps.InviteOrHostModalFlowKt").getMethod("launchInviteOrHostModalFlow").invoke(null);
+                } catch (Throwable t) { skip("essential: host-world flow", t); }
+            } catch (Throwable t) { skip("essential: host-world modal", t); }
+            return;
+        }
+        if (frames == 400) { esNote(client, "host-modal"); capture(client, "ess-host.png"); return; }
+        if (frames == 402) { open(client, new net.minecraft.client.gui.screen.TitleScreen(), "back to title"); return; }
+        if (frames == 405) {   // Essential's screenshot browser (no login needed): header bar vs window corner, scrolling
+            try {
+                open(client, (net.minecraft.client.gui.screen.Screen) Class.forName("gg.essential.gui.screenshot.components.ScreenshotBrowser")
+                        .getConstructor().newInstance(), "open Essential pictures");
+            } catch (Throwable t) { skip("essential: pictures", t); }
+            return;
+        }
+        if (frames == 470) { esNote(client, "pictures"); capture(client, "ess-pics.png"); return; }
+        if (frames >= 472 && frames <= 487 && frames % 5 == 2) { esScroll(client, 0.5, -5); return; }
+        if (frames == 530) { esNote(client, "pictures-scroll"); capture(client, "ess-pics-scroll.png"); return; }
+        if (frames == 532) { open(client, new net.minecraft.client.gui.screen.TitleScreen(), "back to title"); return; }
+        if (frames >= 540) { frames = 0; phase = P_STOP; }
+    }
+
+    /** Mouse-wheel the current screen at (fx · width, middle); Essential reads the mouse from Mouse.x/y (parked there). */
+    private static void esScroll(MinecraftClient client, double fx, double amount) {
+        try {
+            net.minecraft.client.gui.screen.Screen s = client.currentScreen;
+            if (s == null) return;
+            double w = client.getWindow().getScaledWidth(), h = client.getWindow().getScaledHeight();
+            java.lang.reflect.Field mx = net.minecraft.client.Mouse.class.getDeclaredField("x");   // dev = Yarn names
+            java.lang.reflect.Field my = net.minecraft.client.Mouse.class.getDeclaredField("y");
+            {
+                mx.setAccessible(true);
+                my.setAccessible(true);
+                mx.setDouble(client.mouse, client.getWindow().getWidth() * fx);
+                my.setDouble(client.mouse, client.getWindow().getHeight() * 0.5);
+            }
+            s.mouseScrolled(w * fx, h * 0.5, 0, amount);
+        } catch (Throwable t) { skip("essential: scroll", t); }
+    }
+
+    private static void esNote(MinecraftClient client, String tag) {
+        try {
+            if (outDir == null) return;
+            net.minecraft.client.gui.screen.Screen s = client.currentScreen;
+            java.nio.file.Files.writeString(new File(outDir, "ess-screens.txt").toPath(),
+                    tag + " -> " + (s == null ? "null" : s.getClass().getName()) + System.lineSeparator(),
+                    java.nio.charset.StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Throwable ignored) { }
+    }
+
     private static void stepTitle(MinecraftClient client) {
         if (++frames >= TITLE_FRAMES) {
             if (introWorld) {
@@ -311,6 +402,7 @@ public final class DevShot {
                 frames = 0; lpLastMs = 0L; lpCount = 0; phase = P_LOOPPREV;
                 return;
             }
+            if ("essential".equals(mode)) { frames = 0; phase = P_ESSENTIAL; return; }   // menus only, no world
             capture(client, "title.png");
             open(client, new S1mp1eConfigScreen(), "open settings (over title)");
             frames = 0; phase = P_WAIT_CONFIG;
@@ -497,6 +589,7 @@ public final class DevShot {
             frames = 0; phase = P_BA_GM;
             return;
         }
+        if ("audit".equals(mode)) { close(client); frames = 0; phase = P_AUDIT; return; }
         // VERIFY sweeps (acceptance checklist): screens / tabs / lists / tooltips / effects / hud / modules / flicker.
         if (DevShotVerify.handles(mode)) {
             close(client);
@@ -657,8 +750,12 @@ public final class DevShot {
                 sp.equipStack(EquipmentSlot.CHEST, new ItemStack(Items.IRON_CHESTPLATE));
                 sp.equipStack(EquipmentSlot.LEGS,  new ItemStack(Items.IRON_LEGGINGS));
                 sp.equipStack(EquipmentSlot.FEET,  new ItemStack(Items.IRON_BOOTS));
-                // 60 s Speed I, icon on but no particles (keeps the reference frame clean).
+                // A spread of effects (icons on, no particles) so the PotionHUD shows stacked glass tiles,
+                // varied silhouette colours, counting time labels and the infinite (∞) case.
                 sp.addStatusEffect(new StatusEffectInstance(StatusEffects.SPEED, 1200, 0, false, false, true));
+                sp.addStatusEffect(new StatusEffectInstance(StatusEffects.STRENGTH, 3600, 0, false, false, true));
+                sp.addStatusEffect(new StatusEffectInstance(StatusEffects.REGENERATION, 600, 0, false, false, true));
+                sp.addStatusEffect(new StatusEffectInstance(StatusEffects.NIGHT_VISION, -1, 0, false, false, true));
                 // Fixed spot, facing yaw 0 / pitch 15 (looking slightly down at the flat plain).
                 sp.refreshPositionAndAngles(sp.getX(), sp.getY(), sp.getZ(), 0f, 15f);
                 sp.networkHandler.requestTeleport(sp.getX(), sp.getY(), sp.getZ(), 0f, 15f);
@@ -726,7 +823,7 @@ public final class DevShot {
     }
 
     /** Capture the current framebuffer to {@code outDir/name}, overwriting. */
-    private static void capture(MinecraftClient client, String name) {
+    static void capture(MinecraftClient client, String name) {
         NativeImage img = null;
         try {
             img = ScreenshotRecorder.takeScreenshot(client.getFramebuffer());

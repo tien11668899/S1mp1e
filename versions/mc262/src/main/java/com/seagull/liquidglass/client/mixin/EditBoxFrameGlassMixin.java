@@ -13,8 +13,8 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 /**
  * A bordered {@link EditBox} draws its frame as one opaque sprite (black box, grey outline). While
  * {@link EditBoxGlass#frame} is set — only around the recipe book's search field, see {@code RecipeBookGlassMixin} — that sprite
- * becomes a rounded frosted scrim instead, so the field reads as part of the glass book. Text, hint and caret are
- * untouched (and keep the bordered inset). Every other text field keeps its vanilla frame.
+ * becomes a rounded frosted scrim instead (focused: brighter). Text, hint and caret are untouched (and keep the bordered
+ * inset). Applies to every bordered text field, matching the multi-line text areas ({@code TextAreaGlassMixin}).
  */
 @Mixin(EditBox.class)
 public abstract class EditBoxFrameGlassMixin {
@@ -24,8 +24,9 @@ public abstract class EditBoxFrameGlassMixin {
                target = "Lnet/minecraft/client/gui/GuiGraphicsExtractor;blitSprite(Lcom/mojang/blaze3d/pipeline/RenderPipeline;Lnet/minecraft/resources/Identifier;IIII)V")
    )
    private void lg$glassFrame(GuiGraphicsExtractor g, RenderPipeline pipeline, Identifier sprite, int x, int y, int w, int h) {
-      if (EditBoxGlass.frame || net.minecraft.client.Minecraft.getInstance().gui.screen()
-            instanceof net.minecraft.client.gui.screens.worldselection.SelectWorldScreen) {   // + world list search
+      // Every bordered EditBox is glass (all-UI audit: direct connect / server edit / world name / command block / key
+      // search were still vanilla black). Borderless boxes (anvil rename, chat input) never reach this sprite call.
+      if (true) {
          boolean focused = ((EditBox) (Object) this).isFocused();
          GlassSurface.scrim(g, x, y, x + w, y + h, 4.0F, focused ? 0x4DFFFFFF : 0x2EFFFFFF);
       } else {

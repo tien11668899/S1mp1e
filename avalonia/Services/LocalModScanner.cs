@@ -18,7 +18,10 @@ public sealed record LocalMod(
     byte[]? IconBytes,
     bool Enabled,
     string Loader = "",        // "fabric" | "forge" | "" (unknown) — which descriptor parsed
-    string? Version = null);   // literal version string, null if absent/placeholder
+    string? Version = null,    // literal version string, null if absent/placeholder
+    string Folder = "",        // the directory this jar sits in (which of the 3 mod folders)
+    long Size = 0,             // bytes
+    string? Sha512 = null);    // lowercase hex sha512 of the jar content (for Modrinth lookup + dedup)
 
 /// <summary>
 /// Scans <c>&lt;mcRoot&gt;/mods</c> for Fabric jars (both <c>.jar</c> and the
@@ -32,31 +35,33 @@ public sealed record LocalMod(
 /// </summary>
 public static class LocalModScanner
 {
-    public static async Task<List<LocalMod>> ScanAsync(string mcRoot, string? mcVersion = null, CancellationToken ct = default)
+    /// <param name="computeHash">When true, the sha512 of each jar is computed (for Modrinth
+    /// identification + dedup). Slightly slower; callers that only need names can pass false.</param>
+    public static async Task<List<LocalMod>> ScanAsync(string mcRoot, string? mcVersion = null,
+        bool computeHash = true, CancellationToken ct = default)
     {
         var result = new List<LocalMod>();
         if (string.IsNullOrWhiteSpace(mcRoot)) return result;
-        // Three folders: the vanilla mods/ dir (where the user drops mods manually),
-        // s1mp1e-mods/ (legacy flat writes), and s1mp1e-mods/<mc>/ (where
-        // "下載到所有版本" writes AND where single-version 下載 now saves — matches
-        // launch.rs's pick_user_mods).
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Three folders: the vanilla mods/ dir (manual drops), s1mp1e-mods/ (legacy flat
+        // writes), and s1mp1e-mods/<mc>/ (per-version downloads). Every copy is returned —
+        // the UI groups duplicates and marks the ones outside the actual launch folder, so we
+        // deliberately do NOT cross-folder dedupe here any more.
         foreach (var sub in new[] { "mods", "s1mp1e-mods" })
         {
             var dir = Path.Combine(mcRoot, sub);
             if (!Directory.Exists(dir)) continue;
-            await ScanDirAsync(dir, seen, result, ct).ConfigureAwait(false);
+            await ScanDirAsync(dir, result, computeHash, ct).ConfigureAwait(false);
         }
         if (!string.IsNullOrWhiteSpace(mcVersion))
         {
             var perMc = Path.Combine(mcRoot, "s1mp1e-mods", mcVersion);
-            if (Directory.Exists(perMc)) await ScanDirAsync(perMc, seen, result, ct).ConfigureAwait(false);
+            if (Directory.Exists(perMc)) await ScanDirAsync(perMc, result, computeHash, ct).ConfigureAwait(false);
         }
         result.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
-    private static async Task ScanDirAsync(string dir, HashSet<string> seen, List<LocalMod> result, CancellationToken ct)
+    private static async Task ScanDirAsync(string dir, List<LocalMod> result, bool computeHash, CancellationToken ct)
     {
         await Task.Yield();
         foreach (var f in Directory.EnumerateFiles(dir))
@@ -69,11 +74,9 @@ public static class LocalModScanner
             else continue;
             // Skip our injected glass jar — it's an internal artifact, not a user mod.
             if (name.StartsWith("glass-", StringComparison.OrdinalIgnoreCase)) continue;
-            // Dedupe if the same jar exists in both mods/ and s1mp1e-mods/.
-            var key = name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
-                ? name.Substring(0, name.Length - ".disabled".Length)
-                : name;
-            if (!seen.Add(key)) continue;
+
+            long size = 0;
+            try { size = new FileInfo(f).Length; } catch { }
 
             LocalMod? mod = null;
             try
@@ -85,15 +88,49 @@ public static class LocalModScanner
             }
             catch { /* corrupt jar — skip */ }
 
+            string? sha = null;
+            if (computeHash)
+            {
+                try
+                {
+                    await using var hs = File.OpenRead(f);
+                    using var sha512 = System.Security.Cryptography.SHA512.Create();
+                    var hash = await sha512.ComputeHashAsync(hs, ct).ConfigureAwait(false);
+                    sha = Convert.ToHexString(hash).ToLowerInvariant();
+                }
+                catch { }
+            }
+
             // Even unreadable jars should still appear so the user can toggle them off.
-            result.Add(mod ?? new LocalMod(
+            mod ??= new LocalMod(
                 JarPath: f,
                 Id: Path.GetFileNameWithoutExtension(name),
                 Name: Path.GetFileNameWithoutExtension(name),
                 Description: "",
                 IconBytes: null,
-                Enabled: enabled));
+                Enabled: enabled);
+            result.Add(mod with { Folder = dir, Size = size, Sha512 = sha });
         }
+    }
+
+    /// <summary>Read one jar's mod descriptor (Fabric, then Forge/NeoForge). Null if it isn't a recognisable mod.</summary>
+    public static LocalMod? ReadJarMeta(string jarPath)
+    {
+        try
+        {
+            using var fs = File.OpenRead(jarPath);
+            using var zip = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: false);
+            var enabled = !jarPath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+            var mod = ReadFabricMeta(zip, jarPath, enabled) ?? ReadForgeMeta(zip, jarPath, enabled);
+            if (mod != null) return mod with { Folder = Path.GetDirectoryName(jarPath) ?? "" };
+            // Legacy Forge (1.8.9–1.12.2) ships mcmod.info instead of mods.toml — still a mod.
+            if (zip.GetEntry("mcmod.info") != null)
+                return new LocalMod(jarPath, Path.GetFileNameWithoutExtension(jarPath),
+                                    Path.GetFileNameWithoutExtension(jarPath), "", null, enabled, "forge",
+                                    Folder: Path.GetDirectoryName(jarPath) ?? "");
+        }
+        catch { }
+        return null;
     }
 
     private static LocalMod? ReadFabricMeta(ZipArchive zip, string jarPath, bool enabled)

@@ -109,7 +109,7 @@ public static class ConflictScanner
         return true;
     }
 
-    private static int Compare(SemVer a, SemVer b)
+    public static int Compare(SemVer a, SemVer b)
     {
         if (a.Major != b.Major) return a.Major.CompareTo(b.Major);
         if (a.Minor != b.Minor) return a.Minor.CompareTo(b.Minor);

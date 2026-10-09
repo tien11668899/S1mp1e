@@ -93,6 +93,30 @@ public final class ContainerExtras {
         if (k != src) net.minecraft.client.MinecraftClient.getInstance().getTextureManager().bindTexture(k);
     }
 
+    /**
+     * #12 — the vanilla container texture currently bound for blitting, or {@code null} when the bound texture is not
+     * one of them. Same GL-id -> identifier lookup as {@link #rebindKeyed()}, but returns the STILL-vanilla id so a
+     * caller inside a suppression window can match a sub-region of it (the anvil name field, the enchant rows) and draw
+     * glass instead. Must be called BEFORE {@link #rebindKeyed()} swaps the bound texture.
+     */
+    public static Identifier boundVanillaId() {
+        int bound = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_TEXTURE_BINDING_2D);
+        if (bound <= 0) return null;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        sync(mc);
+        Identifier src = BOUND.get(bound);
+        if (src == null) {
+            src = NONE;
+            for (String name : CONTAINERS) {
+                Identifier id = new Identifier("textures/gui/container/" + name + ".png");
+                net.minecraft.client.texture.AbstractTexture tex = mc.getTextureManager().getTexture(id);
+                if (tex != null && tex.getGlId() == bound) { src = id; break; }
+            }
+            BOUND.put(bound, src);
+        }
+        return src == NONE ? null : src;
+    }
+
     private static final Map<Identifier, Identifier> KEYED = new HashMap<>();
     private static final Map<String, Identifier> ICONS = new HashMap<>();
     private static final Identifier NONE = new Identifier("s1mp1e", "keyed/none");

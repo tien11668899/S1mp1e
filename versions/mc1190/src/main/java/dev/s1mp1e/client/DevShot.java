@@ -108,7 +108,13 @@ public final class DevShot {
                              // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title (glass intact
                              // after the intro ran during the first reload) -> world-entry loop preview -> real world
                              // entry loop -> after-world. Inert otherwise.
-                             P_LOOPPREV = 130;
+                             P_LOOPPREV = 130,
+                             // AUDIT mode: open every vanilla Screen in turn and shoot it (DevAudit); after world load.
+                             P_AUDIT = 140,
+                             // ALLGLASS mode: state-dependent all-glass evidence shots (DevAllGlass); after world load.
+                             P_ALLGLASS = 150,
+                             // MENUS mode (#26): world-less menus from the title (DevMenus). Never creates a world.
+                             P_MENUS = 160;
 
     // ---- intro mode state (S1MP1E_SHOT_MODE=intro) ----
     private static boolean introMode;     // boot brand-intro capture path active
@@ -205,7 +211,8 @@ public final class DevShot {
         }
 
         // Global watchdog — never hang.
-        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L : WATCHDOG_MS;
+        long watchdog = (DevShotVerify.handles(mode) || "audit".equalsIgnoreCase(mode) || "allglass".equalsIgnoreCase(mode)
+                         || "menus".equalsIgnoreCase(mode)) ? 1_500_000L : WATCHDOG_MS;
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
             System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
@@ -245,6 +252,9 @@ public final class DevShot {
                 case P_MODULES_SEQ:        stepModulesSeq(client);               break;
                 case P_VERIFY:             if (DevShotVerify.step(client)) phase = P_STOP; break;
                 case P_LOOPPREV:           stepLoopPreview(client);              break;
+                case P_AUDIT:              if (DevAudit.step(client)) { frames = 0; phase = P_STOP; } break;
+                case P_ALLGLASS:           if (DevAllGlass.step(client)) { frames = 0; phase = P_STOP; } break;
+                case P_MENUS:              if (DevMenus.step(client)) { frames = 0; phase = P_STOP; } break;
                 case P_STOP:               stepStop(client);                     break;
                 default:                   break;
             }
@@ -325,6 +335,11 @@ public final class DevShot {
 
     private static void stepTitle(MinecraftClient client) {
         if (++frames >= TITLE_FRAMES) {
+            if ("menus".equalsIgnoreCase(mode)) {   // #26 world-less menus only (never create a world / run the intro loop)
+                capture(client, "title.png");
+                frames = 0; phase = P_MENUS;
+                return;
+            }
             if (introWorld) {
                 // Glass buttons must still render after the boot intro ran during the first resource reload.
                 capture(client, "after-title.png");
@@ -503,6 +518,8 @@ public final class DevShot {
                 sweepFrames = 0; phase = P_MODULES_SEQ;
                 return;
             }
+            if ("audit".equalsIgnoreCase(mode)) { frames = 0; phase = P_AUDIT; return; }           // full-screen audit
+            if ("allglass".equalsIgnoreCase(mode)) { frames = 0; phase = P_ALLGLASS; return; }     // state shots
             if (DevShotVerify.handles(mode)) {  // the 1.21.1 feature-set sweeps
                 DevShotVerify.init(outDir, mode);
                 frames = 0; phase = P_VERIFY;

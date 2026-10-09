@@ -35,6 +35,7 @@ public final class HungerSaturationHudModule extends Module implements HudRender
 
     @Override
     public void renderHud() {
+        if (!enabled) return;   // drawn via raw sprites that don't honour HudFade.alpha -> never fade (as mc1165)
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.world == null || mc.options.hudHidden) return;
         if (mc.player.isCreative() || mc.player.isSpectator() || mc.player.hasVehicle()) return;

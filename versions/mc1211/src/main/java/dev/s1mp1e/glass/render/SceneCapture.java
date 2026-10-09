@@ -40,6 +40,9 @@ public final class SceneCapture {
     /** True once a backdrop has been captured this frame. */
     public static boolean hasBackdrop() { return texture != 0; }
 
+    /** {@link System#nanoTime()} of the last grab (0 = never), so a late UI layer can reuse this frame's backdrop. */
+    public static long lastGrabNanos() { return lastGrabNanos; }
+
     /**
      * Copy the current framebuffer into the backdrop texture, DE-DUPLICATED.
      *

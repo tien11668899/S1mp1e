@@ -1,0 +1,154 @@
+package com.seagull.liquidglass.client;
+
+import net.fabricmc.api.ClientModInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class LiquidGlassClient implements ClientModInitializer {
+   public static final String MODID = "liquidglass";
+   public static final Logger LOG = LoggerFactory.getLogger("LiquidGlass");
+
+   public void onInitializeClient() {
+      com.seagull.liquidglass.client.compat.essential.EssentialPreLaunch.retry();
+      LOG.info("[LiquidGlass] client initialized (v0.1.0, MC 26.2 / mojmap)");
+      // Build the S1mp1e client modules + load saved config (guarded internally; never throws).
+      try { dev.s1mp1e.client.ModuleManager.init(); } catch (Throwable t) { LOG.warn("[S1mp1e] module init failed", t); }
+      // The menu key (RightShift) is polled by dev.s1mp1e.client.mixin.MenuKeyMixin at Minecraft.tick() RETURN.
+
+      // DEV ONLY (set by `runClient` via -Ds1mp1e.preloadMixinTargets=true, never in production): force every mixin
+      // target class to load now. Mixin transforms a class when it is defined, so this applies every injection at
+      // startup and surfaces a bad target immediately — including classes that otherwise only load in-world or in a
+      // specific menu (tabs, container screens, AbstractClientPlayer...). initialize=false: no static init runs.
+      if (Boolean.getBoolean("s1mp1e.preloadMixinTargets")) {
+         preloadMixinTargets();
+      }
+   }
+
+   /** Every @Mixin target in liquidglass.mixins.json + s1mp1e.mixins.json (regenerate when adding a mixin). */
+   private static final String[] MIXIN_TARGETS = {
+      "net.minecraft.client.Camera",
+      "net.minecraft.client.KeyMapping",
+      "net.minecraft.client.Minecraft",
+      "net.minecraft.client.MouseHandler",
+      "net.minecraft.client.gui.GuiGraphicsExtractor",
+      "net.minecraft.client.gui.Hud",
+      "net.minecraft.client.gui.components.AbstractButton",
+      "net.minecraft.client.gui.components.AbstractSliderButton",
+      "net.minecraft.client.gui.components.BossHealthOverlay",
+      "net.minecraft.client.gui.components.ChatComponent",
+      "net.minecraft.client.gui.components.PlayerTabOverlay",
+      "net.minecraft.client.gui.components.tabs.MenuTabBar$MenuTabButton",
+      "net.minecraft.client.gui.components.toasts.AdvancementToast",
+      "net.minecraft.client.gui.components.toasts.RecipeToast",
+      "net.minecraft.client.gui.components.toasts.SystemToast",
+      "net.minecraft.client.gui.components.toasts.TutorialToast",
+      "net.minecraft.client.gui.font.FontTexture",
+      "net.minecraft.client.gui.render.GuiRenderer",
+      "net.minecraft.client.gui.screens.ChatScreen",
+      "net.minecraft.client.gui.screens.LoadingOverlay",
+      "net.minecraft.client.gui.screens.ProgressScreen",
+      "net.minecraft.client.gui.screens.ConnectScreen",
+      "net.minecraft.client.gui.screens.GenericWaitingScreen",
+      "net.minecraft.client.gui.screens.LevelLoadingScreen",
+      "net.minecraft.client.gui.screens.achievement.StatsScreen",
+      "net.minecraft.client.gui.screens.advancements.AdvancementsScreen",
+      "net.minecraft.client.gui.screens.inventory.AbstractContainerScreen",
+      "net.minecraft.client.gui.screens.inventory.AbstractFurnaceScreen",
+      "net.minecraft.client.gui.screens.inventory.AbstractMountInventoryScreen",
+      "net.minecraft.client.gui.screens.inventory.BeaconScreen",
+      "net.minecraft.client.gui.screens.inventory.BookEditScreen",
+      "net.minecraft.client.gui.screens.inventory.BookSignScreen",
+      "net.minecraft.client.gui.screens.inventory.BookViewScreen",
+      "net.minecraft.client.gui.screens.inventory.BrewingStandScreen",
+      "net.minecraft.client.gui.screens.inventory.CartographyTableScreen",
+      "net.minecraft.client.gui.screens.inventory.ContainerScreen",
+      "net.minecraft.client.gui.screens.inventory.CrafterScreen",
+      "net.minecraft.client.gui.screens.inventory.CraftingScreen",
+      "net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen",
+      "net.minecraft.client.gui.screens.inventory.DispenserScreen",
+      "net.minecraft.client.gui.screens.inventory.EffectsInInventory",
+      "net.minecraft.client.gui.screens.inventory.EnchantmentScreen",
+      "net.minecraft.client.gui.screens.inventory.GrindstoneScreen",
+      "net.minecraft.client.gui.screens.inventory.HopperScreen",
+      "net.minecraft.client.gui.screens.inventory.InventoryScreen",
+      "net.minecraft.client.gui.screens.inventory.ItemCombinerScreen",
+      "net.minecraft.client.gui.screens.inventory.LoomScreen",
+      "net.minecraft.client.gui.screens.inventory.MerchantScreen",
+      "net.minecraft.client.gui.screens.inventory.ShulkerBoxScreen",
+      "net.minecraft.client.gui.screens.inventory.StonecutterScreen",
+      "net.minecraft.client.gui.screens.inventory.tooltip.ClientTextTooltip",
+      "net.minecraft.client.gui.screens.inventory.tooltip.TooltipRenderUtil",
+      "net.minecraft.client.gui.screens.recipebook.RecipeBookComponent",
+      "net.minecraft.client.gui.screens.recipebook.RecipeBookTabButton",
+      "net.minecraft.client.gui.screens.recipebook.RecipeButton",
+      "net.minecraft.client.gui.screens.social.SocialInteractionsScreen",
+      "net.minecraft.client.player.AbstractClientPlayer",
+      "net.minecraft.client.renderer.GameRenderer",
+      "net.minecraft.client.renderer.FirstPersonHandsAndItemsRenderer",
+      "net.minecraft.client.renderer.LevelRenderer",
+      "net.minecraft.client.renderer.LightmapRenderStateExtractor",
+      "net.minecraft.client.renderer.SubmitNodeCollection",
+      "net.minecraft.client.renderer.entity.LivingEntityRenderer",
+      "net.minecraft.client.renderer.state.gui.GlyphRenderState",
+      "net.minecraft.client.renderer.state.gui.GuiRenderState",
+   };
+
+   private static void preloadMixinTargets() {
+      ClassLoader loader = LiquidGlassClient.class.getClassLoader();
+      // Every target of every mixin in our configs (read from the @Mixin annotations), plus the hand list. The hand
+      // list alone missed inner classes (26.3: OptionsList$HeaderEntry failed only when Video Settings was opened).
+      java.util.LinkedHashSet<String> targets = new java.util.LinkedHashSet<>(java.util.Arrays.asList(MIXIN_TARGETS));
+      for (String cfg : new String[]{"liquidglass.mixins.json", "s1mp1e.mixins.json"}) {
+         try (java.io.InputStream in = loader.getResourceAsStream(cfg)) {
+            if (in == null) continue;
+            com.google.gson.JsonObject o = com.google.gson.JsonParser.parseReader(
+                  new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            String pkg = o.get("package").getAsString();
+            for (String list : new String[]{"mixins", "client"}) {
+               if (!o.has(list)) continue;
+               for (com.google.gson.JsonElement e : o.getAsJsonArray(list)) {
+                  targets.addAll(mixinTargets(loader, pkg + "." + e.getAsString()));
+               }
+            }
+         } catch (Throwable t) {
+            LOG.error("[S1mp1e] mixin target scan FAILED for " + cfg, t);
+         }
+      }
+      int ok = 0;
+      for (String target : targets) {
+         try {
+            Class.forName(target, false, loader);
+            ok++;
+         } catch (Throwable t) {
+            LOG.error("[S1mp1e] mixin target preload FAILED: " + target, t);
+         }
+      }
+      LOG.info("[S1mp1e] mixin target preload: {}/{} OK", ok, targets.size());
+   }
+
+   /** The target class names of one mixin class, from its (class-retained) {@code @Mixin} annotation, read with ASM. */
+   private static java.util.List<String> mixinTargets(ClassLoader loader, String mixin) {
+      java.util.ArrayList<String> out = new java.util.ArrayList<>();
+      try (java.io.InputStream in = loader.getResourceAsStream(mixin.replace('.', '/') + ".class")) {
+         if (in == null) return out;
+         org.objectweb.asm.tree.ClassNode cn = new org.objectweb.asm.tree.ClassNode();
+         new org.objectweb.asm.ClassReader(in).accept(cn, org.objectweb.asm.ClassReader.SKIP_CODE);
+         java.util.List<org.objectweb.asm.tree.AnnotationNode> anns = cn.invisibleAnnotations;
+         if (anns == null) return out;
+         for (org.objectweb.asm.tree.AnnotationNode a : anns) {
+            if (!"Lorg/spongepowered/asm/mixin/Mixin;".equals(a.desc) || a.values == null) continue;
+            for (int i = 0; i + 1 < a.values.size(); i += 2) {
+               Object v = a.values.get(i + 1);
+               if (!(v instanceof java.util.List<?> l)) continue;
+               for (Object x : l) {
+                  if (x instanceof org.objectweb.asm.Type t) out.add(t.getClassName());
+                  else if (x instanceof String s) out.add(s.replace('/', '.'));
+               }
+            }
+         }
+      } catch (Throwable t) {
+         LOG.error("[S1mp1e] mixin scan FAILED: " + mixin, t);
+      }
+      return out;
+   }
+}

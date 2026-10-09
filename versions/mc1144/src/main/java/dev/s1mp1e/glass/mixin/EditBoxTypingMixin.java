@@ -188,10 +188,10 @@ public abstract class EditBoxTypingMixin {
                target = "Lnet/minecraft/client/gui/widget/TextFieldWidget;fill(IIIII)V")
    )
    private void lg$glassFrame(int x0, int y0, int x1, int y1, int color) {
-      if (dev.s1mp1e.glass.render.GlassProgram.roundUsable()
-            && (dev.s1mp1e.glass.render.EditBoxGlass.frame
-                || net.minecraft.client.MinecraftClient.getInstance().currentScreen
-                      instanceof net.minecraft.client.gui.screen.world.SelectWorldScreen)) {
+      // #3 (ALLGLASS): every bordered single-line field gets the frosted frame, not only the recipe-book / world-select
+      // search boxes (1.15.2 EditBoxFrameGlassMixin parity). Borderless fields (chat, the anvil name box) draw no frame
+      // fills, so they are untouched. EditBoxGlass.frame / SelectWorldScreen no longer gate the look.
+      if (dev.s1mp1e.glass.render.GlassProgram.roundUsable()) {
          if (color == 0xFF000000) return;                 // the black inside: the scrim below stands in for both
          boolean focused = ((TextFieldWidget) (Object) this).isFocused();
          dev.s1mp1e.client.gui.GlassWidgets.fillRound(x0, y0, x1, y1, focused ? 0x4DFFFFFF : 0x2EFFFFFF, 4.0F);

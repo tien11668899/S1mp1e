@@ -28,6 +28,12 @@ public final class HudText {
     /** Same contract as {@link GlassFont#drawARGB}: an all-zero alpha byte is promoted to opaque. */
     public static void draw(String s, float x, float y, int argb, boolean shadow) {
         if (s == null || s.isEmpty()) return;
+        if (HudFade.alpha < 1F) {   // HUD-module appear/disappear (1 outside a module's draw)
+            // promote "alpha 0 = opaque" BEFORE fading, or a fully faded label would read as opaque again
+            if ((argb >>> 24 & 0xFF) == 0) argb |= 0xFF000000;
+            argb = HudFade.argb(argb);
+            if ((argb >>> 24 & 0xFF) < 8) return;
+        }
         if (!ChromaHudModule.textActive()) {
             GlassFont.drawARGB(s, x, y, argb, shadow);
             return;

@@ -131,7 +131,12 @@ public final class GlassHudHandler {
             int height = sr.getScaledHeight();
 
             GlStateManager.color(1f, 1f, 1f, 1f);
-            GlStateManager.disableBlend();   // the icons sheet strip is opaque, like vanilla
+            // allglass #17: the XP bar as a glass capsule track + round-ended green fill (ContextualBarHook). This
+            // handler owns the XP element (vanilla's is cancelled), so GuiIngameForge.renderExperience — where the
+            // coremod redirects the jump bar's blits — never runs for XP: route our own two blits through the hook.
+            // Glass needs blend ON (the old icons-sheet strip was drawn opaque). Drawn at vanilla's spot: the push
+            // above lifts it with the cluster and the glass follows the GL model-view (never subtract the lift).
+            GlStateManager.enableBlend();
 
             if (mc.playerController.gameIsSurvivalOrAdventure()) {
                 mc.getTextureManager().bindTexture(ICONS);
@@ -140,8 +145,8 @@ public final class GlassHudHandler {
                 if (cap > 0) {
                     int filled = (int) (mc.thePlayer.experience * 183f);
                     int top = height - 32 + 3;                       // vanilla XP bar top = h-29
-                    XP_BLIT.rect(left, top, 0, 64, 182, 5);
-                    if (filled > 0) XP_BLIT.rect(left, top, 0, 69, filled, 5);
+                    ContextualBarHook.bar(XP_BLIT, left, top, 0, 64, 182, 5);
+                    if (filled > 0) ContextualBarHook.bar(XP_BLIT, left, top, 0, 69, filled, 5);
                 }
                 if (mc.thePlayer.experienceLevel > 0) {
                     String s = "" + mc.thePlayer.experienceLevel;
@@ -167,6 +172,17 @@ public final class GlassHudHandler {
     }
 
     // ---- replace the vanilla hotbar --------------------------------------
+
+    /**
+     * allglass #15: Forge posts the F3 text lists in this event right before {@code renderHUDText} draws them. Hand
+     * them (after every other listener, hence LOWEST) to {@link DebugCardHook} so it can paint ONE rounded plate per
+     * group of consecutive lines instead of a strip per line.
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onDebugText(RenderGameOverlayEvent.Text e) {
+        if (e.isCanceled()) { DebugCardHook.cancel(); return; }
+        DebugCardHook.prepare(e.left, e.right, e.resolution.getScaledWidth());
+    }
 
     @SubscribeEvent
     public void onHotbar(RenderGameOverlayEvent.Pre e) {

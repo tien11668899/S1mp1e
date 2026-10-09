@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.mojang.blaze3d.platform.GlStateManager;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.mixin.SpriteImagesAccessor;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.Tessellator;
@@ -91,10 +92,11 @@ public final class Silhouette {
         Tessellator t = Tessellator.getInstance();
         BufferBuilder bb = t.getBuffer();
         bb.begin(GL11.GL_QUADS, VertexFormats.POSITION_COLOR);
+        float fade = HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
         for (int i = 0; i < cnt; i++) {
             int ex = pts[i * 2], ey = pts[i * 2 + 1];
             float ripple = 0.55f + 0.45f * (float) Math.sin(Math.PI * 2 * ((float) i / cnt * 2f - time));
-            int a = i < keep ? 255 : 55;
+            int a = Math.round((i < keep ? 255 : 55) * fade);
             int col = scaleRgb(baseRgb, ripple);
             int r = (col >> 16) & 0xFF, g = (col >> 8) & 0xFF, b = col & 0xFF;
             float px = ix + ex, py = iy + ey;
@@ -108,6 +110,55 @@ public final class Silhouette {
         GlStateManager.enableAlphaTest();
         GlStateManager.enableTexture();
         // Blend stays ENABLED (MC's baseline). Reset the colour cache so the icon drawn next is untinted.
+        GlStateManager.color4f(0f, 0f, 0f, 0f);
+        GlStateManager.color4f(1f, 1f, 1f, 1f);
+    }
+
+    /** Fill {@code op[16][16]} with {@code sprite}'s opaque mask (same 16&times;16 grid sampling as {@link #trace}). */
+    public static void mask(Sprite sprite, boolean[][] op) {
+        NativeImage img = ((SpriteImagesAccessor) (Object) sprite).s1mp1e$images()[0];
+        if (img == null) throw new IllegalStateException("no image");
+        int iw = img.getWidth(), ih = img.getHeight();
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int nx = Math.min(iw - 1, x * iw / 16), ny = Math.min(ih - 1, y * ih / 16);
+                op[x][y] = ((img.getPixelRgba(nx, ny) >>> 24) & 0xFF) > ALPHA_MIN;
+            }
+        }
+    }
+
+    /**
+     * Draw the icon's silhouette as a SOLID colour fill with its origin at {@code (ix,iy)} (a filled disc that
+     * extends 1px beyond the ink, so the icon on top leaves a clean 1px colour border). Same immediate-mode
+     * POSITION_COLOR quad path and GL-state discipline as {@link #draw} — flat colour over the whole mask.
+     */
+    public static void fill(boolean[][] op, int ix, int iy, int baseRgb) {
+        int r = (baseRgb >> 16) & 0xFF, g = (baseRgb >> 8) & 0xFF, b = baseRgb & 0xFF;
+        int fa = Math.round(255 * HudFade.alpha);   // HUD-module appear/disappear (1 outside a module's draw)
+        if (fa <= 0) return;
+        GlStateManager.disableTexture();
+        GlStateManager.enableBlend();
+        GlStateManager.disableAlphaTest();
+        GlStateManager.blendFuncSeparate(770, 771, 1, 0);
+        Tessellator t = Tessellator.getInstance();
+        BufferBuilder bb = t.getBuffer();
+        bb.begin(GL11.GL_QUADS, VertexFormats.POSITION_COLOR);
+        for (int y = -1; y <= 16; y++) {
+            for (int x = -1; x <= 16; x++) {
+                if (op(op, x, y)
+                        || op(op, x - 1, y) || op(op, x + 1, y) || op(op, x, y - 1) || op(op, x, y + 1)
+                        || op(op, x - 1, y - 1) || op(op, x + 1, y - 1) || op(op, x - 1, y + 1) || op(op, x + 1, y + 1)) {
+                    float px = ix + x, py = iy + y;
+                    bb.vertex(px,      py,      0f).color(r, g, b, fa).next();
+                    bb.vertex(px,      py + 1f, 0f).color(r, g, b, fa).next();
+                    bb.vertex(px + 1f, py + 1f, 0f).color(r, g, b, fa).next();
+                    bb.vertex(px + 1f, py,      0f).color(r, g, b, fa).next();
+                }
+            }
+        }
+        t.draw();
+        GlStateManager.enableAlphaTest();
+        GlStateManager.enableTexture();
         GlStateManager.color4f(0f, 0f, 0f, 0f);
         GlStateManager.color4f(1f, 1f, 1f, 1f);
     }

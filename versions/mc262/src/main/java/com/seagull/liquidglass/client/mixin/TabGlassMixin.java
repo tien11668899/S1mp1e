@@ -39,8 +39,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * </ul>
  * The lift eases per tab over {@link #FADE_MS} (100 ms, the buttons' hover fade), so switching or hovering a tab
  * fades instead of popping, and the capsule opacity eases in over {@link #OPEN_FADE_MS} when a screen opens. The
- * square menu-background block is suppressed while glass draws; vanilla's 1px underline under the selected label is
- * kept and sits just below the pill (the capsule stops 3px above the tab bottom). When the glass pipeline isn't
+ * square menu-background block is suppressed while glass draws, and so is vanilla's 1px underline under the selected
+ * label — the brightest capsule IS the selection (an Apple segmented control has no underline). When the glass pipeline isn't
  * usable everything falls back to vanilla.
  */
 @Mixin(MenuTabBar.MenuTabButton.class)
@@ -86,7 +86,15 @@ public abstract class TabGlassMixin {
       // opacity eases in with the screen (tabs are drawn without a tint, so this is the whole opacity); the fade is
       // shared with the glass buttons and sliders so a return to the same screen restarts all of them together
       int opacity = Math.round(255.0F * ScreenOpenFade.value(Minecraft.getInstance().gui.screen())) & 0xFF;
+      // segmented-control emphasis (no underline any more): unselected tabs are faint glass, hovered half-lit
+      opacity = Math.round(opacity * (self.isSelected() ? 1.0F : (self.isHoveredOrFocused() ? 0.7F : 0.4F))) & 0xFF;
 
+      if (dev.s1mp1e.client.gui.SegmentedTabs.active) {
+         // inside the segmented capsule: the sliding pill marks the selection; only a faint glow on a hovered tab
+         if (self.isSelected() || !self.isHoveredOrFocused()) return;
+         opacity = Math.round(opacity * 0.35F) & 0xFF;
+         liftG = 0xFF;
+      }
       int col = (self.active ? 255 : 102) << 24 | 0xFF0000 | liftG << 8 | opacity;
       ((GuiGraphicsExtractorAccessor)g)
          .liquidglass$guiRenderState()
@@ -100,5 +108,22 @@ public abstract class TabGlassMixin {
       if (GlassPipeline.ensureReady() && GlassPipeline.btnUsable()) {
          ci.cancel();
       }
+   }
+
+   @org.spongepowered.asm.mixin.injection.Inject(method = "renderFocusUnderline", at = @At("HEAD"), cancellable = true)
+   private void lg$noUnderline(GuiGraphicsExtractor g, net.minecraft.client.gui.Font font, int color,
+                               org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+      if (GlassPipeline.ensureReady() && GlassPipeline.btnUsable()) ci.cancel();
+   }
+
+   /**
+    * Every tab label at the SELECTED tab's height. Vanilla centres an unselected label in (y + 3 .. bottom) and the selected
+    * one in (y .. bottom), so inside the one segmented capsule the unselected labels sat 1.5 px lower than the chosen one.
+    * The only use of isSelected() in renderLabel is that offset.
+    */
+   @Redirect(method = "renderLabel", at = @At(value = "INVOKE",
+         target = "Lnet/minecraft/client/gui/components/tabs/MenuTabBar$MenuTabButton;isSelected()Z"), require = 0)
+   private boolean lg$labelAtSelectedHeight(MenuTabBar.MenuTabButton self) {
+      return true;
    }
 }

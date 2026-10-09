@@ -1273,6 +1273,10 @@ final class DevShotVerify {
         add(action(c -> open(c, new net.minecraft.client.gui.screen.world.SelectWorldScreen(new net.minecraft.client.gui.screen.TitleScreen()))));
         add(waitMs(1600));   // the WorldListWidget loads its saves asynchronously
         add(shot("nm-worldlist-hover", null, 800, DevShotVerify::hoverWorldEntry));
+        // all-glass #4: one click selects the first world row -> the glass selection capsule (no double click: no open)
+        add(action(c -> { try { if (c.currentScreen != null) c.currentScreen.mouseClicked(c.field_19944.method_18321() / 2.0, 72, 0); }
+                          catch (Throwable t) { skip("select world row", t); } }));
+        add(shot("nm-worldlist-selected", null, 700, c -> { hx = 40; hy = 40; }));
         add(action(c -> close(c)));
         add(waitMs(400));
         // (C) smooth eased wheel scroll on a long menu list (ListMotionMixin): the key-binds list

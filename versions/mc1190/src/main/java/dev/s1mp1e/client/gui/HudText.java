@@ -1,5 +1,6 @@
 package dev.s1mp1e.client.gui;
 
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.module.ChromaHudModule;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -33,6 +34,12 @@ public final class HudText {
     /** Same contract as {@link GlassFont#drawARGB}: an all-zero alpha byte is promoted to opaque. */
     public static void draw(MatrixStack matrices, String s, float x, float y, int argb, boolean shadow) {
         if (s == null || s.isEmpty()) return;
+        if (HudFade.alpha < 1F) {
+            // promote "alpha 0 = opaque" BEFORE fading, or a fully faded label would read as opaque again
+            if ((argb >>> 24 & 0xFF) == 0) argb |= 0xFF000000;
+            argb = HudFade.argb(argb);
+            if ((argb >>> 24 & 0xFF) < 8) return;
+        }
         if (!ChromaHudModule.textActive()) {
             GlassFont.drawARGB(matrices, s, x, y, argb, shadow);
             return;

@@ -1,5 +1,5 @@
 //! The mods every Fabric profile gets by default: Fabric API (the glass client needs it),
-//! Sodium, MaLiLib, Item Scroller and Entity Culling (plus Reese's Sodium Options on 26.2).
+//! Sodium, MaLiLib, Item Scroller and Entity Culling (plus Reese's Sodium Options on 26.2 / 26.3).
 //!
 //! They are fetched from Modrinth into the per-version folder the launcher already loads
 //! (`.minecraft/s1mp1e-mods/<mc>/`, see `launch::pick_user_mods`), so they show up in the
@@ -19,7 +19,7 @@
 //!
 //! Sodium is pinned on the versions whose glass Video Settings page is written against a
 //! specific Sodium options screen; everything else takes the newest release for the version.
-//! On 26.2 that page is the glass restyle of Reese's Sodium Options, so 26.2 also gets that
+//! On 26.2 / 26.3 that page is the glass restyle of Reese's Sodium Options, so those also get that
 //! mod — with plain Sodium alone the Video Settings button would open Sodium's own unstyled
 //! screen.
 
@@ -37,24 +37,26 @@ struct DefaultMod {
     /// `fabric.mod.json` ids that count as "this mod is installed".
     ids: &'static [&'static str],
     name: &'static str,
-    /// Some(mc): only on that game version.
-    only: Option<&'static str>,
+    /// Non-empty: only on these game versions.
+    only: &'static [&'static str],
 }
 
 const MODS: [DefaultMod; 6] = [
-    DefaultMod { slug: "fabric-api", ids: &["fabric-api", "fabric"], name: "Fabric API", only: None },
-    DefaultMod { slug: "sodium", ids: &["sodium"], name: "Sodium", only: None },
-    DefaultMod { slug: "reeses-sodium-options", ids: &["reeses-sodium-options"], name: "Reese's Sodium Options", only: Some("26.2") },
-    DefaultMod { slug: "malilib", ids: &["malilib"], name: "MaLiLib", only: None },
-    DefaultMod { slug: "item-scroller", ids: &["itemscroller"], name: "Item Scroller", only: None },
-    DefaultMod { slug: "entityculling", ids: &["entityculling"], name: "Entity Culling", only: None },
+    DefaultMod { slug: "fabric-api", ids: &["fabric-api", "fabric"], name: "Fabric API", only: &[] },
+    DefaultMod { slug: "sodium", ids: &["sodium"], name: "Sodium", only: &[] },
+    DefaultMod { slug: "reeses-sodium-options", ids: &["reeses-sodium-options"], name: "Reese's Sodium Options", only: &["26.2", "26.3"] },
+    DefaultMod { slug: "malilib", ids: &["malilib"], name: "MaLiLib", only: &[] },
+    DefaultMod { slug: "item-scroller", ids: &["itemscroller"], name: "Item Scroller", only: &[] },
+    DefaultMod { slug: "entityculling", ids: &["entityculling"], name: "Entity Culling", only: &[] },
 ];
 
 /// (slug, mc, Modrinth version_number). The glass restyle of Sodium's settings screen on
 /// these versions targets this Sodium line's options GUI; newer Sodium replaced that GUI.
-const PINS: [(&str, &str, &str); 3] = [
+const PINS: [(&str, &str, &str); 5] = [
     ("sodium", "26.2", "mc26.2-0.9.1-fabric"),
     ("reeses-sodium-options", "26.2", "mc26.2-2.2.3+fabric"),
+    ("sodium", "26.3", "mc26.3-0.9.2-fabric"),
+    ("reeses-sodium-options", "26.3", "mc26.3-2.2.5+fabric"),
     ("sodium", "1.21.1", "mc1.21.1-0.6.13-fabric"),
 ];
 
@@ -165,7 +167,7 @@ pub async fn ensure_default_mods(root: &PathBuf, mc: &str, emit: &Emit) -> Resul
     let dir = root.join("s1mp1e-mods").join(mc);
     let present = installed_ids(&dir);
     let mut offered = read_marker(&dir);
-    let set: Vec<&DefaultMod> = MODS.iter().filter(|m| m.only.map_or(true, |v| v == mc)).collect();
+    let set: Vec<&DefaultMod> = MODS.iter().filter(|m| m.only.is_empty() || m.only.contains(&mc)).collect();
     let wanted: Vec<&DefaultMod> = set
         .iter()
         .copied()

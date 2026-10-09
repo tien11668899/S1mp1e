@@ -4,6 +4,8 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.s1mp1e.o.glass.asm.MenuBackdropHook;
 import dev.s1mp1e.o.glass.hook.ListMotionHook;
+import dev.s1mp1e.o.glass.hook.ListScrollerHook;
+import dev.s1mp1e.o.glass.hook.SelectionGlassHook;
 import net.minecraft.client.gui.widget.ListWidget;
 import net.minecraft.client.render.vertex.BufferBuilder;
 import net.minecraft.client.render.vertex.Tesselator;
@@ -64,5 +66,32 @@ public abstract class ListWidgetMixin {
     @Inject(method = "render", at = @At("HEAD"))
     private void s1mp1e$wheelStep(int mx, int my, float pt, CallbackInfo ci) {
         ListMotionHook.step((ListWidget) (Object) this);
+    }
+
+    // ---- ALLGLASS #1/#25 — the macOS overlay scroller ----------------------------------------------------------
+    // Vanilla's three grey scrollbar quads are gated by `if (getMaxScroll() > 0)` inside render; force that to 0 so
+    // they never draw, then paint AppleScroller at the method's RETURN. The hook recomputes the knob with vanilla's
+    // own maths (reading the real getMaxScroll/scrollAmount) so dragging stays 1:1.
+    @WrapOperation(method = "render", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/widget/ListWidget;getMaxScroll()I"))
+    private int s1mp1e$killScrollbar(ListWidget self, Operation<Integer> op) {
+        return ListScrollerHook.killMax(self);   // -> 0, suppresses the grey scrollbar block
+    }
+
+    @Inject(method = "render", at = @At("RETURN"))
+    private void s1mp1e$scroller(int mouseX, int mouseY, float tickDelta, CallbackInfo ci) {
+        ListScrollerHook.draw((ListWidget) (Object) this, mouseX, mouseY);
+    }
+
+    // ---- ALLGLASS #4 — the selected row as a glass capsule -----------------------------------------------------
+    // renderList (MCP drawSelectionBox) gates its grey+black selection quad on isEntrySelected(j). Wrap that call:
+    // paint the capsule for the genuinely-selected row, then return false so vanilla's quad is never built (spec
+    // trap #2 — no stale BufferBuilder corruption).
+    @WrapOperation(method = "renderList", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/widget/ListWidget;isEntrySelected(I)Z"))
+    private boolean s1mp1e$selectionGlass(ListWidget self, int index, Operation<Boolean> op) {
+        boolean sel = op.call(self, index);
+        SelectionGlassHook.paint((ListWidget) (Object) this, index, sel);
+        return false;
     }
 }

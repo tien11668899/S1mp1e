@@ -115,7 +115,11 @@ public final class DevShot {
                              P_VERIFY2 = 120,
                              // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title -> world-entry
                              // loop preview -> real world entry loop -> after-world. Inert otherwise.
-                             P_LOOPPREV = 130;
+                             P_LOOPPREV = 130,
+                             // ALL-GLASS round sweeps (ported from mc1180): DevAudit (every vanilla Screen, mode
+                             // "audit"), DevAllGlass (state-dependent all-glass evidence, mode "allglass", after world),
+                             // DevMenus (#26 world-less menus from the title, mode "menus", never creates a world).
+                             P_AUDIT = 140, P_ALLGLASS = 150, P_MENUS = 160;
 
     // ---- intro mode state (S1MP1E_SHOT_MODE=intro) ----
     private static boolean introMode;     // boot brand-intro capture path active
@@ -222,8 +226,9 @@ public final class DevShot {
         }
 
         // Global watchdog — never hang.
-        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L
-                : DevShotLegacy.handles(mode) ? 3L * WATCHDOG_MS : WATCHDOG_MS;   // the verify sweeps run long
+        long watchdog = (DevShotVerify.handles(mode) || "audit".equalsIgnoreCase(mode)
+                         || "allglass".equalsIgnoreCase(mode) || "menus".equalsIgnoreCase(mode)) ? 1_500_000L
+                : DevShotLegacy.handles(mode) ? 3L * WATCHDOG_MS : WATCHDOG_MS;   // the verify / all-glass sweeps run long
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
             System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
@@ -257,6 +262,9 @@ public final class DevShot {
                 case P_SCREENS_WAIT:       stepSweepWait(client);                  break;
                 case P_SCREENS_SHOT:       stepSweepShot(client);                  break;
                 case P_COMBAT:             if (CombatShot.step(client)) { frames = 0; phase = P_STOP; } break;
+                case P_AUDIT:              if (DevAudit.step(client)) { frames = 0; phase = P_STOP; } break;
+                case P_ALLGLASS:           if (DevAllGlass.step(client)) { frames = 0; phase = P_STOP; } break;
+                case P_MENUS:              if (DevMenus.step(client)) { frames = 0; phase = P_STOP; } break;
                 case P_VERIFY:             if (DevShotLegacy.step(client, mode)) phase = P_STOP; break;
                 case P_VERIFY2:            if (DevShotVerify.step(client)) phase = P_STOP; break;
                 case P_LOOPPREV:           stepLoopPreview(client);                break;
@@ -364,6 +372,11 @@ public final class DevShot {
 
     private static void stepTitle(MinecraftClient client) {
         if (++frames >= TITLE_FRAMES) {
+            if ("menus".equalsIgnoreCase(mode)) {   // #26 world-less menus only (never create a world / run the intro loop)
+                capture(client, "title.png");
+                frames = 0; phase = P_MENUS;
+                return;
+            }
             if (introWorld) {
                 // Glass buttons must still render after the boot intro ran during the first resource reload.
                 capture(client, "after-title.png");
@@ -511,6 +524,8 @@ public final class DevShot {
         if (frames < WORLD_SETTLE) return;
         applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
         frames = 0;
+        if ("audit".equalsIgnoreCase(mode)) { frames = 0; phase = P_AUDIT; return; }       // #all-glass: full-screen audit
+        if ("allglass".equalsIgnoreCase(mode)) { frames = 0; phase = P_ALLGLASS; return; } // #all-glass: state shots
         // In the BATCH-A "screens" mode, branch straight into the glass-screen sweep after the world is ready
         // (the base title/config shots already ran; the world-dependent base shots are skipped). Any other
         // mode / unset runs the original six-shot base pipeline.

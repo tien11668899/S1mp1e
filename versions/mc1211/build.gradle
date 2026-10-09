@@ -28,6 +28,10 @@ dependencies {
     // Sodium's own options screen is restyled by the (optional, Sodium-gated) compat mixins; compile against it only.
     // For a dev run drop the same jar into run/mods (needs loader >= 0.16).
     modCompileOnly files('libs/compat/sodium-0.6.13-compile.jar')
+    // Compile-only: Essential's Elementa + UniversalCraft (+ Kotlin stdlib), for the liquid-glass restyle and zh_TW
+    // translation of Essential's UI (s1mp1e.essential.mixins.json, @Pseudo targets). Our mixins touch no member with a
+    // Minecraft type, so the intermediary-named UniversalCraft jar compiles as plain files. Never bundled.
+    compileOnly files('libs/compat/essential/elementa-745.jar', 'libs/compat/essential/universalcraft-1.21-fabric-505.jar', 'libs/compat/essential/kotlin-stdlib-2.3.0.jar')
 }
 
 processResources {
@@ -51,6 +55,8 @@ loom {
     runs {
         client {
             vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // production loads mods in mod-id order; dev shuffles it — keep dev identical (Essential compat relies on it)
+            vmArg "-Dfabric.debug.disableModShuffle=true"
             // Benchmark only (C:/Temp/s1bench/bench.ps1): extra JVM flags for the game JVM, e.g. -PbenchJvm="-Xmx4096M -XX:+UseZGC"
             if (project.hasProperty('benchJvm')) {
                 project.property('benchJvm').toString().trim().split(/\s+/).each { if (it) vmArg it }

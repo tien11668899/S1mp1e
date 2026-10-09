@@ -12,6 +12,7 @@ import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
 import dev.s1mp1e.client.gui.HudText;
 import dev.s1mp1e.client.gui.S1mp1eHudEditScreen;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.GuiFlush;
@@ -70,7 +71,9 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
 
     @Override
     public void renderHud(MatrixStack matrices) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by the HUD driver via HudFade. The raw-GL
+        // glass caps can't follow the matrix-stack scale (see S1mp1eClient), so during the fade they only alpha-fade
+        // (opacity * HudFade.alpha) while the matrix-drawn labels also scale about the whole-block centre.
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.options == null || mc.options.hudHidden) return;
 
@@ -100,14 +103,14 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
                 for (int i = 0; i < 8; i++) {
                     if (!visible(i)) continue;
                     int x = kx[i].intValue, y = ky[i].intValue, w = KW[i], h = KH[i];
-                    GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, 1f, GlassRenderer.FROST_PANEL);
+                    GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, HudFade.alpha, GlassRenderer.FROST_PANEL);
                     if (fade[i] > 0.02f) {
                         int ga = Math.round(fade[i] * 130f);
                         // The press highlight is a HUD "accent" — it follows the Chroma HUD when Accents is on
                         // (no-op otherwise), sampled at the cap's screen position.
                         int glowRgb = ChromaHudModule.accent(glow.colorValue, x, y) & 0xFFFFFF;
                         GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f,
-                                                (ga << 24) | glowRgb);
+                                                HudFade.argb((ga << 24) | glowRgb));
                     }
                 }
             } finally {

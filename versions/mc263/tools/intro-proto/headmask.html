@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>@font-face{font-family:'PF';src:url(fonts/PingFangUITC-600.ttf) format('truetype');font-weight:100 900;}</style>
+</head><body><canvas id="c"></canvas><script>
+// High-res mask of the boot headline in PingFang UI TC Semibold, centred on x = 960, baseline 568 (design px),
+// over the SDF field box FX0,FY0 + FW x FH at SS canvas px per design px. META has everything the shader needs.
+const TEXT='Welcome to S1mp1e', BRAND='S1mp1e', FONT_PX=109, BASE=568, SS=4, MARGIN=110, FY0=350, FH=360;
+(async()=>{
+  await document.fonts.load(`600 ${FONT_PX}px PF`);
+  const c=document.getElementById('c'), g=c.getContext('2d');
+  g.font=`600 ${FONT_PX}px PF`;
+  const tw=g.measureText(TEXT).width, PEN=960-tw/2;
+  const adv=[]; for(let i=0;i<=TEXT.length;i++) adv.push(PEN+g.measureText(TEXT.slice(0,i)).width);
+  const capAsc=g.measureText('W').actualBoundingBoxAscent;
+  const brandX=PEN+g.measureText(TEXT.slice(0,TEXT.length-BRAND.length)).width;
+  const FX0=Math.floor(PEN-MARGIN), FW=Math.ceil(tw+2*MARGIN);
+  c.width=FW*SS; c.height=FH*SS;
+  g.fillStyle='#000'; g.fillRect(0,0,c.width,c.height);
+  g.font=`600 ${FONT_PX*SS}px PF`; g.textBaseline='alphabetic'; g.fillStyle='#fff';
+  g.fillText(TEXT,(PEN-FX0)*SS,(BASE-FY0)*SS);
+  window.META={font:'PingFang UI TC 600',tw,PEN,adv,capAsc,brandX,FX0,FY0,FW,FH,SS,BASE};
+  window.READY=true;
+})();
+</script></body></html>

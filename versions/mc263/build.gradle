@@ -1,0 +1,81 @@
+// S1mp1e glass — MC 26.3 Fabric.
+// Toolchain locked to what the LiquidGlass26 line proved out on this box
+// (all artifacts already present in .gradle/caches — no fresh network fetch needed):
+//   Gradle 9.7.0  +  fabric-loom 1.17.19  +  JDK 25.
+// Mappings = intermediary-identity: 26.2 has no yarn/mojmap; the deobf jar already
+// carries the source names, so intermediary is loaded as an identity layer.
+plugins {
+    id 'fabric-loom' version '1.17.19'
+}
+
+version = project.mod_version
+group   = project.maven_group
+base { archivesName = project.archives_base_name }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // Intermediary-identity: 26.2 has no yarn AND its published intermediary mapping
+    // is header-only (the deobf jar already carries the intermediary names).
+    // Loom's SourceRemapper insists on a `named` namespace, so we ship a local
+    // 3-column tinyv2 whose header declares `official/intermediary/named` with
+    // zero mapping entries — that satisfies the reader, and no renaming actually
+    // happens because the source and target namespaces are effectively identical.
+    mappings   files('mappings/intermediary-identity-26.3-v2.jar')
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    // NO Fabric API, on purpose. With these identity mappings Loom rewrites every Fabric API module's class
+    // tweaker to the `named` namespace, but 26.2's unobfuscated runtime namespace is `official`, so the dev
+    // `runClient` aborts ("Namespace (named) does not match current runtime namespace (official)"). The mod
+    // needs nothing from it anyway: the menu key is polled by our own MenuKeyMixin at Minecraft.tick().
+    // Compile-only: Sodium + Reese's Sodium Options, for the liquid-glass video-settings restyle
+    // (liquidglass.rso.mixins.json, applied only when RSO is installed). Plain files, not modCompileOnly, so Loom
+    // leaves their class tweakers alone; for a dev test drop the same jars into run/mods.
+    compileOnly files('libs/compat/sodium-fabric-0.9.1+mc26.2.jar', 'libs/compat/reeses-sodium-options-fabric-2.2.3+mc26.2.jar')
+    // Essential 1.5 (the only line for 26.3): Elementa 774 / UniversalCraft 534, extract-to-texture renderer.
+    compileOnly files('libs/compat/essential/elementa-774.jar', 'libs/compat/essential/universalcraft-26.3-fabric-534.jar', 'libs/compat/essential/kotlin-stdlib-2.3.0.jar', 'libs/compat/essential/essential-1.5.0.1-26.3.jar')
+}
+
+// Dev client only: make LiquidGlassClient force-load every mixin target at startup so a bad injection target
+// fails immediately in `runClient` instead of the first time a player opens that menu / enters a world.
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // production loads mods in mod-id order; dev shuffles it — keep dev identical (Essential compat relies on it)
+            vmArg "-Dfabric.debug.disableModShuffle=true"
+            // Fixed offline identity so every dev/film run shows the same player skin. The default skin is picked by
+            // floorMod(uuid.hashCode(), 18); this UUID lands on index 15 = wide (classic) Steve. Without it MC names
+            // the dev player "Player<random>" and the skin changes from run to run.
+            programArgs "--username", "S1mp1e", "--uuid", "c70e98b9e0923798a7a64f0fd4e52ed1"
+            // DIAGNOSTIC (26.3 bring-up): synchronous GL error checks turn a native driver crash in the glass draw
+            // into a Java exception with a stack at the offending call. Remove once the glass path is verified.
+            if (project.hasProperty('glcheck')) { programArgs "--checkGlErrors" }
+            // Benchmark only (C:/Temp/s1bench/bench.ps1): extra JVM flags for the game JVM, e.g. -PbenchJvm="-Xmx10240M -XX:+UseZGC"
+            if (project.hasProperty('benchJvm')) {
+                project.property('benchJvm').toString().trim().split(/\s+/).each { if (it) vmArg it }
+            }
+        }
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+// MC 26.2 requires Java 25 to build (Loom enforces the Gradle-runtime JVM). Complete JDK 25 on this box:
+//   C:\Users\Administrator\AppData\Local\Programs\Microsoft\jdk-25.0.3.9-hotspot  (the Program Files one is gutted).
+// Target Java 21 bytecode all the same (26.2 runs on 21+).
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+    it.options.encoding = 'UTF-8'
+}

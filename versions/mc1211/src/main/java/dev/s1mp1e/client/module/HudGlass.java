@@ -1,6 +1,7 @@
 package dev.s1mp1e.client.module;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
@@ -35,6 +36,7 @@ public final class HudGlass {
      */
     public static void glassBox(DrawContext ctx, int x0, int y0, int x1, int y1, float alpha) {
         if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
         if (GlassProgram.ensureReady() && GlassProgram.usable()) {
             MinecraftClient mc = MinecraftClient.getInstance();
             if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
@@ -78,6 +80,7 @@ public final class HudGlass {
     /** Frosted refracting panel for a HUD overlay drawn inside a ctx transform; see the note above. */
     public static void glassBoxCtx(DrawContext ctx, float lx0, float ly0, float lx1, float ly1, float alpha) {
         if (lx1 <= lx0 || ly1 <= ly0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
         if (GlassProgram.ensureReady() && GlassProgram.usable()) {
             MinecraftClient mc = MinecraftClient.getInstance();
             if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
@@ -103,6 +106,7 @@ public final class HudGlass {
     public static void capsuleCtx(DrawContext ctx, float lx0, float ly0, float lx1, float ly1,
                                   float opacity, float frost) {
         if (lx1 <= lx0 || ly1 <= ly0) return;
+        opacity *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
         if (GlassProgram.ensureReady() && GlassProgram.lensUsable()) {
             if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
             float[] r = absRect(ctx, lx0, ly0, lx1, ly1);
@@ -132,17 +136,18 @@ public final class HudGlass {
             float rad = radiusLocal * ctxScale(ctx);
             ctx.draw();
             RenderSystem.disableDepthTest();
-            GlassRenderer.roundRect(r[0], r[1], r[2], r[3], rad, argb);
+            GlassRenderer.roundRect(r[0], r[1], r[2], r[3], rad, HudFade.argb(argb));   // HUD-module fade
             RenderSystem.enableDepthTest();
         } else {
             roundFill(ctx, Math.round(lx0), Math.round(ly0), Math.round(lx1 - lx0), Math.round(ly1 - ly0),
-                      Math.round(radiusLocal), argb);
+                      Math.round(radiusLocal), argb);   // roundFill applies the fade itself
         }
     }
 
     /** Rounded translucent pill from (x,y) size (w,h) in the current ctx matrix space. */
     public static void pill(DrawContext ctx, int x, int y, int w, int h, int argb) {
         if (w <= 0 || h <= 0) return;
+        argb = HudFade.argb(argb);   // HUD-module appear/disappear (1 outside a module's draw)
         int r = Math.min(3, Math.min(w, h) / 2);
         if (r <= 0) { ctx.fill(x, y, x + w, y + h, argb); return; }
         ctx.fill(x + r,     y,        x + w - r, y + h,     argb);  // centre band, full height
@@ -157,6 +162,7 @@ public final class HudGlass {
      */
     public static void roundFill(DrawContext ctx, int x, int y, int w, int h, int r, int argb) {
         if (w <= 0 || h <= 0) return;
+        argb = HudFade.argb(argb);   // HUD-module appear/disappear (1 outside a module's draw)
         r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
         if (r == 0) { ctx.fill(x, y, x + w, y + h, argb); return; }
         ctx.fill(x, y + r, x + w, y + h - r, argb);   // centre band (full width)

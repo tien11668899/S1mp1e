@@ -3,6 +3,7 @@ package dev.s1mp1e.client.module;
 import java.util.ArrayList;
 import java.util.List;
 
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.mixin.SpriteContentsAccessor;
 import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.texture.NativeImage;
@@ -80,8 +81,41 @@ public final class Silhouette {
             int ex = pts[i * 2], ey = pts[i * 2 + 1];
             float ripple = 0.55f + 0.45f * (float) Math.sin(Math.PI * 2 * ((float) i / cnt * 2f - time));
             int a = i < keep ? 255 : 55;
-            int col = (a << 24) | scaleRgb(baseRgb, ripple);
+            int col = HudFade.argb((a << 24) | scaleRgb(baseRgb, ripple));   // HUD-module appear/disappear
             DrawableHelper.fill(matrices, ix + ex, iy + ey, ix + ex + 1, iy + ey + 1, col);
+        }
+    }
+
+    /** Fill {@code op[16][16]} with {@code sprite}'s opaque mask (same 16&times;16 grid sampling as {@link #trace}). */
+    public static void mask(Sprite sprite, boolean[][] op) {
+        NativeImage[] images = ((SpriteContentsAccessor) (Object) sprite).s1mp1e$images();
+        if (images == null || images.length == 0 || images[0] == null) throw new IllegalStateException("no image");
+        NativeImage img = images[0];
+        int iw = img.getWidth(), ih = img.getHeight();
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int nx = Math.min(iw - 1, x * iw / 16), ny = Math.min(ih - 1, y * ih / 16);
+                op[x][y] = ((img.getColor(nx, ny) >>> 24) & 0xFF) > ALPHA_MIN;
+            }
+        }
+    }
+
+    /**
+     * Draw the icon's silhouette as a SOLID colour fill with its origin at {@code (ix,iy)} (a filled disc that
+     * extends 1px beyond the ink, so the icon on top leaves a clean 1px colour border). Unlike {@link #draw} this is
+     * a flat fill, not a traced ring — the grid-sampled mask being up to a pixel off from the blitted icon never
+     * shows as a misaligned outline.
+     */
+    public static void fill(MatrixStack matrices, boolean[][] op, int ix, int iy, int baseRgb) {
+        int argb = HudFade.argb(0xFF000000 | (baseRgb & 0xFFFFFF));   // HUD-module appear/disappear
+        for (int y = -1; y <= 16; y++) {
+            for (int x = -1; x <= 16; x++) {
+                if (op(op, x, y)
+                        || op(op, x - 1, y) || op(op, x + 1, y) || op(op, x, y - 1) || op(op, x, y + 1)
+                        || op(op, x - 1, y - 1) || op(op, x + 1, y - 1) || op(op, x - 1, y + 1) || op(op, x + 1, y + 1)) {
+                    DrawableHelper.fill(matrices, ix + x, iy + y, ix + x + 1, iy + y + 1, argb);
+                }
+            }
         }
     }
 

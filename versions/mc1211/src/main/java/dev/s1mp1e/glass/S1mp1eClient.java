@@ -1,9 +1,11 @@
 package dev.s1mp1e.glass;
 
+import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.ModuleManager;
 import dev.s1mp1e.client.S1mp1eConfig;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.gui.S1mp1eConfigScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -28,6 +30,8 @@ public final class S1mp1eClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         System.out.println("[S1mp1e] client init — liquid glass 0.1.0 (1.21.1 Fabric)");
+        // Essential compat fallback if our preLaunch ran before Essential's loader put it on the classpath
+        dev.s1mp1e.glass.compat.essential.EssentialPreLaunch.retry();
 
         // DEV ONLY (set by `runClient` via -Ds1mp1e.preloadMixinTargets=true, never in production): load the
         // widget classes our GUI mixins target right away, so a broken injection (defaultRequire 1) fails at launch
@@ -115,12 +119,37 @@ public final class S1mp1eClient implements ClientModInitializer {
         // We keep HudRenderCallback for parity with the approved 1.20.1 build (which uses the
         // identical registration); migrating only this version would risk changing the approved
         // HUD layering with no measured benefit. Revisit together across versions if it matters.
+        // The 1.21.1 equivalent of 26.2's HudDriverMixin: VISIBILITY (not the raw enabled flag) decides drawing, so a
+        // module switched on fades in and one switched off keeps drawing while it fades out. Each module is scaled about
+        // its own HudBounds centre (0.85 -> 1 ease-out) and HudFade.alpha is published for the draw helpers (HudText /
+        // HudGlass / Silhouette) to multiply. The scale is applied through the ctx MatrixStack, which carries text,
+        // fills and item icons; the raw-GL liquid-glass backgrounds (drawn under the identity RenderSystem model-view
+        // in the HUD pass) can't follow that matrix, so they only alpha-fade — see the per-module notes. Each module
+        // runs in its own matrix push/pop inside a try/catch, so one that throws or leaves the stack unbalanced can't
+        // shift the next, and HudFade.alpha is always restored to 1.
         HudRenderCallback.EVENT.register((ctx, tickCounter) -> {
             MinecraftClient c = MinecraftClient.getInstance();
             if (c.player == null) return;
             for (Module m : ModuleManager.all()) {
-                if (m.enabled && m instanceof HudRenderer) {
-                    try { ((HudRenderer) m).renderHud(ctx); } catch (Throwable t) { /* one bad module never breaks the HUD */ }
+                if (!(m instanceof HudRenderer)) continue;
+                float vis = HudFade.visibility(m, m.enabled);
+                if (vis <= 0.004f) continue;
+                ctx.getMatrices().push();
+                try {
+                    if (vis < 1f && m instanceof HudBounds hb) {
+                        float s = HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(vis);
+                        float cx = hb.hudX() + hb.hudW() * 0.5f, cy = hb.hudY() + hb.hudH() * 0.5f;
+                        ctx.getMatrices().translate(cx, cy, 0f);
+                        ctx.getMatrices().scale(s, s, 1f);
+                        ctx.getMatrices().translate(-cx, -cy, 0f);
+                    }
+                    HudFade.alpha = vis;
+                    ((HudRenderer) m).renderHud(ctx);
+                } catch (Throwable t) {
+                    /* one bad module never breaks the HUD */
+                } finally {
+                    HudFade.alpha = 1f;
+                    ctx.getMatrices().pop();
                 }
             }
         });

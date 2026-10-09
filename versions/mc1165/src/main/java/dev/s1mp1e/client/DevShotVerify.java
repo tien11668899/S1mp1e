@@ -86,7 +86,8 @@ final class DevShotVerify {
             // 1.16.5: lists / tooltips / effects / flicker are ALSO old modes of this line (DevShot / DevShotLegacy,
             // kept as the regression baseline) -> those four need the "v:" prefix here.
             if (t.equals("vcombat") || t.equals("newmenu") || t.equals("newanim") || t.equals("sodium")
-                    || t.equals("settings") || t.equals("trans") || t.equals("gap") || t.equals("packs")) return true;
+                    || t.equals("settings") || t.equals("trans") || t.equals("gap") || t.equals("packs")
+                    || t.equals("appear")) return true;
         }
         return false;
     }
@@ -179,6 +180,7 @@ final class DevShotVerify {
             case "packs":    packScenes();    break;
             case "trans":    buildTrans();    break;
             case "gap":      buildGap();      break;
+            case "appear":   buildAppear();   break;
             default: say("unknown mode " + mode);
         }
         add(action(c -> { close(c); hx = hy = -1; }));
@@ -289,6 +291,37 @@ final class DevShotVerify {
     }
 
     // ---- (G) HUD overlays, staged with integrated-server commands -------------------------------------------------
+
+    /**
+     * Appear fades (2026-10-08 1.16.5 port): the chat input bar joins the screen-open fade, the action bar fades in,
+     * HUD modules fade+grow in/out (FPS toggled), the PotionHUD rows fade in/out per effect, and the HUD editor rides
+     * the screen-open fade. Each is a burst so the early frames (0 -> mid -> 100 %) are captured. InventoryHUD peek
+     * shares the same {@code HudFade.visibility} path as the FPS toggle (it needs a physically-held key, so it is not
+     * driven here); its fade is covered by the module-fade burst.
+     */
+    private static void buildAppear() {
+        add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); lookDown(c, 12f); emptyHand(c); clearChat(c); }));
+        add(waitMs(800));
+        // 3a chat input bar fades in with the screen
+        add(burst("ap-chat-open", 8, c -> open(c, new net.minecraft.client.gui.screen.ChatScreen("")), null));
+        add(action(c -> close(c)));
+        add(waitMs(700));
+        // 6 action bar fades in (vanilla pops it in)
+        add(burst("ap-actionbar", 10, c -> cmd(c, "title @a actionbar \"液態玻璃動作列 — Action bar pill\""), null));
+        add(waitMs(400));
+        // 8a HUD module fade + grow: FPS off -> on -> off
+        add(burst("ap-fps-out", 10, c -> modEnable("FpsHUD", false), null));
+        add(burst("ap-fps-in", 10, c -> modEnable("FpsHUD", true), null));
+        // 8c PotionHUD rows: gain two effects, then clear (rows glide, fade in, fade out in place)
+        add(burst("ap-potion-in", 12, c -> { cmd(c, "effect give @p minecraft:strength 999 0 true");
+                cmd(c, "effect give @p minecraft:speed 999 0 true"); }, null));
+        add(waitMs(300));
+        add(burst("ap-potion-out", 12, c -> clearEffects(c), null));
+        // 8d HUD editor rides the screen-open fade
+        add(burst("ap-hudedit", 10, c -> open(c, new dev.s1mp1e.client.gui.S1mp1eHudEditScreen()), null));
+        add(action(c -> close(c)));
+        add(waitMs(300));
+    }
 
     private static void buildHud() {
         add(action(c -> { gamemode(c, GameMode.SURVIVAL); clearEffects(c); lookDown(c, 12f); emptyHand(c); }));

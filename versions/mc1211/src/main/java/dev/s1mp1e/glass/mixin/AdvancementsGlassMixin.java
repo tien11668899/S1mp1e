@@ -61,7 +61,23 @@ public abstract class AdvancementsGlassMixin {
         // fades in with the shared 150 ms screen-open ramp (synced with the glass buttons)
         float fade = dev.s1mp1e.client.gui.ScreenOpenFade.value(
                 net.minecraft.client.MinecraftClient.getInstance().currentScreen);
-        GlassRenderer.panel(x, y, x + 252, y + 140, fade);
+        // Creative-inventory style: each tab row is a band of the SAME glass sheet (no separate tab tiles) — extend the
+        // panel by one tab's depth (28) on each side that carries tabs. Vanilla draws the tab row only when >1 tab; match it.
+        int x0 = x, y0 = y, x1 = x + 252, y1 = y + 140;
+        if (this.tabs != null && this.tabs.size() > 1) {
+            for (net.minecraft.client.gui.screen.advancement.AdvancementTab t : this.tabs.values()) {
+                // AdvancementTabType is package-private (can't be named here), and .name() is unreliable under intermediary
+                // runtime remapping — so switch on the declaration-order ordinal: 0 ABOVE, 1 BELOW, 2 LEFT, 3 RIGHT.
+                switch (((Enum<?>) (Object) t.getType()).ordinal()) {
+                    case 0 -> y0 = y - 28;
+                    case 1 -> y1 = y + 140 + 28;
+                    case 2 -> x0 = x - 28;
+                    case 3 -> x1 = x + 252 + 28;
+                    default -> { }
+                }
+            }
+        }
+        GlassRenderer.panel(x0, y0, x1, y1, fade);
     }
 
     @Redirect(method = "drawWindow",

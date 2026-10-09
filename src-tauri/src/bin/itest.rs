@@ -15,7 +15,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, meta, ornithe, paths, perf};
+use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, media, meta, ornithe, paths, perf};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -33,6 +33,7 @@ async fn main() {
         "plan" => cmd_plan(rest),
         "forge-deps" => cmd_forge_deps(rest).await,
         "list-versions" => cmd_list_versions().await,
+        "media-serve" => cmd_media_serve(),
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
             let ai = resolve_auth("Player").await;
@@ -400,13 +401,17 @@ async fn cmd_play(a: &[String]) -> i32 {
     } else {
         false
     };
-    let plan = match launch::plan_launch(&root, &id, &auth_info, &settings) {
+    let mut plan = match launch::plan_launch(&root, &id, &auth_info, &settings) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("啟動規劃失敗：{e:#}");
             return 1;
         }
     };
+    // 遊戲內靈動島的「正在播放」服務（Windows 系統媒體控制）：只在遊戲執行期間、只綁 127.0.0.1
+    if let Some(ms) = media::start() {
+        insert_jvm_arg(&mut plan, ms.jvm_arg());
+    }
     let gamedir = plan.cwd.clone();
     if pack_on {
         perf::mark_launch(&root, &mc);
@@ -423,6 +428,29 @@ async fn cmd_play(a: &[String]) -> i32 {
         }
     }
     code
+}
+
+/// 在主類別名稱前插入一個 JVM 參數（-D 系統屬性要在主類別之前）
+fn insert_jvm_arg(plan: &mut launch::LaunchPlan, arg: String) {
+    let i = plan.args.iter().position(|a| *a == plan.main_class).unwrap_or(0);
+    plan.args.insert(i, arg);
+}
+
+/// itest media-serve — 開發用：開「正在播放」服務並印出給遊戲的 JVM 參數，一直執行到被關掉。
+fn cmd_media_serve() -> i32 {
+    match media::start() {
+        Some(ms) => {
+            println!("{}", ms.jvm_arg());
+            let _ = std::io::stdout().flush();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
+        }
+        None => {
+            eprintln!("無法啟動媒體服務");
+            1
+        }
+    }
 }
 
 /// itest list-versions — print the Mojang version manifest, one per line as

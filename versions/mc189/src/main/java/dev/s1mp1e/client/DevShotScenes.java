@@ -119,8 +119,121 @@ final class DevShotScenes {
         if (has("inv")) queueInv();
         if (has("load")) queueLoad();
         if (has("trans")) queueTrans();
+        if (has("ag")) queueAg();
         add(new Scene() { public boolean step(Minecraft mc, int f) { mc.displayGuiScreen(null); return true; } });
         wait(5);
+    }
+
+    /** GuiStats 目前顯示的清單（宣告型別剛好是 GuiSlot 的那個欄位 displaySlot）。 */
+    private static net.minecraft.client.gui.GuiSlot statsSlot(GuiScreen s) {
+        try {
+            for (java.lang.reflect.Field fd : s.getClass().getDeclaredFields()) {
+                if (fd.getType() != net.minecraft.client.gui.GuiSlot.class) continue;
+                fd.setAccessible(true);
+                Object v = fd.get(s);
+                if (v != null) return (net.minecraft.client.gui.GuiSlot) v;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    // ---- ag：allglass 專用場景（#1/#25 Apple 捲軸、#4 選中膠囊、#15 F3 除錯卡、#17 經驗條）-------------
+    private static void queueAg() {
+        // #4 選中膠囊：世界選擇清單。loadLevelList 會把 selectedIndex 設成 -1，所以用反射呼叫清單的
+        // elementClicked(0)（等同使用者點第一個世界：選中＋「進入所選的世界」等按鈕啟用）。
+        open(new Factory() { GuiScreen make(Minecraft mc) {
+            return new net.minecraft.client.gui.GuiSelectWorld(null); } });
+        wait(20);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try {
+                for (java.lang.reflect.Field fd : mc.currentScreen.getClass().getDeclaredFields()) {
+                    if (!net.minecraft.client.gui.GuiSlot.class.isAssignableFrom(fd.getType())) continue;
+                    fd.setAccessible(true);
+                    Object list = fd.get(mc.currentScreen);
+                    for (String n : new String[]{"elementClicked", "func_148144_a"}) {
+                        try {
+                            java.lang.reflect.Method m = net.minecraft.client.gui.GuiSlot.class.getDeclaredMethod(
+                                    n, int.class, boolean.class, int.class, int.class);
+                            m.setAccessible(true);
+                            m.invoke(list, 0, false, 0, 0);
+                            System.out.println("[S1mp1e][DevShot] ag-worldsel selected row 0");
+                            break;
+                        } catch (NoSuchMethodException ignored) {}
+                    }
+                }
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] ag-worldsel select: " + t); }
+            return true; } });
+        wait(10);
+        shot("ag-worldsel.png");
+        // #1/#25 Apple 捲軸：統計（一般）清單很長、一定溢出。等伺服器送回統計後捲一點（捲動會讓捲軸淡入），再截。
+        open(new Factory() { GuiScreen make(Minecraft mc) {
+            return new net.minecraft.client.gui.achievement.GuiStats(null, mc.thePlayer.getStatFileWriter()); } });
+        wait(60);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            net.minecraft.client.gui.GuiSlot sl = mc.currentScreen == null ? null : statsSlot(mc.currentScreen);
+            System.out.println("[S1mp1e][DevShot] ag-stats slot=" + sl + (sl == null ? "" : " max=" + sl.func_148135_f()));
+            if (sl != null) sl.scrollBy(40);
+            return true; } });
+        wait(3);
+        shot("ag-stats.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            net.minecraft.client.gui.GuiSlot sl = mc.currentScreen == null ? null : statsSlot(mc.currentScreen);
+            if (sl != null) sl.scrollBy(100000);   // 捲到底：捲軸兩端內縮（#25）
+            return true; } });
+        wait(3);
+        shot("ag-stats-bottom.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.displayGuiScreen(null); return true; } });
+        wait(60);   // 讓關閉畫面的 220 ms 交叉淡化走完，F3 截圖才不會疊到統計畫面的殘影
+        // #15 F3 除錯卡：打開除錯資訊（會載入並執行 GuiOverlayDebug，證明每行背景變成圓角玻璃帶）。
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.displayGuiScreen(null);
+            mc.gameSettings.showDebugInfo = true;
+            return true; } });
+        wait(12);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            capture(mc, "ag-f3.png"); return true; } });
+        wait(2);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.gameSettings.showDebugInfo = false; return true; } });
+        wait(6);
+        // #17 經驗條：DevShot 世界是創造模式（沒有經驗條），先由伺服器切生存，再給 5 級＋10 點經驗
+        // （5 級的上限 17 → 填滿約 59%），伺服器會把經驗同步給 client。
+        add(new Scene() { public boolean step(final Minecraft mc, int f) {
+            onServer(mc, new Runnable() { public void run() { try {
+                net.minecraft.entity.player.EntityPlayerMP p =
+                        mc.getIntegratedServer().getConfigurationManager().playerEntityList.get(0);
+                p.setGameType(net.minecraft.world.WorldSettings.GameType.SURVIVAL);
+                p.addExperienceLevel(5);
+                p.addExperience(10);
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] ag xp: " + t); } } });
+            return true; } });
+        wait(40);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            System.out.println(String.format("[S1mp1e][DevShot] ag-xp level=%d exp=%.3f survival=%s",
+                    mc.thePlayer.experienceLevel, mc.thePlayer.experience, mc.playerController.gameIsSurvivalOrAdventure()));
+            capture(mc, "ag-xp.png"); return true; } });
+        wait(6);
+        // #12 附魔台三列：client 端直接填 enchantLevels（3／10／25），放劍＋3 青金石；生存 5 級 → 第一列可用（玻璃膠囊）、
+        // 後兩列經驗不足（淡 scrim）。
+        open(new Factory() { GuiScreen make(Minecraft mc) {
+            return new net.minecraft.client.gui.GuiEnchantment(mc.thePlayer.inventory, mc.theWorld,
+                    new net.minecraft.tileentity.TileEntityEnchantmentTable()); } });
+        wait(20);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            GuiContainer gc = (GuiContainer) mc.currentScreen;
+            net.minecraft.inventory.ContainerEnchantment ce = (net.minecraft.inventory.ContainerEnchantment) gc.inventorySlots;
+            gc.inventorySlots.getSlot(0).putStack(new net.minecraft.item.ItemStack(net.minecraft.init.Items.diamond_sword));
+            gc.inventorySlots.getSlot(1).putStack(new net.minecraft.item.ItemStack(net.minecraft.init.Items.dye, 3, 4));
+            ce.enchantLevels[0] = 3; ce.enchantLevels[1] = 10; ce.enchantLevels[2] = 25;
+            return true; } });
+        wait(10);
+        shot("ag-enchant.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            GuiContainer gc = (GuiContainer) mc.currentScreen;
+            gc.inventorySlots.getSlot(0).putStack(null);
+            gc.inventorySlots.getSlot(1).putStack(null);
+            mc.displayGuiScreen(null); return true; } });
+        wait(10);
     }
 
     // ---- settings：設定頁外殼（第 1 組＋滑桿／數值滾動 delta）-----------------------------------------

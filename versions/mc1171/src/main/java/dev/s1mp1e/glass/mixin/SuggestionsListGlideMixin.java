@@ -2,6 +2,8 @@ package dev.s1mp1e.glass.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import dev.s1mp1e.client.gui.AllGlass;
+import dev.s1mp1e.glass.render.GlassProgram;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.gui.screen.CommandSuggestor;
@@ -42,6 +44,7 @@ public abstract class SuggestionsListGlideMixin {
 
     @Unique private float s1mp1e$sel = Float.NaN;   // eased selected index (list space)
     @Unique private long s1mp1e$ns;
+    @Unique private boolean s1mp1e$glass;           // all-glass #13: one glass panel + glass selection capsule
 
     @Inject(method = "render", at = @At("HEAD"))
     private void s1mp1e$easeSelection(MatrixStack matrices, int mouseX, int mouseY, CallbackInfo ci) {
@@ -54,13 +57,30 @@ public abstract class SuggestionsListGlideMixin {
             if (Math.abs(this.selection - s1mp1e$sel) < 0.01f) s1mp1e$sel = this.selection;
         }
         s1mp1e$ns = now;
+        // All-glass #13: one glass panel for the whole popup + the gliding selection as a glass capsule.
+        s1mp1e$glass = GlassProgram.ensureReady() && GlassProgram.usable();
+        if (s1mp1e$glass) {
+            int px0 = this.area.getX() - 1, py0 = this.area.getY() - 1;
+            int px1 = this.area.getX() + this.area.getWidth() + 1, py1 = this.area.getY() + this.area.getHeight() + 1;
+            AllGlass.plate(matrices, px0, py0, px1, py1, 1f, 0x78000000);
+            if (!Float.isNaN(s1mp1e$sel)) {
+                float barTop = this.area.getY() + S1_ROW * (s1mp1e$sel - this.inWindowIndex);
+                float top = Math.max(this.area.getY(), barTop);
+                float bottom = Math.min(this.area.getY() + this.area.getHeight(), barTop + S1_ROW);
+                if (bottom - top > 1f) {
+                    AllGlass.capsule(matrices, this.area.getX(), top, this.area.getX() + this.area.getWidth(), bottom,
+                            AllGlass.hotbarCorner(this.area.getWidth(), S1_ROW), 0.81f, 1f);
+                }
+            }
+        }
     }
 
-    /** After each 12 px row background, the slice of the gliding bar that lies over that row. */
+    /** After each 12 px row background, the slice of the gliding bar that lies over that row (vanilla look only). */
     @WrapOperation(method = "render", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/gui/DrawableHelper;fill(Lnet/minecraft/client/util/math/MatrixStack;IIIII)V"))
     private void s1mp1e$rowFillThenBar(MatrixStack matrices, int x0, int y0, int x1, int y1, int color,
                                        Operation<Void> op) {
+        if (s1mp1e$glass) return;   // rows, dotted marks and the bar are all the glass panel + capsule drawn at HEAD
         op.call(matrices, x0, y0, x1, y1, color);
         if (y1 - y0 != S1_ROW || Float.isNaN(s1mp1e$sel)) return;   // only the row backgrounds (the marks are 1 px)
         float barTop = this.area.getY() + S1_ROW * (s1mp1e$sel - this.inWindowIndex);
@@ -78,7 +98,8 @@ public abstract class SuggestionsListGlideMixin {
         int k = (Math.round(y) - 2 - this.area.getY()) / S1_ROW;
         float w = 1f - Math.abs(k + this.inWindowIndex - s1mp1e$sel);
         w = w < 0f ? 0f : (w > 1f ? 1f : w);
-        return op.call(font, matrices, text, x, y, s1mp1e$lerp(S1_GREY, S1_YELLOW, w));
+        return op.call(font, matrices, text, x, y,
+                s1mp1e$glass ? s1mp1e$lerp(0xFFE0E0E0, 0xFFFFFFFF, w) : s1mp1e$lerp(S1_GREY, S1_YELLOW, w));
     }
 
     @Unique

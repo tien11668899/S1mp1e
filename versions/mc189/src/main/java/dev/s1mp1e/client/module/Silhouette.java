@@ -114,6 +114,37 @@ public final class Silhouette {
         }
     }
 
+    /** Fill {@code op[16][16]} with the inventory-sheet tile's opaque mask (same grid sampling as {@link #traceTile}). */
+    public static void maskTile(int[] argb, int imgW, int tileX, int tileY, int tileW, int tileH, boolean[][] op) {
+        if (argb == null || imgW <= 0 || tileW <= 0 || tileH <= 0) throw new IllegalStateException("no sheet");
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int nx = tileX + Math.min(tileW - 1, x * tileW / 16);
+                int ny = tileY + Math.min(tileH - 1, y * tileH / 16);
+                int idx = ny * imgW + nx;
+                op[x][y] = idx >= 0 && idx < argb.length && ((argb[idx] >>> 24) & 0xFF) > ALPHA_MIN;
+            }
+        }
+    }
+
+    /**
+     * Draw the icon's silhouette as a SOLID colour fill with its origin at {@code (ix,iy)} (a filled disc that
+     * extends 1px beyond the ink, so the icon on top leaves a clean 1px colour border). Same immediate-mode
+     * {@link Gui#drawRect} per-cell path as {@link #draw} — flat colour over the whole mask.
+     */
+    public static void fill(boolean[][] op, int ix, int iy, int baseRgb) {
+        int argb = 0xFF000000 | (baseRgb & 0xFFFFFF);
+        for (int y = -1; y <= 16; y++) {
+            for (int x = -1; x <= 16; x++) {
+                if (op(op, x, y)
+                        || op(op, x - 1, y) || op(op, x + 1, y) || op(op, x, y - 1) || op(op, x, y + 1)
+                        || op(op, x - 1, y - 1) || op(op, x + 1, y - 1) || op(op, x - 1, y + 1) || op(op, x + 1, y + 1)) {
+                    Gui.drawRect(ix + x, iy + y, ix + x + 1, iy + y + 1, argb);
+                }
+            }
+        }
+    }
+
     private static boolean op(boolean[][] op, int x, int y) { return x >= 0 && x < 16 && y >= 0 && y < 16 && op[x][y]; }
 
     private static float ang(int[] p) {

@@ -759,7 +759,11 @@ public final class SettingsShell {
             dev.s1mp1e.client.gui.GuiScissor.disable();
             float view = st.bodyY1 - st.bodyY0, len = Math.max(16.0F, view * view / st.contentH);
             float ty = st.bodyY0 + (view - len) * (st.scroll / st.maxScroll);
-            GlassWidgets.fillRound(ctx, x1 + 3.0F, ty, x1 + 5.0F, ty + len, (Math.round(a * 0.35F * 255.0F) << 24) | 0xFFFFFF, 1.0F);
+            // #1/#25: the settings shell body uses the same macOS overlay scroller as every vanilla list (END_INSET
+            // pulls the track ends past the panel's rounded corners).
+            float sr = x1 + 7.0F;
+            AppleScroller.draw(ctx, st, sr, st.bodyY0, st.bodyY1, ty, len, st.scroll,
+                    AppleScroller.near(mx, my, sr, st.bodyY0, st.bodyY1), false, a);
         }
     }
 

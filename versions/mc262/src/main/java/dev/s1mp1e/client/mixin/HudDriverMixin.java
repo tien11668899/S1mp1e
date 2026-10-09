@@ -79,5 +79,10 @@ public abstract class HudDriverMixin {
                 g.pose().popMatrix();
             }
         }
+
+        // TAIL: draw the Glass-mode name tags as real refractive glass. The world-only backdrop was grabbed at
+        // GuiRenderer.render HEAD (after this extraction), and Glass mode cancelled the vanilla tags, so the backdrop is
+        // clean terrain where each plate refracts. Drawn here (before the hotbar) so tags sit under it, like vanilla.
+        dev.s1mp1e.client.gui.NameTagGlass.render(g);
     }
 }

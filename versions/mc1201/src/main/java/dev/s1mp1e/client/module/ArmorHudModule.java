@@ -45,7 +45,7 @@ public final class ArmorHudModule extends Module implements HudBounds, HudRender
 
     @Override
     public void renderHud(DrawContext ctx) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by the HUD driver via HudFade
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.world == null || mc.options.hudHidden) return;
 

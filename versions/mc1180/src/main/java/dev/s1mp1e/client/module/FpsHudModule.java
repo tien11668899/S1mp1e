@@ -35,7 +35,7 @@ public final class FpsHudModule extends Module implements HudBounds, HudRenderer
 
     @Override
     public void renderHud(MatrixStack matrices) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by the HUD driver via HudFade
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.options.hudHidden) return;
 

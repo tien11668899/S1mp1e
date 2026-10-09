@@ -47,11 +47,14 @@ public abstract class ChatInputGlassMixin {
         at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/DrawContext;fill(IIIII)V")
     )
     private void s1mp1e$inputBar(DrawContext ctx, int x0, int y0, int x1, int y1, int color) {
+        // fade in with the screen (pressing T): the bar joins the screen-open fade instead of popping
+        float fade = dev.s1mp1e.client.gui.ScreenOpenFade.value((ChatScreen) (Object) this);
+        if (fade <= 0.004F) return;
         if (GlassProgram.ensureReady() && GlassProgram.usable()) {
-            HudGlass.glassBoxCtx(ctx, x0, y0, x1, y1, 0.9F);
-            HudGlass.roundFillCtx(ctx, x0, y0, x1, y1, 0F, INPUT_SCRIM);
+            HudGlass.glassBoxCtx(ctx, x0, y0, x1, y1, 0.9F * fade);
+            HudGlass.roundFillCtx(ctx, x0, y0, x1, y1, 0F, (Math.round(0x33 * fade) & 0xFF) << 24 | (INPUT_SCRIM & 0xFFFFFF));
         } else {
-            ctx.fill(x0, y0, x1, y1, color);
+            ctx.fill(x0, y0, x1, y1, (Math.round((color >>> 24 & 0xFF) * fade) & 0xFF) << 24 | color & 0xFFFFFF);
         }
     }
 }

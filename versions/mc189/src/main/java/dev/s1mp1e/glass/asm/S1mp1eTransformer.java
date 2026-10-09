@@ -214,6 +214,52 @@ public final class S1mp1eTransformer implements IClassTransformer {
     private static final String HOOKS_LIST = "dev/s1mp1e/glass/hook/ListMotionHook";
     private static final String LIST_DESC  = "(Lnet/minecraft/client/gui/GuiSlot;)V";
 
+    // ---- ALLGLASS round (#1-#26) -----------------------------------------
+    // #1 Apple scroller + #4 selection capsule — GuiSlot sites (drawScreen already resolved as `dsc`).
+    private static final String HOOKS_SCROLLER  = "dev/s1mp1e/glass/hook/ListScrollerHook";
+    private static final String HOOKS_SELECTION = "dev/s1mp1e/glass/hook/SelectionGlassHook";
+    // getMaxScroll is unmapped in 1.8.9 stable_22: func_148135_f()I in both dev and production.
+    private static final String MAXSCROLL_NAME = "func_148135_f";
+    // drawSelectionBox(int,int,int,int)V — MCP drawSelectionBox / SRG func_148120_b (no float param in 1.8.9).
+    private static final String SEL_BOX_MCP  = "drawSelectionBox";
+    private static final String SEL_BOX_SRG  = "func_148120_b";
+    private static final String SEL_BOX_DESC = "(IIII)V";
+    private static final String IS_SELECTED_MCP = "isSelected";
+    private static final String IS_SELECTED_SRG = "func_148131_a";
+
+    // #15 F3 debug card: GuiOverlayDebug.renderDebugInfoLeft()V / renderDebugInfoRight(ScaledResolution)V — redirect
+    //     each per-line Gui.drawRect to DebugCardHook.rect (rounded scrim ribbon).
+    private static final String GUI_OVERLAY_DEBUG = "net.minecraft.client.gui.GuiOverlayDebug";
+    private static final String DBG_LEFT_MCP  = "renderDebugInfoLeft";
+    private static final String DBG_LEFT_SRG  = "func_180798_a";
+    private static final String DBG_RIGHT_MCP = "renderDebugInfoRight";
+    private static final String DBG_RIGHT_SRG = "func_175239_b";
+    private static final String DBG_RIGHT_DESC = "(Lnet/minecraft/client/gui/ScaledResolution;)V";
+    private static final String HOOKS_DEBUG = "dev/s1mp1e/glass/hook/DebugCardHook";
+
+    // #17 XP/jump bars: GuiIngameForge.renderExperience(II)V / renderJumpBar(II)V — redirect drawTexturedModalRect
+    //     to ContextualBarHook.bar (switch on the sprite V). Forge-only methods, stable names.
+    private static final String EXP_NAME  = "renderExperience";
+    private static final String JUMP_NAME = "renderJumpBar";
+    private static final String BARS_DESC = "(II)V";
+    private static final String HOOKS_CONTEXTUAL = "dev/s1mp1e/glass/hook/ContextualBarHook";
+    private static final String CONTEXTUAL_BAR_DESC = "(Lnet/minecraft/client/gui/Gui;IIIIII)V";
+
+    // #21 lock button: GuiLockIconButton.drawButton(Minecraft,int,int)V — head splice LockButtonHook.draw.
+    private static final String GUI_LOCK_BUTTON = "net.minecraft.client.gui.GuiLockIconButton";
+    private static final String HOOKS_LOCK = "dev/s1mp1e/glass/hook/LockButtonHook";
+    private static final String LOCK_DRAW_DESC = "(Lnet/minecraft/client/gui/GuiLockIconButton;Lnet/minecraft/client/Minecraft;II)Z";
+
+    // #12 enchanting rows: GuiEnchantment.drawGuiContainerBackgroundLayer(FII)V (SRG func_146976_a) — redirect every
+    //     drawTexturedModalRect to EnchantRowHook.blit (108x19 row sprites -> glass; everything else passes through).
+    //     (BG_LAYER_MCP/SRG/DESC are the existing container-layer constants above.)
+    private static final String GUI_ENCHANT = "net.minecraft.client.gui.GuiEnchantment";
+    // #12 anvil rename field: GuiRepair.drawGuiContainerBackgroundLayer — redirect blits to AnvilFieldHook.blit
+    //     (the 110x16 field sprite -> glass scrim; GuiRepair disables the text field's own background on 1.8.9).
+    private static final String GUI_REPAIR = "net.minecraft.client.gui.GuiRepair";
+    private static final String HOOKS_ANVIL = "dev/s1mp1e/glass/hook/AnvilFieldHook";
+    private static final String HOOKS_ENCHANT = "dev/s1mp1e/glass/hook/EnchantRowHook";
+
     // 第 1 組：設定頁外殼——原版每個設定頁都換成同一套玻璃側邊欄＋卡片列版面。
     // 每個設定畫面的 drawScreen(IIF)V 開頭插 `if (SettingsShell.render(this,mx,my,pt)) return;`（外殼代替原版畫），
     // GuiScreen.mouseClicked / handleMouseInput 開頭插閘門，讓外殼接管點擊和滾輪（非設定頁時 handles() 直接放行）。
@@ -306,6 +352,18 @@ public final class S1mp1eTransformer implements IClassTransformer {
             }
             if ("net.minecraft.client.gui.GuiIngame".equals(transformedName)) {
                 return patchScoreboardRecord(basicClass);
+            }
+            if (GUI_OVERLAY_DEBUG.equals(transformedName)) {
+                return patchDebugCard(basicClass);
+            }
+            if (GUI_LOCK_BUTTON.equals(transformedName)) {
+                return patchLockButton(basicClass);
+            }
+            if (GUI_ENCHANT.equals(transformedName)) {
+                return patchEnchantRows(basicClass);
+            }
+            if (GUI_REPAIR.equals(transformedName)) {
+                return patchAnvilField(basicClass);
             }
             if ("net.minecraft.client.gui.GuiTextField".equals(transformedName)) {
                 // 第 6 組：文字框打字動畫。drawTextBox()V 開頭：if (EditBoxHook.draw(this)) return;
@@ -879,6 +937,49 @@ public final class S1mp1eTransformer implements IClassTransformer {
             auditFail("GuiSlot smooth wheel", "handleMouseInput/drawScreen not found");
         }
 
+        // ALLGLASS #1 — the macOS overlay scroller. Inside drawScreen, redirect the single func_148135_f()
+        // (getMaxScroll, the guard that gates vanilla's three grey scrollbar quads) to ListScrollerHook.killMax -> 0 so
+        // none of them draw, then paint AppleScroller before each RETURN. Direct calls from the hook still see the real
+        // func_148135_f().
+        if (dsc != null) {
+            int killed = redirectInvokeVirtual(dsc, MAXSCROLL_NAME, MAXSCROLL_NAME, "()I",
+                    HOOKS_SCROLLER, "killMax", "(Lnet/minecraft/client/gui/GuiSlot;)I", 1);
+            int rets = 0;
+            for (AbstractInsnNode insn = dsc.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() != Opcodes.RETURN) continue;
+                InsnList a = new InsnList();
+                a.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (GuiSlot)
+                a.add(new VarInsnNode(Opcodes.ILOAD, 1)); // mouseXIn
+                a.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseYIn
+                a.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_SCROLLER, "draw",
+                        "(Lnet/minecraft/client/gui/GuiSlot;II)V", false));
+                dsc.instructions.insertBefore(insn, a);
+                rets++;
+            }
+            if (killed == 1 && rets > 0) {
+                done++;
+                auditOk("GuiSlot Apple scroller (getMaxScroll killed=" + killed + ", returns=" + rets + ")");
+            } else {
+                auditFail("GuiSlot Apple scroller", "getMaxScroll killed=" + killed + ", returns=" + rets);
+            }
+            System.out.println("[S1mp1e/ASM] ALLGLASS #1 Apple scroller (getMaxScroll killed: " + killed + ", returns: " + rets + ")");
+        }
+
+        // ALLGLASS #4 — the selected row becomes a glass capsule. In drawSelectionBox, redirect isSelected(j) to
+        // SelectionGlassHook.selected(this, j): it paints the capsule for the real selection and returns false, so the
+        // vanilla grey+black quad is never built (no stale-buffer corruption — spec trap #2).
+        MethodNode sel = find(cn, SEL_BOX_MCP, SEL_BOX_SRG, SEL_BOX_DESC);
+        if (sel != null) {
+            int n = redirectInvokeVirtual(sel, IS_SELECTED_MCP, IS_SELECTED_SRG, "(I)Z",
+                    HOOKS_SELECTION, "selected", "(Lnet/minecraft/client/gui/GuiSlot;I)Z", 0);
+            if (n > 0) { done++; auditOk("GuiSlot selection capsule (isSelected redirects=" + n + ")"); }
+            else auditFail("GuiSlot selection capsule", "isSelected redirects=0");
+            System.out.println("[S1mp1e/ASM] ALLGLASS #4 selection capsule (isSelected redirects: " + n + ")");
+        } else {
+            System.out.println("[S1mp1e/ASM] GuiSlot.drawSelectionBox not found, selection capsule skipped");
+            auditFail("GuiSlot selection capsule", "drawSelectionBox not found");
+        }
+
         if (done == 0) return basic;
         System.out.println("[S1mp1e/ASM] patched GuiSlot list background (sites: " + done + ")");
         return write(cn);
@@ -1204,7 +1305,117 @@ public final class S1mp1eTransformer implements IClassTransformer {
         if (sb > 0) { done++; auditOk("GuiIngameForge.renderGameOverlay (scoreboard lookups=" + sb + ")"); }
         else auditFail("GuiIngameForge.renderGameOverlay", "scoreboard lookup not found");
 
+        // ALLGLASS #17 — renderExperience/renderJumpBar: redirect the drawTexturedModalRect blits to the glass track +
+        // coloured fill (ContextualBarHook switches on the sprite V). Spec trap #1: no manual DECO_LIFT here. Note the
+        // XP element is actually owned by GlassHudHandler (vanilla's is cancelled), so the renderExperience redirect is
+        // a harmless no-op fallback; the jump bar (horse) still flows through renderJumpBar.
+        int bars = 0;
+        MethodNode exp  = find(cn, EXP_NAME,  EXP_NAME,  BARS_DESC);
+        MethodNode jump = find(cn, JUMP_NAME, JUMP_NAME, BARS_DESC);
+        if (exp  != null) bars += redirectInvokeVirtual(exp,  BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_CONTEXTUAL, "bar", CONTEXTUAL_BAR_DESC, 0);
+        if (jump != null) bars += redirectInvokeVirtual(jump, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_CONTEXTUAL, "bar", CONTEXTUAL_BAR_DESC, 0);
+        System.out.println("[S1mp1e/ASM] ALLGLASS #17 contextual bars (blit redirects: " + bars + ")");
+        if (bars > 0) { done++; auditOk("GuiIngameForge contextual bars (blit redirects=" + bars + ")"); }
+        else auditFail("GuiIngameForge contextual bars", "renderExperience/renderJumpBar blits not found");
+
+        // ALLGLASS #15 — on Forge 1.8.9 the F3 text is NOT drawn by GuiOverlayDebug: GuiIngameForge installs a
+        // GuiOverlayDebugForge whose renderDebugInfoLeft/Right are empty, and renderHUDText(II)V draws both lists with
+        // its own per-line Gui.drawRect. Redirect those to the same DebugCardHook ribbon (verified: the first run still
+        // showed vanilla's 0x90505050 grey because only GuiOverlayDebug was patched).
+        MethodNode hud = find(cn, "renderHUDText", "renderHUDText", "(II)V");
+        int dbg = hud != null ? redirectStaticRect(hud, HOOKS_DEBUG, "rect") : 0;
+        System.out.println("[S1mp1e/ASM] ALLGLASS #15 Forge HUD text debug card (drawRect redirects: " + dbg + ")");
+        if (dbg > 0) { done++; auditOk("GuiIngameForge.renderHUDText (debug card scrims=" + dbg + ")"); }
+        else auditFail("GuiIngameForge.renderHUDText", "debug drawRect not found");
+
         if (done == 0) return basic;
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #15 — GuiOverlayDebug left/right: redirect every Gui.drawRect to the rounded scrim ribbon.
+    // -----------------------------------------------------------------------
+    private static byte[] patchDebugCard(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode left  = find(cn, DBG_LEFT_MCP,  DBG_LEFT_SRG,  "()V");
+        MethodNode right = find(cn, DBG_RIGHT_MCP, DBG_RIGHT_SRG, DBG_RIGHT_DESC);
+        int n = 0;
+        if (left  != null) n += redirectStaticRect(left,  HOOKS_DEBUG, "rect");
+        if (right != null) n += redirectStaticRect(right, HOOKS_DEBUG, "rect");
+        if (n == 0) {
+            System.out.println("[S1mp1e/ASM] GuiOverlayDebug: no drawRect found");
+            auditFail("GuiOverlayDebug (debug card)", "drawRect not found");
+            return basic;
+        }
+        System.out.println("[S1mp1e/ASM] patched GuiOverlayDebug (debug card scrims: " + n + ")");
+        auditOk("GuiOverlayDebug (debug card scrims=" + n + ")");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #21 — GuiLockIconButton.drawButton(Minecraft,int,int): head splice
+    // `if (LockButtonHook.draw(this,mc,mx,my)) return;`. The button overrides drawButton, so the generic GuiButton
+    // capsule splice never reaches it and it needs its own.
+    // -----------------------------------------------------------------------
+    private static byte[] patchLockButton(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, DRAW_BUTTON_MCP, DRAW_BUTTON_SRG, DRAW_BUTTON_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] GuiLockIconButton.drawButton not found");
+            auditFail("GuiLockIconButton.drawButton", "method not found");
+            return basic;
+        }
+        LabelNode pass = new LabelNode();
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (GuiLockIconButton)
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 1)); // Minecraft
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseX
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 3)); // mouseY
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LOCK, "draw", LOCK_DRAW_DESC, false));
+        pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+        pre.add(new InsnNode(Opcodes.RETURN));
+        pre.add(pass);
+        m.instructions.insert(pre);
+        System.out.println("[S1mp1e/ASM] patched GuiLockIconButton.drawButton (glass lock)");
+        auditOk("GuiLockIconButton.drawButton (glass lock)");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #12 — GuiEnchantment background layer: the three offer rows become glass buttons.
+    // -----------------------------------------------------------------------
+    private static byte[] patchEnchantRows(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, BG_LAYER_MCP, BG_LAYER_SRG, BG_LAYER_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] GuiEnchantment.drawGuiContainerBackgroundLayer not found");
+            auditFail("GuiEnchantment rows", "method not found");
+            return basic;
+        }
+        int n = redirectInvokeVirtual(m, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_ENCHANT, "blit",
+                "(Lnet/minecraft/client/gui/Gui;IIIIII)V", 0);
+        System.out.println("[S1mp1e/ASM] ALLGLASS #12 enchanting rows (blit redirects: " + n + ")");
+        if (n == 0) { auditFail("GuiEnchantment rows", "no blit found"); return basic; }
+        auditOk("GuiEnchantment rows (blit redirects=" + n + ")");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #12 — GuiRepair background layer: the rename field's anvil.png frame becomes a glass scrim.
+    // -----------------------------------------------------------------------
+    private static byte[] patchAnvilField(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, BG_LAYER_MCP, BG_LAYER_SRG, BG_LAYER_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] GuiRepair.drawGuiContainerBackgroundLayer not found");
+            auditFail("GuiRepair rename field", "method not found");
+            return basic;
+        }
+        int n = redirectInvokeVirtual(m, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_ANVIL, "blit",
+                "(Lnet/minecraft/client/gui/Gui;IIIIII)V", 0);
+        System.out.println("[S1mp1e/ASM] ALLGLASS #12 anvil rename field (blit redirects: " + n + ")");
+        if (n == 0) { auditFail("GuiRepair rename field", "no blit found"); return basic; }
+        auditOk("GuiRepair rename field (blit redirects=" + n + ")");
         return write(cn);
     }
 

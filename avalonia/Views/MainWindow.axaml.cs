@@ -184,6 +184,7 @@ public partial class MainWindow : Window
             ShowPage(_selected);
 
             WireSidebarHover();
+            WireDragDrop();
 
             // Show the real running version on the 關於 card (was hardcoded "1.0.0").
             AboutVersionText.Text = UpdateChecker.CurrentVersion();
@@ -1488,6 +1489,7 @@ public partial class MainWindow : Window
     private async System.Threading.Tasks.Task RunCaptureModeAsync(string outDir)
     {
         _captureMode = true;
+        _captureOutDir = outDir;
         try
         {
             System.IO.Directory.CreateDirectory(outDir);
@@ -1541,6 +1543,150 @@ public partial class MainWindow : Window
 
             double scale = (TopLevel.GetTopLevel(this)?.RenderScaling) ?? 1.0;
             var manifestSets = new System.Collections.Generic.List<object>();
+
+            // Focused sidebar check (S1MP1E_SIDEBARSHOT=1): verify the pill no longer composites the row icon/label into
+            // itself, the hover box sits on top, and nothing else — then exit. Does not run the full menu suite.
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("S1MP1E_SIDEBARSHOT")))
+            {
+                foreach (var dark in new[] { false, true })
+                {
+                    string th = dark ? "dark" : "light";
+                    if (Application.Current is { } ap) ap.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+                    await System.Threading.Tasks.Task.Delay(350); await NextFrameAsync();
+
+                    // (a) pill parked on 帳號 (row 2) — the row the user saw ghosted
+                    MovePill(2, animate: false); UpdateNavWeights(2);
+                    await System.Threading.Tasks.Task.Delay(120); await NextFrameAsync(); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, $"sb-{th}-pill2.png"));
+
+                    // (b) hover box over 開始遊戲 (row 0) while the pill stays on 帳號 — hover must sit ON TOP
+                    Canvas.SetTop(HoverPill, 0 * RowStride); HoverPill.Opacity = 1;
+                    await System.Threading.Tasks.Task.Delay(120); await NextFrameAsync(); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, $"sb-{th}-hover0.png"));
+                    HoverPill.Opacity = 0;
+                    await NextFrameAsync();
+                }
+                await System.Threading.Tasks.Task.Delay(100);
+                Environment.Exit(0);
+            }
+
+            // Focused mod-management check (S1MP1E_MODSHOT=1): scan the real 1.21.1 mods folder,
+            // show the browse list with version/source/time/dup metadata, screenshot, exit. Hits
+            // Modrinth for the hash backfill, so it needs network + the real .minecraft.
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("S1MP1E_MODSHOT")))
+            {
+                _cfg.Settings.Version = Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_VER") ?? "1.21.1";
+                // Keep the version picker in step with the setting — the install/update paths read the picker.
+                var vi = Array.IndexOf(SupportedVersions, _cfg.Settings.Version);
+                if (vi >= 0) VersionBox.SelectedIndex = vi;
+
+                // Content-type search check (S1MP1E_MODSHOT_SEARCH=resourcepack|shader): query mode, pick the type, search.
+                var searchType = Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_SEARCH");
+                if (!string.IsNullOrWhiteSpace(searchType))
+                {
+                    if (Application.Current is { } ap3) ap3.RequestedThemeVariant = ThemeVariant.Dark;
+                    await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                    ShowPage(1);
+                    await System.Threading.Tasks.Task.Delay(200); await NextFrameAsync();
+                    if (ModTypeBox != null) ModTypeBox.SelectedIndex = searchType == "shader" ? 2 : 1;
+                    OnModTypeChanged(null, EventArgs.Empty);
+                    for (int i = 0; i < 40; i++)
+                    {
+                        await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                        if (_mods.Count > 0) { await System.Threading.Tasks.Task.Delay(700); break; }
+                    }
+                    await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, $"search-{searchType}.png"));
+                    var dlDir = Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_DL");   // a temp mc dir to download into (keeps the real folder clean)
+                    if (!string.IsNullOrWhiteSpace(dlDir) && _mods.Count > 0)
+                    {
+                        _cfg.Settings.McPath = dlDir!;   // capture mode never persists this
+                        var target = _mods.FirstOrDefault(m => m.Title.Contains("Translation", StringComparison.OrdinalIgnoreCase)) ?? _mods[0];
+                        var ptype2 = searchType == "shader" ? "shader" : "resourcepack";
+                        var dlok = await DownloadContentAsync(target.ProjectId, CurrentMc(), ptype2, null);
+                        var sub = searchType == "shader" ? "shaderpacks" : "resourcepacks";
+                        var dir = Path.Combine(dlDir!, sub);
+                        var files = Directory.Exists(dir) ? string.Join("|", Directory.GetFiles(dir).Select(Path.GetFileName)) : "<none>";
+                        Console.WriteLine("[CONTENT] title=" + target.Title + " ok=" + dlok + " dir=" + dir + " files=" + files);
+                        File.WriteAllText(Path.Combine(outDir, "content-dl.txt"), "ok=" + dlok + "\ndir=" + dir + "\nfiles=" + files);
+                    }
+                    await System.Threading.Tasks.Task.Delay(100);
+                    Environment.Exit(0);
+                }
+                if (Application.Current is { } ap2) ap2.RequestedThemeVariant = ThemeVariant.Dark;
+                await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                ShowPage(1);
+                await System.Threading.Tasks.Task.Delay(200); await NextFrameAsync();
+                SetModMode(1);                                   // browse mode → RunLocalScanAsync
+                // Wait for the scan + Modrinth hash backfill to finish (polling the status text).
+                for (int i = 0; i < 60; i++)
+                {
+                    await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                    var st = LocalModStatus.Text ?? "";
+                    if (st.Contains("個模組") || st.Contains("沒有偵測")) { await System.Threading.Tasks.Task.Delay(600); break; }
+                }
+                await NextFrameAsync();
+                SaveWindowPng(System.IO.Path.Combine(outDir, "mods-browse.png"));
+
+                // Sort + 管理 check (S1MP1E_MODSHOT_MANAGE=1): open both menus (an external real-screen capture grabs
+                // them), apply 最近加入, then run 整理重複 (with S1MP1E_CONFIRM=yes) and shoot the result.
+                if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_MANAGE")) && _sortBtn != null && _manageBtn != null)
+                {
+                    ShowSortMenu(_sortBtn); await System.Threading.Tasks.Task.Delay(2500); CloseGlassMenu(); await System.Threading.Tasks.Task.Delay(900);
+                    ShowManageMenu(_manageBtn); await System.Threading.Tasks.Task.Delay(2500); CloseGlassMenu(); await System.Threading.Tasks.Task.Delay(900);
+                    _localSort = 1; if (_sortBtnLabel != null) _sortBtnLabel.Text = "排序：" + LocalSortNames[1] + " ▾"; ApplyLocalFilter();
+                    await System.Threading.Tasks.Task.Delay(400); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "mods-sort-recent.png"));
+                    await RunManageActionAsync(2);
+                    for (int i = 0; i < 30; i++) { await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync(); if (!_localModsAll.Any(m => m.HasDup)) break; }
+                    await System.Threading.Tasks.Task.Delay(1200); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "mods-after-dedupe.png"));
+                }
+
+                // Export/import round-trip check (S1MP1E_MODSHOT_EXPORT=<dir>): export this version's mods to a .mrpack,
+                // then import it into a fresh folder, and report the counts (no file dialogs involved).
+                var expDir = Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_EXPORT");
+                if (!string.IsNullOrWhiteSpace(expDir))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(expDir!);
+                        var outMr = Path.Combine(expDir!, "out.mrpack");
+                        var impDir = Path.Combine(expDir!, "imported");
+                        if (Directory.Exists(impDir)) Directory.Delete(impDir, true);
+                        var mcX = CurrentMc();
+                        var jarsX = _localModsAll.Where(m => m.Loads).Select(m => m.JarPath).ToList();
+                        var ex = await MrpackService.ExportAsync(outMr, $"S1mp1e {mcX}", mcX, ModLoaderFor(mcX, EffectiveLoader()), null, jarsX);
+                        var im = await MrpackService.ImportAsync(outMr, impDir);
+                        Console.WriteLine($"[MRPACK] export indexed={ex.Indexed} bundled={ex.Bundled} size={new FileInfo(outMr).Length} | import downloaded={im.Downloaded} extracted={im.Extracted} skipped={im.Skipped} fails={im.Failures.Count} declMc={im.DeclaredMc} declLoader={im.DeclaredLoader}");
+                        foreach (var ffail in im.Failures) Console.WriteLine("[MRPACK] fail: " + ffail);
+                        File.WriteAllText(Path.Combine(expDir!, "result.txt"),
+                            $"export indexed={ex.Indexed} bundled={ex.Bundled}\nimport downloaded={im.Downloaded} extracted={im.Extracted} skipped={im.Skipped} fails={im.Failures.Count}\ndeclMc={im.DeclaredMc} declLoader={im.DeclaredLoader}\n"
+                            + "importedFiles:\n" + string.Join("\n", Directory.Exists(impDir) ? Directory.GetFiles(impDir).Select(Path.GetFileName) : Array.Empty<string>()));
+                    }
+                    catch (Exception ex) { LogCrash(ex); Console.WriteLine("[MRPACK] EXCEPTION " + ex); }
+                }
+
+                // Drop-install check: the "放開以安裝" overlay, then a programmatic install of a test jar.
+                var dropPath = Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_DROP");
+                if (!string.IsNullOrWhiteSpace(dropPath))
+                {
+                    ShowDropOverlay(true);
+                    await System.Threading.Tasks.Task.Delay(250); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "mods-dropoverlay.png"));
+                    ShowDropOverlay(false);
+                    await InstallDroppedAsync(new List<string> { dropPath! });
+                    for (int i = 0; i < 40; i++)
+                    {
+                        await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                        if (_localModsAll.Any(m => string.Equals(Path.GetFileName(m.JarPath), Path.GetFileName(dropPath), StringComparison.OrdinalIgnoreCase))) break;
+                    }
+                    await System.Threading.Tasks.Task.Delay(1500); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "mods-afterdrop.png"));
+                }
+                await System.Threading.Tasks.Task.Delay(100);
+                Environment.Exit(0);
+            }
 
             foreach (var dark in new[] { true, false })
             {
@@ -2332,6 +2478,7 @@ public partial class MainWindow : Window
             ApplyAccent(s.Accent);
             if (GlassToggle is not null) GlassToggle.IsChecked = s.Glass;
             if (PerfToggle is not null) PerfToggle.IsChecked = s.PerfPack;
+            if (PrereleaseToggle is not null) PrereleaseToggle.IsChecked = s.UpdatePrerelease;
             if (DemoToggle is not null) DemoToggle.IsChecked = s.ReduceTransparency;
             // Theme: restore the saved 自動/淺色/深色 choice (was previously never
             // persisted, so it reset to 自動 on every launch).
@@ -2360,10 +2507,10 @@ public partial class MainWindow : Window
     }
 
     // The MC versions S1mp1e has a verified liquid-glass port for (see
-    // project_s1mp1e_glass_versions memory). Newest first — pick 26.2 by default.
+    // project_s1mp1e_glass_versions memory). Newest first; 26.2 stays the default pick.
     // Anything not on this list is either unsupported (1.18-1.21 not ported yet) or
     // unreleased. `itest install` will still fetch on demand.
-    // Ordered newest → oldest so 26.2 sits top-left of the 3-column picker.
+    // Ordered newest → oldest (the picker is one scrolling column).
     // Each entry has a corresponding source/repos/S1mp1e/versions/mc<...> port
     // (15+ mixins each).
     // Each entry MUST exactly match the MC version the corresponding
@@ -2373,10 +2520,11 @@ public partial class MainWindow : Window
     // 1.21.8 dropped until mc1218/build/libs/ has a jar.
     private static readonly string[] SupportedVersions =
     {
-        "26.2",   "1.21.1",  "1.20.1",
-        "1.19.2", "1.18.2",  "1.17.1",
-        "1.16.5", "1.15.2",  "1.14.4",
-        "1.13.2", "1.12.2",  "1.8.9",
+        "26.3",   "26.2",    "1.21.1",
+        "1.20.1", "1.19.2",  "1.18.2",
+        "1.17.1", "1.16.5",  "1.15.2",
+        "1.14.4", "1.13.2",  "1.12.2",
+        "1.8.9",
     };
 
     private System.Threading.Tasks.Task RefreshInstalledVersionsAsync()
@@ -2477,12 +2625,12 @@ public partial class MainWindow : Window
     }
 
     // MC versions >= 1.13 only work through Fabric in this launcher (Forge modding
-    // beyond 1.12.2 needs its own bootstrapper we don't ship). "26.2" is our internal
-    // Fabric-only fork and also counts as ForceFabric.
+    // beyond 1.12.2 needs its own bootstrapper we don't ship). The 26.x line (26.2, 26.3 …)
+    // is Fabric-only too.
     private static bool IsFabricOnly(string mc)
     {
         if (string.IsNullOrEmpty(mc)) return true;
-        if (mc == "26.2") return true;
+        if (IsYearVersion(mc)) return true;
         // parse "1.X[.Y]" — return true iff X >= 13
         var parts = mc.Split('.');
         if (parts.Length >= 2 && parts[0] == "1" && int.TryParse(parts[1], out var x))
@@ -2497,7 +2645,7 @@ public partial class MainWindow : Window
     // classic Forge profile stays selectable as a fallback.
     private static bool IsForgeOnly(string mc)
     {
-        if (string.IsNullOrEmpty(mc) || mc == "26.2" || mc == "1.8.9") return false;
+        if (string.IsNullOrEmpty(mc) || IsYearVersion(mc) || mc == "1.8.9") return false;
         var parts = mc.Split('.');
         if (parts.Length >= 2 && parts[0] == "1" && int.TryParse(parts[1], out var x))
             return x < 13;
@@ -2510,9 +2658,15 @@ public partial class MainWindow : Window
     {
         loader = (loader ?? "").ToLowerInvariant();
         if (IsForgeOnly(mc)) return loader == "forge";
-        if (mc == "26.2")   return loader == "fabric";
         if (IsFabricOnly(mc)) return loader == "fabric";
         return true;
+    }
+
+    // Year-numbered releases (26.2, 26.3, …): "<major>.<minor>" with major ≥ 26.
+    private static bool IsYearVersion(string mc)
+    {
+        var dot = mc.IndexOf('.');
+        return dot > 0 && int.TryParse(mc.Substring(0, dot), out var major) && major >= 26;
     }
 
     // 1.8.9 + Fabric = the Ornithe line (installed as `fabric-loader-<v>-ornithe-1.8.9`).
@@ -2809,6 +2963,13 @@ public partial class MainWindow : Window
         if (_hydrating || PerfToggle is null) return;
         _cfg.Settings.PerfPack = PerfToggle.IsChecked == true;
         SaveCfg();
+    }
+    private void OnPrereleaseToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || PrereleaseToggle is null) return;
+        _cfg.Settings.UpdatePrerelease = PrereleaseToggle.IsChecked == true;
+        SaveCfg();
+        if (_modModeIdx == 1) _ = CheckLocalUpdatesAsync();   // re-evaluate updates on the new channel
     }
     private void OnGlassToggleChanged(object? sender, RoutedEventArgs e)
     {
@@ -3610,6 +3771,7 @@ public partial class MainWindow : Window
         ModModeToggleLabel.Text = goingBrowse ? "查詢模組" : "瀏覽模組";
         // Sort dropdown is only meaningful for Modrinth's `index=downloads/updated/...`.
         ModSortBox.IsVisible = !goingBrowse;
+        if (ModTypeBox is not null) ModTypeBox.IsVisible = !goingBrowse;
         if (ModCategoryScroller is not null) ModCategoryScroller.IsVisible = !goingBrowse;
         ModSearchBox.PlaceholderText = goingBrowse ? "篩選本地模組" : "搜尋 Modrinth 模組";
         // Always re-scan on entering browse mode so newly-dropped jars, filename
@@ -3856,6 +4018,41 @@ public partial class MainWindow : Window
         _ = RunSearchAsync();
     }
 
+    // Content type for the Modrinth search: mod | resourcepack | shader.
+    private string _modProjectType = "mod";
+
+    private void OnModTypeChanged(object? sender, EventArgs e)
+    {
+        if (_hydrating || ModTypeBox is null) return;
+        _modProjectType = ModTypeBox.SelectedIndex switch { 1 => "resourcepack", 2 => "shader", _ => "mod" };
+        if (ModSearchBox is not null)
+            ModSearchBox.Watermark = _modProjectType switch
+            { "resourcepack" => "搜尋 Modrinth 資源包", "shader" => "搜尋 Modrinth 光影", _ => "搜尋 Modrinth 模組" };
+        // Content categories + the loader are mod-only; hide the chip row for packs.
+        if (ModCategoryScroller is not null) ModCategoryScroller.IsVisible = _modProjectType == "mod";
+        _modCategory = null;
+        _ = RunSearchAsync();
+    }
+
+    /// <summary>Install a resource pack / shader to its own folder (no loader, no deps, flat file).</summary>
+    private async System.Threading.Tasks.Task<bool> DownloadContentAsync(string projectId, string mc, string type, Action<double>? onProgress)
+    {
+        var ver = await ModrinthClient.ResolvePrimaryVersionAsync(projectId, mc, "", loaderAgnostic: true);
+        if (ver is null || ver.Files.Length == 0) return false;
+        var file = Array.Find(ver.Files, f => f.Primary) ?? ver.Files[0];
+        var sub = type == "shader" ? "shaderpacks" : "resourcepacks";
+        var dstDir = Path.Combine(EffectiveMcDir(), sub);
+        Directory.CreateDirectory(dstDir);
+        var dst = Path.Combine(dstDir, file.Filename);
+        var prog = onProgress is null ? null : new Progress<double>(onProgress);
+        await ModrinthClient.DownloadFileAsync(file.Url, dst, prog);
+        // Light bookkeeping so the row shows 已下載 (resource/shaders aren't in the mod index).
+        if (!_cfg.DownloadedMods.TryGetValue(projectId, out var mcs)) _cfg.DownloadedMods[projectId] = mcs = new List<string>();
+        if (!mcs.Contains(mc)) mcs.Add(mc);
+        SaveCfg();
+        return true;
+    }
+
     private async System.Threading.Tasks.Task RunSearchAsync()
     {
         InitModsPage();
@@ -3883,7 +4080,7 @@ public partial class MainWindow : Window
         var ct = _searchCts.Token;
         try
         {
-            var hits = await ModrinthClient.SearchAsync(q, mc, ModLoaderFor(mc, loader), sort, limit: 40, offset: 0, ct, category: _modCategory);
+            var hits = await ModrinthClient.SearchAsync(q, mc, ModLoaderFor(mc, loader), sort, limit: 40, offset: 0, ct, category: _modCategory, projectType: _modProjectType);
             if (ct.IsCancellationRequested) return;
             _mods.Clear();
             foreach (var h in hits)
@@ -3896,9 +4093,16 @@ public partial class MainWindow : Window
                     IconUrl = h.IconUrl,
                     Loaders = h.Loaders,
                 };
-                // Already downloaded for the currently-selected MC? Offer 更新 (re-fetch
-                // the latest release; the old jar is removed so versions don't clash).
-                if (_cfg.DownloadedMods.TryGetValue(h.ProjectId, out var mcs) && mcs.Contains(mc))
+                // Already installed for the currently-selected MC? Show the installed version on
+                // the button ("已安裝 v1.2.3") so the search result makes it obvious what you have.
+                var instRec = (_modIndex ??= ModIndex.Load(EffectiveMcDir()))
+                    .ForMc(mc).FirstOrDefault(r => string.Equals(r.ProjectId, h.ProjectId, StringComparison.OrdinalIgnoreCase));
+                if (instRec != null)
+                {
+                    vm.ButtonLabel = string.IsNullOrEmpty(instRec.Version) ? "已安裝" : "已安裝 v" + instRec.Version;
+                    vm.ButtonEnabled = true;
+                }
+                else if (_cfg.DownloadedMods.TryGetValue(h.ProjectId, out var mcs) && mcs.Contains(mc))
                 {
                     vm.ButtonLabel = "更新";
                     vm.ButtonEnabled = true;
@@ -3907,8 +4111,8 @@ public partial class MainWindow : Window
                 _mods.Add(vm);
             }
             ModStatus.Text = hits.Count == 0
-                ? (mc == "26.2"
-                    ? "26.2 是開發預覽版，Modrinth 尚無對應版本的模組（液態玻璃已內建，無需另裝）"
+                ? (IsYearVersion(mc)
+                    ? $"Modrinth 上還沒有 {mc} 對應的這類模組（液態玻璃已內建，無需另裝）"
                     : "沒有結果")
                 : $"{hits.Count} 個結果 · {mc} · {char.ToUpper(loader[0]) + loader.Substring(1)}";
             _ = LoadIconsAsync(_mods.ToList(), ct);
@@ -4111,10 +4315,11 @@ public partial class MainWindow : Window
         try
         {
             if (UpdateAllBtn is null) return;
-            var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
-            int n = _cfg.DownloadedMods.Count(kv => kv.Value.Contains(mc));
-            UpdateAllLabel.Text = $"全部更新 · {n}";
-            UpdateAllBtn.IsVisible = n > 0;
+            // Count mods that actually have a newer version (and aren't version-locked) — not
+            // "everything we ever downloaded". The button hides entirely when nothing needs it.
+            int n = _localModsAll.Count(m => m.HasUpdate && !m.Locked);
+            UpdateAllLabel.Text = n > 0 ? $"全部更新 · {n}" : "全部更新";
+            UpdateAllBtn.IsVisible = n > 0 && _modModeIdx == 1;
         }
         catch { }
     }
@@ -4126,22 +4331,23 @@ public partial class MainWindow : Window
     {
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
         var loader = EffectiveLoader();
-        var ids = _cfg.DownloadedMods.Where(kv => kv.Value.Contains(mc)).Select(kv => kv.Key).ToList();
-        if (ids.Count == 0) return;
+        // Only the mods we actually detected an update for, and not the locked ones.
+        var pids = _localModsAll.Where(m => m.HasUpdate && !m.Locked && !string.IsNullOrEmpty(m.ProjectId))
+                                .Select(m => m.ProjectId!).Distinct().ToList();
+        if (pids.Count == 0) return;
         UpdateAllBtn.IsHitTestVisible = false;
         int done = 0, ok = 0;
-        foreach (var pid in ids)
+        foreach (var pid in pids)
         {
             done++;
-            UpdateAllLabel.Text = $"更新中 {done}/{ids.Count}";
+            UpdateAllLabel.Text = $"更新中 {done}/{pids.Count}";
             try { if (await DownloadOneVersionAsync(pid, mc, ModLoaderFor(mc, loader))) ok++; }
             catch (Exception ex) { LogCrash(ex); }
         }
-        UpdateAllLabel.Text = $"已更新 {ok}/{ids.Count}";
+        UpdateAllLabel.Text = $"已更新 {ok}/{pids.Count}";
         await Task.Delay(1600);
         UpdateAllBtn.IsHitTestVisible = true;
-        UpdateAllButtonState();
-        if (_modModeIdx == 1) _ = RunLocalScanAsync();
+        if (_modModeIdx == 1) _ = RunLocalScanAsync();   // re-scan refreshes versions + the button
     }
 
     private string EffectiveMcDir() =>
@@ -4164,7 +4370,7 @@ public partial class MainWindow : Window
     // `depth` caps the transitive chain. A dep that can't be resolved never fails the
     // primary download — it's logged and skipped.
     private async Task<bool> DownloadWithDepsAsync(string projectId, string mc, string loader,
-        Action<double>? onProgress, HashSet<string> visited, int depth)
+        Action<double>? onProgress, HashSet<string> visited, int depth, string? parentProjectId = null)
     {
         if (!visited.Add(projectId)) return true;   // already handled in this chain
         var ver = await ModrinthClient.ResolvePrimaryVersionAsync(projectId, mc, loader);
@@ -4193,6 +4399,29 @@ public partial class MainWindow : Window
         _cfg.DownloadedModFiles[fileKey] = file.Filename;
         SaveCfg();
 
+        // Mod index (stage 1/2): record full metadata so this jar shows its version/source and
+        // participates in update checks without a later hash round-trip.
+        try
+        {
+            _modIndex ??= ModIndex.Load(EffectiveMcDir());
+            if (oldName != null && !string.Equals(oldName, file.Filename, StringComparison.OrdinalIgnoreCase))
+                _modIndex.Remove(mc, oldName);             // drop the superseded version's record
+            var rec = _modIndex.Upsert(mc, file.Filename);
+            rec.ProjectId = projectId;
+            rec.VersionId = ver.Id;
+            rec.Version = ver.VersionNumber;
+            rec.Sha512 = file.Sha512?.ToLowerInvariant();
+            rec.Source = "modrinth";
+            rec.InstalledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (parentProjectId != null)
+            {
+                rec.DepOf ??= new List<string>();
+                if (!rec.DepOf.Contains(parentProjectId)) rec.DepOf.Add(parentProjectId);
+            }
+            _modIndex.Save();
+        }
+        catch (Exception ex) { LogCrash(ex); }
+
         // Pull required dependencies (Fabric API, libraries) so the mod loads.
         if (depth < 4)
         {
@@ -4206,7 +4435,7 @@ public partial class MainWindow : Window
                     visited.Add(dep.ProjectId);                                   // already installed for this MC
                     continue;
                 }
-                try { await DownloadWithDepsAsync(dep.ProjectId, mc, loader, null, visited, depth + 1); }
+                try { await DownloadWithDepsAsync(dep.ProjectId, mc, loader, null, visited, depth + 1, projectId); }
                 catch (Exception ex) { LogCrash(ex); }                           // best-effort: never fail the primary
             }
         }
@@ -4225,13 +4454,15 @@ public partial class MainWindow : Window
         row.ButtonEnabled = false;
         var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? "1.21.1" : VersionBox.SelectedText;
         var loader = ModLoaderFor(mc, LoaderBox.SelectedText ?? "Fabric");
-        if (!ModSupportsLoader(row, loader))
+        // Resource/shader packs have no loader — skip the loader gate for them.
+        if (_modProjectType == "mod" && !ModSupportsLoader(row, loader))
         {
             var supported = row.Loaders.Length == 0 ? "?" : string.Join("/", row.Loaders);
             row.ButtonLabel = $"非 {supported.ToUpperInvariant()} 模組";
             row.ButtonEnabled = true;
             return;
         }
+        var ptype = _modProjectType;
         // Kick off the progress ring — label stays "下載" so the ring reads as
         // the whole feedback surface until it's full.
         row.RingOpacity = 1;
@@ -4239,8 +4470,9 @@ public partial class MainWindow : Window
         row.IsDownloading = true;
         try
         {
-            var ok = await DownloadOneVersionAsync(row.ProjectId, mc, loader,
-                p => row.Progress = p);
+            var ok = ptype == "mod"
+                ? await DownloadOneVersionAsync(row.ProjectId, mc, loader, p => row.Progress = p)
+                : await DownloadContentAsync(row.ProjectId, mc, ptype, p => row.Progress = p);
             if (ok)
             {
                 row.Progress = 1;                // guarantee the ring closes fully
@@ -4382,6 +4614,7 @@ public partial class MainWindow : Window
             iconTile.Child = img;
             Grid.SetColumn(iconTile, 0);
 
+            // Name + badges on line 1, "v1.2.3 · Modrinth · 3天前" meta on line 2.
             var name = new TextBlock
             {
                 FontSize = 14, FontWeight = FontWeight.SemiBold,
@@ -4390,7 +4623,63 @@ public partial class MainWindow : Window
             };
             name.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(nameof(LocalModVm.Name)));
             name.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextMain"));
-            Grid.SetColumn(name, 1);
+
+            Border MakeBadge(string bindPath, string visPath, Color bg, Color fg)
+            {
+                var t = new TextBlock { FontSize = 10.5, FontWeight = FontWeight.SemiBold,
+                    Foreground = new SolidColorBrush(fg), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+                t.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(bindPath));
+                var b = new Border { Background = new SolidColorBrush(bg), CornerRadius = new CornerRadius(5),
+                    Padding = new Thickness(6, 1), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Child = t };
+                b.Bind(Visual.IsVisibleProperty, new Avalonia.Data.Binding(visPath));
+                return b;
+            }
+            var dupBadge  = MakeBadge(nameof(LocalModVm.DupBadge),  nameof(LocalModVm.HasDup),
+                                      Color.Parse("#33FF9F0A"), Color.Parse("#FF9F0A"));
+            var warnText = new TextBlock { Text = "不會載入", FontSize = 10.5, FontWeight = FontWeight.SemiBold,
+                Foreground = new SolidColorBrush(Color.Parse("#8E8E93")), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            var warnBadge = new Border { Background = new SolidColorBrush(Color.Parse("#22808080")), CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(6, 1), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Child = warnText };
+            warnBadge.Bind(Visual.IsVisibleProperty, new Avalonia.Data.Binding(nameof(LocalModVm.LoadWarn)));
+            // Update ↑ badge (stage 2): blue, visible when HasUpdate.
+            var upText = new TextBlock { FontSize = 10.5, FontWeight = FontWeight.Bold,
+                Foreground = Brushes.White, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            upText.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(nameof(LocalModVm.UpdateBadge)));
+            var upBadge = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(6, 1),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Child = upText };
+            upBadge.Bind(Border.BackgroundProperty, this.GetResourceObservable("Accent"));
+            upBadge.Bind(Visual.IsVisibleProperty, new Avalonia.Data.Binding(nameof(LocalModVm.HasUpdate)));
+
+            // Clickable update badge → update just this mod.
+            upBadge.Cursor = new Cursor(StandardCursorType.Hand);
+            upBadge.PointerPressed += (_, ev) =>
+            {
+                ev.Handled = true;
+                if (upBadge.DataContext is LocalModVm um) _ = UpdateOneLocalModAsync(um);
+            };
+            // 前置 badge — this mod was pulled in as another mod's dependency.
+            var depText = new TextBlock { Text = "前置", FontSize = 10.5, FontWeight = FontWeight.SemiBold,
+                Foreground = new SolidColorBrush(Color.Parse("#64D2FF")), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            var depBadge = new Border { Background = new SolidColorBrush(Color.Parse("#2264D2FF")), CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(6, 1), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Child = depText };
+            depBadge.Bind(Visual.IsVisibleProperty, new Avalonia.Data.Binding(nameof(LocalModVm.IsDependency)));
+
+            var nameRow = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            nameRow.Children.Add(name);
+            nameRow.Children.Add(upBadge);
+            nameRow.Children.Add(dupBadge);
+            nameRow.Children.Add(depBadge);
+            nameRow.Children.Add(warnBadge);
+
+            var meta = new TextBlock { FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.Parse("#8E8E93")) };
+            meta.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(nameof(LocalModVm.Meta)));
+
+            var nameCol = new StackPanel { Spacing = 1, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            nameCol.Children.Add(nameRow);
+            nameCol.Children.Add(meta);
+            Grid.SetColumn(nameCol, 1);
 
             // Delete button — trash-can glyph, red on hover. Sits to the LEFT of the
             // enable toggle. Uses a Path (not an Image) so it inherits the theme's
@@ -4412,20 +4701,29 @@ public partial class MainWindow : Window
             };
             delBtn.Click += (_, __) =>
             {
-                if (delBtn.DataContext is not LocalModVm m) return;
-                try
-                {
-                    if (System.IO.File.Exists(m.JarPath)) System.IO.File.Delete(m.JarPath);
-                    _localModsAll.Remove(m);
-                    _localMods.Remove(m);
-                    // Also drop the projectId → mc mapping for the current MC so
-                    // the Modrinth search stops rendering the row as 已下載.
-                    var curMc = string.IsNullOrEmpty(_cfg.Settings.Version) ? "1.21.1" : _cfg.Settings.Version;
-                    ForgetDownloadedByFilename(Path.GetFileName(m.JarPath), curMc);
-                }
-                catch (Exception ex) { LogCrash(ex); }
+                if (delBtn.DataContext is LocalModVm m) _ = DeleteLocalModAsync(m);
             };
-            Grid.SetColumn(delBtn, 2);
+            Grid.SetColumn(delBtn, 3);
+
+            // Lock-version toggle — a padlock, filled when locked, faint when not; only for
+            // Modrinth-resolvable mods. A locked mod is skipped by 全部更新.
+            var lockPath = new Avalonia.Controls.Shapes.Path
+            {
+                Width = 13, Height = 15, Stretch = Stretch.Uniform,
+                Data = Geometry.Parse("M3 7 L3 4.5 A3 3 0 0 1 9 4.5 L9 7 M2 7 L10 7 L10 14 L2 14 Z"),
+            };
+            lockPath.Bind(Avalonia.Controls.Shapes.Shape.FillProperty, this.GetResourceObservable("TextMain"));
+            var lockBtn = new Button
+            {
+                Padding = new Thickness(8), Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Content = lockPath,
+                Cursor = new Cursor(StandardCursorType.Hand),
+            };
+            lockBtn.Bind(Visual.OpacityProperty, new Avalonia.Data.Binding(nameof(LocalModVm.LockGlyphOpacity)));
+            lockBtn.Bind(Visual.IsVisibleProperty, new Avalonia.Data.Binding(nameof(LocalModVm.CanLock)));
+            ToolTip.SetTip(lockBtn, "鎖定版本（不參與全部更新）");
+            lockBtn.Click += (_, __) => { if (lockBtn.DataContext is LocalModVm m) ToggleModLock(m); };
+            Grid.SetColumn(lockBtn, 2);
 
             var toggle = new CheckBox
             {
@@ -4447,11 +4745,13 @@ public partial class MainWindow : Window
 
             var grid = new Grid
             {
-                ColumnDefinitions = new ColumnDefinitions("40,*,Auto,Auto"),
-                ColumnSpacing = 12,
+                ColumnDefinitions = new ColumnDefinitions("40,*,Auto,Auto,Auto"),
+                ColumnSpacing = 10,
             };
+            Grid.SetColumn(toggle, 4);
             grid.Children.Add(iconTile);
-            grid.Children.Add(name);
+            grid.Children.Add(nameCol);
+            grid.Children.Add(lockBtn);
             grid.Children.Add(delBtn);
             grid.Children.Add(toggle);
 
@@ -4466,6 +4766,8 @@ public partial class MainWindow : Window
                 Cursor = new Cursor(StandardCursorType.Hand),
                 Child = grid,
             };
+            // Dim rows that won't actually load this launch (they sit outside the launch folder).
+            row.Bind(Visual.OpacityProperty, new Avalonia.Data.Binding(nameof(LocalModVm.RowOpacity)));
             row.Classes.Add("modrow");
             row.PointerPressed += (s, ev) =>
             {
@@ -4518,30 +4820,20 @@ public partial class MainWindow : Window
             }
             catch (Exception ex) { LogCrash(ex); }
 
-            _localModsAll = new List<LocalModVm>(mods.Count);
-            foreach (var m in mods)
-            {
-                Bitmap? bmp = null;
-                if (m.IconBytes is not null)
-                {
-                    try { using var ms = new MemoryStream(m.IconBytes); bmp = new Bitmap(ms); }
-                    catch { /* bad icon */ }
-                }
-                _localModsAll.Add(new LocalModVm
-                {
-                    JarPath = m.JarPath,
-                    Id = m.Id,
-                    Name = m.Name,
-                    Description = m.Description,
-                    Icon = bmp,
-                    Enabled = m.Enabled,
-                });
-            }
+            var launchDirFinal = ConflictScanner.LaunchModDir(mcDir, mcVer);
+            _localModsAll = await BuildLocalModVmsAsync(mods, mcDir, mcVer, launchDirFinal);
+
+            BuildLocalFilterChips();
+            BuildLocalToolbar();
             ApplyLocalFilter();
+            RefreshFilterChipStyles();
+            _ = CheckLocalUpdatesAsync();           // stage 2: flag rows with a newer version available
             var enabled = _localModsAll.Count(m => m.Enabled);
+            int notLoading = _localModsAll.Count(m => !m.Loads);
             LocalModStatus.Text = _localModsAll.Count == 0
                 ? "沒有偵測到本地模組 (mods/*.jar)"
-                : $"{_localModsAll.Count} 個模組 · {enabled} 個啟用";
+                : $"{_localModsAll.Count} 個模組 · {enabled} 個啟用"
+                  + (notLoading > 0 ? $" · {notLoading} 個不會載入" : "");
             if (conflicts is not null && (conflicts.AutoDisabled > 0 || conflicts.Warnings.Count > 0))
             {
                 var parts = new List<string>();
@@ -4555,18 +4847,1002 @@ public partial class MainWindow : Window
         catch (Exception ex) { LogCrash(ex); LocalModStatus.Text = "掃描失敗"; }
     }
 
+    // Known default-mod / perf-pack slugs, so a jar the launcher auto-installed is labelled
+    // accordingly rather than "Modrinth". Mirrors default_mods.rs + perf.rs.
+    private static readonly HashSet<string> DefaultModSlugs = new(StringComparer.OrdinalIgnoreCase)
+        { "fabric-api", "sodium", "malilib", "item-scroller", "itemscroller", "entityculling",
+          "reeses-sodium-options", "modmenu" };
+    private static readonly HashSet<string> PerfModSlugs = new(StringComparer.OrdinalIgnoreCase)
+        { "lithium", "ferrite-core", "ferritecore", "cull-leaves", "cullleaves", "immediatelyfast" };
+
+    /// <summary>
+    /// Turn the raw scan into display rows: enrich from the on-disk mod index, identify
+    /// unknown jars by sha512 against Modrinth, merge duplicate copies of the same mod into
+    /// one row (with a 重複 ×N badge), and flag copies that sit outside the folder the game
+    /// actually launches from (不會載入). Persists the enriched index.
+    /// </summary>
+    private async Task<List<LocalModVm>> BuildLocalModVmsAsync(
+        List<LocalMod> mods, string mcDir, string mcVer, string launchDir)
+    {
+        var idx = await Task.Run(() => ModIndex.Load(mcDir));
+        bool idxChanged = idx.MigrateFrom(_cfg.DownloadedModFiles);
+
+        string BucketOf(string folder)
+        {
+            try
+            {
+                var smods = Path.Combine(mcDir, "s1mp1e-mods");
+                var full = Path.GetFullPath(folder).TrimEnd('\\', '/');
+                if (full.StartsWith(Path.GetFullPath(smods), StringComparison.OrdinalIgnoreCase))
+                {
+                    var rest = full.Substring(Path.GetFullPath(smods).Length).Trim('\\', '/');
+                    if (!string.IsNullOrEmpty(rest) && !rest.Contains('\\') && !rest.Contains('/')) return rest;
+                }
+            }
+            catch { }
+            return "*";   // mods/ or flat s1mp1e-mods/ — shared across versions
+        }
+
+        // Match each jar to an index record (by sha first, then bucket+file); create if new.
+        var recordFor = new Dictionary<LocalMod, ModRecord>();
+        var needHashLookup = new List<(LocalMod mod, ModRecord rec)>();
+        foreach (var m in mods)
+        {
+            var bucket = BucketOf(m.Folder);
+            var file = Path.GetFileName(m.JarPath);
+            var rec = idx.FindBySha(m.Sha512) ?? idx.Get(bucket, file);
+            if (rec == null)
+            {
+                rec = idx.Upsert(bucket, file);
+                rec.Sha512 = m.Sha512;
+                rec.Size = m.Size;
+                // "Added" time: file write time is when it landed here.
+                try { rec.InstalledAt = new DateTimeOffset(File.GetLastWriteTimeUtc(m.JarPath)).ToUnixTimeSeconds(); } catch { }
+                if (string.IsNullOrEmpty(rec.Name)) rec.Name = m.Name;
+                if (string.IsNullOrEmpty(rec.Version) && !string.IsNullOrEmpty(m.Version)) rec.Version = m.Version;
+                idxChanged = true;
+            }
+            else if (rec.Sha512 == null && m.Sha512 != null) { rec.Sha512 = m.Sha512; idxChanged = true; }
+            if (string.IsNullOrEmpty(rec.Version) && !string.IsNullOrEmpty(m.Version)) { rec.Version = m.Version; idxChanged = true; }
+            recordFor[m] = rec;
+            if (string.IsNullOrEmpty(rec.ProjectId) && !string.IsNullOrEmpty(m.Sha512))
+                needHashLookup.Add((m, rec));
+        }
+
+        // Prune records whose jar is gone (deleted/moved outside the launcher) for the buckets this scan
+        // covered — otherwise search would keep showing 已安裝 for a mod that no longer exists.
+        {
+            var seenKeys = new HashSet<string>(mods.Select(m => BucketOf(m.Folder) + "|" +
+                NormJar(Path.GetFileName(m.JarPath))), StringComparer.OrdinalIgnoreCase);
+            var keep = new HashSet<ModRecord>(recordFor.Values);
+            int before = idx.Records.Count;
+            idx.Records.RemoveAll(r =>
+                (string.Equals(r.Mc, mcVer, StringComparison.OrdinalIgnoreCase) || r.Mc == "*")
+                && !keep.Contains(r)
+                && !seenKeys.Contains(r.Mc + "|" + r.File));
+            if (idx.Records.Count != before) idxChanged = true;
+        }
+
+        // Identify unknown jars by sha512 → Modrinth, then resolve their project names.
+        if (needHashLookup.Count > 0)
+        {
+            try
+            {
+                var hashes = needHashLookup.Select(x => x.mod.Sha512!).Distinct().ToList();
+                var hits = await ModrinthClient.LookupByHashesAsync(hashes);
+                var newProjectIds = new List<string>();
+                foreach (var (m, rec) in needHashLookup)
+                {
+                    if (m.Sha512 != null && hits.TryGetValue(m.Sha512, out var hit) && !string.IsNullOrEmpty(hit.ProjectId))
+                    {
+                        rec.ProjectId = hit.ProjectId;
+                        rec.VersionId = hit.VersionId;
+                        if (string.IsNullOrEmpty(rec.Version)) rec.Version = hit.VersionNumber;
+                        if (rec.Source == "manual" || string.IsNullOrEmpty(rec.Source)) rec.Source = "modrinth";
+                        newProjectIds.Add(hit.ProjectId);
+                        idxChanged = true;
+                    }
+                    else if (string.IsNullOrEmpty(rec.Source) || rec.Source == "unknown")
+                    {
+                        rec.Source = "manual";   // Modrinth doesn't know it → user-supplied
+                        idxChanged = true;
+                    }
+                }
+                if (newProjectIds.Count > 0)
+                {
+                    var projs = await ModrinthClient.GetProjectsAsync(newProjectIds);
+                    foreach (var (_, rec) in needHashLookup)
+                    {
+                        if (!string.IsNullOrEmpty(rec.ProjectId) && projs.TryGetValue(rec.ProjectId!, out var pr))
+                        {
+                            rec.Slug = pr.Slug;
+                            if (string.IsNullOrEmpty(rec.Name) || rec.Name == rec.File) rec.Name = pr.Title;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { LogCrash(ex); }
+        }
+
+        // Tag default / perf mods by slug (best effort).
+        foreach (var rec in recordFor.Values)
+        {
+            if (rec.Source == "modrinth" && !string.IsNullOrEmpty(rec.Slug))
+            {
+                if (PerfModSlugs.Contains(rec.Slug!)) rec.Source = "perf";
+                else if (DefaultModSlugs.Contains(rec.Slug!)) rec.Source = "default";
+            }
+        }
+
+        if (idxChanged) await Task.Run(() => idx.Save());
+        _modIndex = idx;
+
+        // Group duplicate copies of the same mod. Identity priority: projectId → modId → filename.
+        string GroupKey(LocalMod m)
+        {
+            var rec = recordFor[m];
+            if (!string.IsNullOrEmpty(rec.ProjectId)) return "p:" + rec.ProjectId!.ToLowerInvariant();
+            if (!string.IsNullOrEmpty(m.Id) && m.Id != Path.GetFileNameWithoutExtension(m.JarPath))
+                return "m:" + m.Id.ToLowerInvariant() + "|" + m.Loader;
+            return "f:" + Path.GetFileName(m.JarPath).ToLowerInvariant();
+        }
+
+        var full = Path.GetFullPath(launchDir).TrimEnd('\\', '/');
+        bool InLaunchDir(LocalMod m) =>
+            string.Equals(Path.GetFullPath(m.Folder).TrimEnd('\\', '/'), full, StringComparison.OrdinalIgnoreCase);
+
+        var vms = new List<LocalModVm>();
+        foreach (var grp in mods.GroupBy(GroupKey))
+        {
+            var members = grp.ToList();
+            // Primary copy: prefer one in the launch dir, then an enabled one, else first.
+            var primary = members.FirstOrDefault(InLaunchDir)
+                       ?? members.FirstOrDefault(m => m.Enabled)
+                       ?? members[0];
+            var rec = recordFor[primary];
+
+            Bitmap? bmp = null;
+            var iconSrc = members.FirstOrDefault(m => m.IconBytes is not null)?.IconBytes;
+            if (iconSrc is not null)
+            {
+                try { using var ms = new MemoryStream(iconSrc); bmp = new Bitmap(ms); }
+                catch { }
+            }
+
+            var vm = new LocalModVm
+            {
+                JarPath = primary.JarPath,
+                Id = primary.Id,
+                Name = !string.IsNullOrEmpty(rec.Name) ? rec.Name! : primary.Name,
+                Description = primary.Description,
+                Icon = bmp,
+                Enabled = primary.Enabled,
+                Folder = primary.Folder,
+                Sha512 = primary.Sha512,
+                Size = primary.Size,
+                ProjectId = rec.ProjectId,
+                Slug = rec.Slug,
+                InstalledVersionId = rec.VersionId,
+                Version = rec.Version ?? primary.Version,
+                Source = rec.Source,
+                InstalledAt = rec.InstalledAt,
+                Locked = rec.Locked,
+                IsDependency = rec.IsDependency,
+                DepOf = rec.DepOf ?? new List<string>(),
+                DupCount = members.Count,
+                DupPaths = members.Where(m => m.JarPath != primary.JarPath).Select(m => m.JarPath).ToList(),
+                Loads = InLaunchDir(primary),
+            };
+            vms.Add(vm);
+        }
+
+        // Stable order: loads-first, then name.
+        vms.Sort((a, b) =>
+        {
+            if (a.Loads != b.Loads) return a.Loads ? -1 : 1;
+            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        });
+        return vms;
+    }
+
+    private ModIndex? _modIndex;
+
+    private static string NormJar(string file)
+        => file.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase) ? file.Substring(0, file.Length - ".disabled".Length) : file;
+
+    /// <summary>Find a VM's index record by sha (robust across folders), else by bucket+file.</summary>
+    private ModRecord? RecordOf(LocalModVm vm)
+    {
+        try
+        {
+            _modIndex ??= ModIndex.Load(EffectiveMcDir());
+            var r = _modIndex.FindBySha(vm.Sha512);
+            if (r != null) return r;
+            // Derive the bucket from the folder (per-mc subfolder name, else "*").
+            var smods = Path.Combine(EffectiveMcDir(), "s1mp1e-mods");
+            string bucket = "*";
+            try
+            {
+                var full = Path.GetFullPath(vm.Folder).TrimEnd('\\', '/');
+                if (full.StartsWith(Path.GetFullPath(smods), StringComparison.OrdinalIgnoreCase))
+                {
+                    var rest = full.Substring(Path.GetFullPath(smods).Length).Trim('\\', '/');
+                    if (!string.IsNullOrEmpty(rest) && !rest.Contains('\\') && !rest.Contains('/')) bucket = rest;
+                }
+            }
+            catch { }
+            return _modIndex.Get(bucket, Path.GetFileName(vm.JarPath));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Toggle "lock version" — a locked mod is excluded from 全部更新.</summary>
+    private void ToggleModLock(LocalModVm vm)
+    {
+        var rec = RecordOf(vm);
+        if (rec == null) return;
+        rec.Locked = !rec.Locked;
+        vm.Locked = rec.Locked;
+        try { _modIndex?.Save(); } catch { }
+        UpdateAllButtonState();
+    }
+
+    /// <summary>Update one installed mod to its newest compatible version (release channel).</summary>
+    private async System.Threading.Tasks.Task UpdateOneLocalModAsync(LocalModVm vm)
+    {
+        if (string.IsNullOrEmpty(vm.ProjectId)) return;
+        var mc = string.IsNullOrEmpty(VersionBox.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
+        var loader = ModLoaderFor(mc, EffectiveLoader());
+        try { await DownloadOneVersionAsync(vm.ProjectId!, mc, loader); }
+        catch (Exception ex) { LogCrash(ex); }
+        if (_modModeIdx == 1) _ = RunLocalScanAsync();
+    }
+
+    /// <summary>Delete a mod jar (and any duplicate copies) to the Recycle Bin, after confirming.</summary>
+    private async System.Threading.Tasks.Task DeleteLocalModAsync(LocalModVm vm)
+    {
+        var paths = new List<string> { vm.JarPath };
+        paths.AddRange(vm.DupPaths);
+        var msg = vm.DupCount > 1
+            ? $"刪除「{vm.Name}」的 {vm.DupCount} 份副本？\n檔案會移到資源回收筒，可還原。"
+            : $"刪除「{vm.Name}」？\n檔案會移到資源回收筒，可還原。";
+        if (!await ConfirmAsync("刪除模組", msg, "刪除", danger: true)) return;
+        foreach (var p in paths.Distinct())
+        {
+            foreach (var cand in new[] { p, p + ".disabled",
+                         p.EndsWith(".disabled") ? p.Substring(0, p.Length - ".disabled".Length) : p })
+            {
+                try { if (File.Exists(cand)) RecycleFile(cand); } catch (Exception ex) { LogCrash(ex); }
+            }
+        }
+        var rec = RecordOf(vm);
+        if (rec != null) { _modIndex?.Records.Remove(rec); try { _modIndex?.Save(); } catch { } }
+        _localModsAll.Remove(vm);
+        _localMods.Remove(vm);
+        var curMc = string.IsNullOrEmpty(_cfg.Settings.Version) ? "1.21.1" : _cfg.Settings.Version;
+        ForgetDownloadedByFilename(Path.GetFileName(vm.JarPath), curMc);
+    }
+
+    // Recycle Bin via the Win32 shell (no Microsoft.VisualBasic / WindowsForms reference needed).
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd;
+        public uint wFunc;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] public string pFrom;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] public string? pTo;
+        public ushort fFlags;
+        public int fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] public string? lpszProgressTitle;
+    }
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SHFileOperation(ref SHFILEOPSTRUCT lpFileOp);
+    private const uint FO_DELETE = 0x0003;
+    private const ushort FOF_ALLOWUNDO = 0x0040;
+    private const ushort FOF_NOCONFIRMATION = 0x0010;
+    private const ushort FOF_SILENT = 0x0004;
+
+    private static void RecycleFile(string path)
+    {
+        var op = new SHFILEOPSTRUCT
+        {
+            wFunc = FO_DELETE,
+            pFrom = path + "\0\0",                  // double-null-terminated list
+            fFlags = (ushort)(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT),
+        };
+        SHFileOperation(ref op);
+    }
+
+    /// <summary>
+    /// A small centred glass confirm dialog over a scrim. Returns true if the user confirms.
+    /// Self-contained (added to the window root, removed on dismiss) so it never tangles with
+    /// the morph-animated context-menu overlay.
+    /// </summary>
+    private System.Threading.Tasks.Task<bool> ConfirmAsync(string title, string message, string confirmLabel, bool danger)
+    {
+        var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+        if (this.Content is not Panel root) { tcs.SetResult(false); return tcs.Task; }
+
+        var scrim = new Border { Background = new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)) };
+
+        var titleT = new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeight.Bold };
+        titleT.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextMain"));
+        var msgT = new TextBlock { Text = message, FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
+        msgT.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextSub"));
+
+        Button MakeBtn(string text, bool primary)
+        {
+            var t = new TextBlock { Text = text, FontSize = 13, FontWeight = FontWeight.SemiBold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Foreground = primary ? Brushes.White : (IBrush)(this.FindResource("TextMain") as IBrush ?? Brushes.Gray) };
+            var b = new Button { Content = t, Height = 34, Width = 96, CornerRadius = new CornerRadius(9),
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                BorderThickness = new Thickness(0), Cursor = new Cursor(StandardCursorType.Hand),
+                Padding = new Thickness(0) };
+            if (primary) b.Background = new SolidColorBrush(danger ? Color.Parse("#FF453A") : Color.Parse("#007AFF"));
+            else b.Background = new SolidColorBrush(Color.Parse("#22808080"));
+            return b;
+        }
+        var cancelBtn = MakeBtn("取消", false);
+        var okBtn = MakeBtn(confirmLabel, true);
+        var btnRow = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 10,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(okBtn);
+
+        var stack = new StackPanel();
+        stack.Children.Add(titleT); stack.Children.Add(msgT); stack.Children.Add(btnRow);
+        var card = new Border
+        {
+            Width = 360, Padding = new Thickness(22, 20), CornerRadius = new CornerRadius(16),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Child = stack,
+            BoxShadow = new BoxShadows(new BoxShadow { Blur = 40, OffsetY = 16, Color = Color.FromArgb(90, 0, 0, 0) }),
+        };
+        card.Bind(Border.BackgroundProperty, this.GetResourceObservable("DetailBg"));
+
+        var host = new Panel { ZIndex = 400 };
+        host.Children.Add(scrim);
+        host.Children.Add(card);
+        root.Children.Add(host);
+
+        void Close(bool result) { try { root.Children.Remove(host); } catch { } tcs.TrySetResult(result); }
+        scrim.PointerPressed += (_, _) => Close(false);
+        cancelBtn.Click += (_, _) => Close(false);
+        okBtn.Click += (_, _) => Close(true);
+
+        // Sealed capture run: screenshot the dialog as evidence, then auto-answer (S1MP1E_CONFIRM=yes|no, default no).
+        if (_captureMode && !string.IsNullOrEmpty(_captureOutDir))
+        {
+            _ = Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(250); await NextFrameAsync();
+                SaveWindowPng(System.IO.Path.Combine(_captureOutDir!, $"confirm-{++_confirmShots}.png"));
+                if (int.TryParse(Environment.GetEnvironmentVariable("S1MP1E_CONFIRM_HOLD"), out var holdMs) && holdMs > 0)
+                    await System.Threading.Tasks.Task.Delay(holdMs);   // keep it on screen for an external (real-screen) capture
+                Close(string.Equals(Environment.GetEnvironmentVariable("S1MP1E_CONFIRM"), "yes", StringComparison.OrdinalIgnoreCase));
+            });
+        }
+        return tcs.Task;
+    }
+    private string? _captureOutDir;
+    private int _confirmShots;
+
+    // ---- toast: a small glass pill near the bottom that fades in, holds, fades out ----
+    private Border? _toast;
+    private int _toastGen;
+
+    private async void ShowToast(string text, int holdMs = 2200)
+    {
+        try
+        {
+            if (this.Content is not Panel root) return;
+            var gen = ++_toastGen;
+            if (_toast == null)
+            {
+                var t = new TextBlock { FontSize = 13, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+                t.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextMain"));
+                _toast = new Border
+                {
+                    Child = t, Padding = new Thickness(18, 10), CornerRadius = new CornerRadius(14), MaxWidth = 520,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 0, 34), ZIndex = 450, IsHitTestVisible = false, Opacity = 0,
+                    BoxShadow = new BoxShadows(new BoxShadow { Blur = 24, OffsetY = 8, Color = Color.FromArgb(70, 0, 0, 0) }),
+                    Transitions = new Transitions { new DoubleTransition { Property = OpacityProperty, Duration = TimeSpan.FromMilliseconds(180) } },
+                };
+                _toast.Bind(Border.BackgroundProperty, this.GetResourceObservable("DetailBg"));
+                root.Children.Add(_toast);
+            }
+            ((TextBlock)_toast.Child!).Text = text;
+            _toast.Opacity = 1;
+            await Task.Delay(holdMs);
+            if (gen == _toastGen && _toast != null) _toast.Opacity = 0;
+        }
+        catch { }
+    }
+
+    // ---- open the folder the current version's mods are installed to ----
+    private string CurrentMc()
+        => string.IsNullOrEmpty(VersionBox?.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
+
+    private string ModInstallDir(string mc) => Path.Combine(EffectiveMcDir(), "s1mp1e-mods", mc);
+
+    private void OpenModsFolder()
+    {
+        try
+        {
+            var dir = ConflictScanner.LaunchModDir(EffectiveMcDir(), CurrentMc());
+            Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) { LogCrash(ex); }
+    }
+
+    // ---- browse-mode toolbar (right of the filter chips) ----
+    private bool _toolbarBuilt;
+
+    private Border MakeToolButton(string text, Action onClick, string? tip = null)
+    {
+        var label = new TextBlock { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        label.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextMain"));
+        var b = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(11, 5),
+            Background = new SolidColorBrush(Color.Parse("#22808080")),
+            Cursor = new Cursor(StandardCursorType.Hand), Child = label };
+        b.PointerPressed += (_, ev) => { ev.Handled = true; onClick(); };
+        if (tip != null) ToolTip.SetTip(b, tip);
+        return b;
+    }
+
+    private void BuildLocalToolbar()
+    {
+        if (_toolbarBuilt || LocalToolbar is null) return;
+        _toolbarBuilt = true;
+        Border? sortBtn = null, manageBtn = null;
+        sortBtn = MakeToolButton("排序：" + LocalSortNames[_localSort] + " ▾", () => ShowSortMenu(sortBtn!));
+        _sortBtnLabel = sortBtn.Child as TextBlock;
+        manageBtn = MakeToolButton("管理 ▾", () => ShowManageMenu(manageBtn!), "批次操作會套用到目前列出的模組（篩選和搜尋之後）");
+        _sortBtn = sortBtn; _manageBtn = manageBtn;
+        Border? shareBtn = null;
+        shareBtn = MakeToolButton("匯出 / 匯入 ▾", () => ShowShareMenu(shareBtn!), "把整套模組匯出成 .mrpack 備份或分享，或從 .mrpack 匯入（也可直接把 .mrpack 拖進視窗）");
+        LocalToolbar.Children.Add(sortBtn);
+        LocalToolbar.Children.Add(manageBtn);
+        LocalToolbar.Children.Add(shareBtn);
+        LocalToolbar.Children.Add(MakeToolButton("開啟資料夾", OpenModsFolder, "用檔案總管打開這個版本的模組資料夾（也可以直接把 .jar 拖進視窗安裝）"));
+    }
+
+    private void ShowShareMenu(Control anchor)
+        => ShowMenuFor(anchor, new[] { "匯出模組清單（.mrpack）", "匯入模組清單（.mrpack）" }, -1,
+            pick => { if (pick == 0) _ = ExportModListAsync(); else if (pick == 1) _ = PickAndImportMrpackAsync(); });
+
+    /// <summary>Export the current version's installed mods as a .mrpack the user chooses a location for.</summary>
+    private async System.Threading.Tasks.Task ExportModListAsync()
+    {
+        try
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return;
+            var mc = CurrentMc();
+            var jars = _localModsAll.Where(m => m.Loads).Select(m => m.JarPath).ToList();
+            if (jars.Count == 0) { ShowToast("這個版本沒有可匯出的模組"); return; }
+
+            var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "匯出模組清單",
+                SuggestedFileName = $"S1mp1e-{mc}-mods.mrpack",
+                DefaultExtension = "mrpack",
+                FileTypeChoices = new[] { new FilePickerFileType("Modrinth 整合包") { Patterns = new[] { "*.mrpack" } } },
+            });
+            if (file is null) return;
+            var outPath = file.TryGetLocalPath();
+            if (string.IsNullOrEmpty(outPath)) { ShowToast("無法寫入所選位置"); return; }
+
+            ShowToast("匯出中…", 60000);
+            var loaderKey = ModLoaderFor(mc, EffectiveLoader());
+            var res = await Task.Run(() => MrpackService.ExportAsync(outPath!, $"S1mp1e {mc}", mc, loaderKey, null, jars));
+            ShowToast($"已匯出 {res.Indexed + res.Bundled} 個模組（{res.Indexed} 個連結、{res.Bundled} 個打包）");
+        }
+        catch (Exception ex) { LogCrash(ex); ShowToast("匯出失敗：" + ex.Message); }
+    }
+
+    private async System.Threading.Tasks.Task PickAndImportMrpackAsync()
+    {
+        try
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return;
+            var picked = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "匯入模組清單",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new FilePickerFileType("Modrinth 整合包") { Patterns = new[] { "*.mrpack" } } },
+            });
+            var path = picked?.FirstOrDefault()?.TryGetLocalPath();
+            if (string.IsNullOrEmpty(path)) return;
+            await ImportMrpackAsync(path!);
+        }
+        catch (Exception ex) { LogCrash(ex); ShowToast("匯入失敗：" + ex.Message); }
+    }
+
+    /// <summary>Import a .mrpack into the current version's mod folder (used by both the menu and drag-drop).</summary>
+    private async System.Threading.Tasks.Task ImportMrpackAsync(string path)
+    {
+        try
+        {
+            var mc = CurrentMc();
+            var dst = ModInstallDir(mc);
+            // Peek the pack's declared MC so we can warn before downloading anything into the wrong folder.
+            string? declMc = null;
+            try
+            {
+                using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+                var ie = zip.GetEntry("modrinth.index.json");
+                if (ie != null) { await using var s = ie.Open(); var n = await System.Text.Json.Nodes.JsonNode.ParseAsync(s); declMc = (n as System.Text.Json.Nodes.JsonObject)?["dependencies"]?["minecraft"]?.GetValue<string>(); }
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(declMc) && !string.Equals(declMc, ModrinthClient.EffectiveMc(mc), StringComparison.OrdinalIgnoreCase))
+            {
+                if (!await ConfirmAsync("版本可能不符",
+                        $"這個整合包是給 {declMc} 的，\n但你目前選的是 {mc}。\n裝進來可能讓遊戲無法啟動，仍要匯入嗎？", "仍要匯入", danger: true))
+                    return;
+            }
+
+            ShowToast("匯入中…", 120000);
+            var res = await Task.Run(() => MrpackService.ImportAsync(path, dst));
+            var msg = $"已匯入 {res.Downloaded + res.Extracted} 個模組";
+            if (res.Skipped > 0) msg += $"，略過 {res.Skipped} 個非模組項目";
+            if (res.Failures.Count > 0) msg += $"，{res.Failures.Count} 個失敗";
+            ShowToast(msg, 3200);
+            if (_selected != 1) { _selected = 1; MovePill(1, animate: true); UpdateNavWeights(1); ShowPage(1); }
+            if (_modModeIdx != 1) SetModMode(1); else _ = RunLocalScanAsync();
+        }
+        catch (Exception ex) { LogCrash(ex); ShowToast("匯入失敗：" + ex.Message); }
+    }
+
+    // ---- drag-and-drop install (.jar → current version's mod folder; .mrpack → import) ----
+    private Border? _dropOverlay;
+
+    private void WireDragDrop()
+    {
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragEnterEvent, OnWinDragOver);
+        AddHandler(DragDrop.DragOverEvent, OnWinDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, OnWinDragLeave);
+        AddHandler(DragDrop.DropEvent, OnWinDrop);
+    }
+
+    private static List<string> DroppedPaths(DragEventArgs e)
+    {
+        var list = new List<string>();
+        try
+        {
+            var files = e.DataTransfer.TryGetFiles();
+            if (files != null)
+                foreach (var f in files)
+                {
+                    var p = f.TryGetLocalPath();
+                    if (!string.IsNullOrEmpty(p)) list.Add(p!);
+                }
+        }
+        catch { }
+        return list;
+    }
+
+    private static bool IsDroppableMod(string p)
+        => p.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)
+        || p.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase);
+
+    private void OnWinDragOver(object? sender, DragEventArgs e)
+    {
+        if (_captureMode) return;
+        var any = DroppedPaths(e).Any(IsDroppableMod);
+        e.DragEffects = any ? DragDropEffects.Copy : DragDropEffects.None;
+        if (any) ShowDropOverlay(true);
+    }
+
+    private void OnWinDragLeave(object? sender, DragEventArgs e)
+    {
+        // DragLeave bubbles up from every child the pointer crosses; only hide once it really left the window.
+        var p = e.GetPosition(this);
+        if (p.X <= 1 || p.Y <= 1 || p.X >= Bounds.Width - 1 || p.Y >= Bounds.Height - 1) ShowDropOverlay(false);
+    }
+
+    private async void OnWinDrop(object? sender, DragEventArgs e)
+    {
+        ShowDropOverlay(false);
+        var paths = DroppedPaths(e).Where(IsDroppableMod).ToList();
+        if (paths.Count == 0) return;
+        try { await InstallDroppedAsync(paths); }
+        catch (Exception ex) { LogCrash(ex); ShowToast("安裝失敗：" + ex.Message); }
+    }
+
+    private void ShowDropOverlay(bool show)
+    {
+        try
+        {
+            if (this.Content is not Panel root) return;
+            if (show)
+            {
+                if (_dropOverlay != null) return;
+                var title = new TextBlock { Text = "放開以安裝", FontSize = 20, FontWeight = FontWeight.Bold,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+                title.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextMain"));
+                var sub = new TextBlock { Text = $"模組會安裝到 {CurrentMc()}（.mrpack 會匯入整套模組）", FontSize = 13,
+                    Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+                sub.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("TextSub"));
+                var stack = new StackPanel(); stack.Children.Add(title); stack.Children.Add(sub);
+                var card = new Border
+                {
+                    Child = stack, Padding = new Thickness(34, 26), CornerRadius = new CornerRadius(20),
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                    BorderThickness = new Thickness(2), BorderBrush = new SolidColorBrush(Color.Parse("#007AFF")),
+                    BoxShadow = new BoxShadows(new BoxShadow { Blur = 40, OffsetY = 14, Color = Color.FromArgb(90, 0, 0, 0) }),
+                };
+                card.Bind(Border.BackgroundProperty, this.GetResourceObservable("DetailBg"));
+                var grid = new Grid { Background = new SolidColorBrush(Color.FromArgb(90, 0, 0, 0)) };
+                grid.Children.Add(card);
+                _dropOverlay = new Border { Child = grid, ZIndex = 420 };
+                DragDrop.SetAllowDrop(_dropOverlay, true);
+                root.Children.Add(_dropOverlay);
+            }
+            else if (_dropOverlay != null)
+            {
+                root.Children.Remove(_dropOverlay);
+                _dropOverlay = null;
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Install dropped files: each .jar is copied into the current version's mod folder (offering to
+    /// replace an older copy of the same mod, which goes to the Recycle Bin); a .mrpack is imported.
+    /// Then jumps to the installed-mods view and rescans so the new entries show with their metadata.
+    /// </summary>
+    private async System.Threading.Tasks.Task InstallDroppedAsync(List<string> paths)
+    {
+        var mc = CurrentMc();
+        foreach (var pack in paths.Where(p => p.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)))
+            await ImportMrpackAsync(pack);
+
+        var jars = paths.Where(p => p.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (jars.Count > 0) await InstallJarsAsync(jars, "安裝");
+
+        // Show the result in the installed-mods view.
+        if (_selected != 1) { _selected = 1; MovePill(1, animate: true); UpdateNavWeights(1); ShowPage(1); }
+        if (_modModeIdx != 1) SetModMode(1); else _ = RunLocalScanAsync();
+    }
+
+    /// <summary>
+    /// Copy jars into the current version's mod folder with the version/loader safety check and the
+    /// replace-older-copy prompt. Returns the SOURCE paths that were actually installed (so a move can
+    /// recycle exactly those originals). <paramref name="verb"/> words the toast (安裝 / 搬移).
+    /// </summary>
+    private async System.Threading.Tasks.Task<List<string>> InstallJarsAsync(List<string> jars, string verb)
+    {
+        var mc = CurrentMc();
+        {
+            var dstDir = ModInstallDir(mc);
+            Directory.CreateDirectory(dstDir);
+            var existing = (await LocalModScanner.ScanAsync(EffectiveMcDir(), mc, computeHash: false))
+                .Where(x => string.Equals(Path.GetFullPath(x.Folder).TrimEnd('\\'), Path.GetFullPath(dstDir).TrimEnd('\\'),
+                                          StringComparison.OrdinalIgnoreCase)).ToList();
+            // Version/loader safety net: ask Modrinth (by sha512) which MC versions + loaders each jar is for, so a
+            // mod built for another version isn't silently dropped into this one (it would crash the game on launch).
+            var shaOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var jar in jars)
+            {
+                try
+                {
+                    await using var hs = File.OpenRead(jar);
+                    using var sha = System.Security.Cryptography.SHA512.Create();
+                    shaOf[jar] = Convert.ToHexString(await sha.ComputeHashAsync(hs)).ToLowerInvariant();
+                }
+                catch { }
+            }
+            Dictionary<string, ModrinthHashHit> hits = new(StringComparer.OrdinalIgnoreCase);
+            try { hits = await ModrinthClient.LookupByHashesAsync(shaOf.Values.ToList()); } catch { }
+            var wantLoader = ModLoaderFor(mc, EffectiveLoader()).ToLowerInvariant();
+
+            int ok = 0, skipped = 0, notMod = 0;
+            var installed = new List<string>();
+            foreach (var jar in jars)
+            {
+                var fileName = Path.GetFileName(jar);
+                if (fileName.StartsWith("glass-", StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
+                if (shaOf.TryGetValue(jar, out var jsha) && hits.TryGetValue(jsha, out var hit))
+                {
+                    bool mcOk = hit.GameVersions == null || hit.GameVersions.Length == 0
+                             || hit.GameVersions.Any(g => string.Equals(g, ModrinthClient.EffectiveMc(mc), StringComparison.OrdinalIgnoreCase));
+                    bool loaderOk = hit.Loaders == null || hit.Loaders.Length == 0
+                             || hit.Loaders.Any(l => string.Equals(l, wantLoader, StringComparison.OrdinalIgnoreCase));
+                    if (!mcOk || !loaderOk)
+                    {
+                        var forWhat = (hit.GameVersions is { Length: > 0 } ? string.Join("、", hit.GameVersions.Take(4)) : "?")
+                                    + (hit.Loaders is { Length: > 0 } ? " · " + string.Join("/", hit.Loaders) : "");
+                        if (!await ConfirmAsync("版本可能不符",
+                                $"「{fileName}」是給 {forWhat} 的，\n但你目前選的是 {mc} · {wantLoader}。\n裝了可能讓遊戲無法啟動，仍要安裝嗎？",
+                                "仍要安裝", danger: true))
+                        { skipped++; continue; }
+                    }
+                }
+                var dst = Path.Combine(dstDir, fileName);
+                if (string.Equals(Path.GetFullPath(jar), Path.GetFullPath(dst), StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
+                var meta = LocalModScanner.ReadJarMeta(jar);
+                if (meta == null) notMod++;   // still install it — could be a library; the list shows it as-is
+                if (meta != null && !string.IsNullOrEmpty(meta.Id))
+                {
+                    var olds = existing.Where(x => string.Equals(x.Id, meta.Id, StringComparison.OrdinalIgnoreCase)
+                                                && x.Loader == meta.Loader
+                                                && !string.Equals(Path.GetFileName(x.JarPath), fileName, StringComparison.OrdinalIgnoreCase))
+                                       .ToList();
+                    if (olds.Count > 0)
+                    {
+                        var oldV = olds[0].Version ?? "?";
+                        var newV = meta.Version ?? "?";
+                        if (!await ConfirmAsync("取代舊版本？",
+                                $"「{meta.Name}」已經有 v{oldV}。\n要換成 v{newV} 嗎？舊版會移到資源回收筒。", "取代", danger: false))
+                        { skipped++; continue; }
+                        foreach (var o in olds) { try { RecycleFile(o.JarPath); } catch (Exception ex) { LogCrash(ex); } }
+                    }
+                }
+                File.Copy(jar, dst, overwrite: true);
+                try { File.SetLastWriteTimeUtc(dst, DateTime.UtcNow); } catch { }   // "added" = now, not the source file's age
+                ok++;
+                installed.Add(jar);
+            }
+            var msg = $"已{verb} {ok} 個模組到 {mc}";
+            if (skipped > 0) msg += $"，略過 {skipped} 個";
+            if (notMod > 0) msg += $"（{notMod} 個看起來不是模組）";
+            ShowToast(msg);
+            return installed;
+                }
+    }
+
+    private int _updateCheckGen;
+
+    /// <summary>
+    /// Stage-2 update check: for every installed mod we can resolve on Modrinth, find the newest
+    /// compatible version (per the release/prerelease channel) and flag the row with ↑ when it's
+    /// newer than what's on disk. Runs after a scan; fire-and-forget, cancellable by a newer scan.
+    /// </summary>
+    private async System.Threading.Tasks.Task CheckLocalUpdatesAsync()
+    {
+        var gen = ++_updateCheckGen;
+        var mc = string.IsNullOrEmpty(VersionBox?.SelectedText) ? _cfg.Settings.Version : VersionBox.SelectedText;
+        var loader = ModLoaderFor(mc, EffectiveLoader());
+        bool pre = _cfg.Settings.UpdatePrerelease;
+        var targets = _localModsAll.Where(v => !string.IsNullOrEmpty(v.ProjectId)).ToList();
+        foreach (var vm in targets)
+        {
+            if (gen != _updateCheckGen) return;   // a newer scan superseded us
+            try
+            {
+                var versions = await ModrinthClient.GetProjectVersionsAsync(vm.ProjectId!, mc, loader, pre);
+                if (versions.Count == 0) continue;
+                var latest = versions[0];           // newest-published first
+                bool newer;
+                int idxInstalled = string.IsNullOrEmpty(vm.InstalledVersionId)
+                    ? -1
+                    : versions.ToList().FindIndex(x => string.Equals(x.Id, vm.InstalledVersionId, StringComparison.OrdinalIgnoreCase));
+                if (idxInstalled >= 0)
+                    newer = idxInstalled > 0;        // installed is in the list → update iff something precedes it
+                else if (ConflictScanner.TryParseSemver(latest.VersionNumber, out var lv)
+                         && ConflictScanner.TryParseSemver(vm.Version, out var iv))
+                    newer = ConflictScanner.Compare(lv, iv) > 0;
+                else
+                    newer = !string.Equals(latest.Id, vm.InstalledVersionId, StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(latest.VersionNumber, vm.Version, StringComparison.OrdinalIgnoreCase);
+
+                if (newer)
+                {
+                    vm.UpdateVersion = latest.VersionNumber;
+                    vm.UpdateVersionId = latest.Id;
+                    vm.HasUpdate = true;
+                    UpdateAllButtonState();       // reveal 全部更新 + 有更新 chip as soon as the first update is found
+                    RefreshFilterChipStyles();
+                }
+                else { vm.HasUpdate = false; }
+            }
+            catch (Exception ex) { LogCrash(ex); }
+        }
+        if (gen == _updateCheckGen) { UpdateAllButtonState(); RefreshFilterChipStyles(); }
+    }
+
+    // Active browse filter: all | update | disabled | manual | notload.
+    private string _localFilter = "all";
+
     private void ApplyLocalFilter()
     {
         _localMods.Clear();
         var q = (ModSearchBox.Text ?? "").Trim();
         IEnumerable<LocalModVm> src = _localModsAll;
+        src = _localFilter switch
+        {
+            "update"   => src.Where(m => m.HasUpdate),
+            "disabled" => src.Where(m => !m.Enabled),
+            "manual"   => src.Where(m => m.Source == "manual"),
+            "notload"  => src.Where(m => !m.Loads),
+            _          => src,
+        };
         if (q.Length > 0)
         {
-            src = _localModsAll.Where(m =>
+            src = src.Where(m =>
                 m.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
                 m.Id.Contains(q, StringComparison.OrdinalIgnoreCase));
         }
+        src = _localSort switch
+        {
+            1 => src.OrderByDescending(m => m.InstalledAt),
+            2 => src.OrderByDescending(m => m.Size),
+            3 => src.OrderByDescending(m => m.HasUpdate).ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase),
+            _ => src.OrderByDescending(m => m.Loads).ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase),
+        };
         foreach (var m in src) _localMods.Add(m);
+    }
+
+    // ---- sort + batch "管理" actions (browse mode toolbar) ----
+    private int _localSort;   // 0 名稱 · 1 最近加入 · 2 大小 · 3 有更新優先
+    private static readonly string[] LocalSortNames = { "名稱", "最近加入", "大小", "有更新優先" };
+    private TextBlock? _sortBtnLabel;
+    private Border? _sortBtn, _manageBtn;
+
+    private void ShowSortMenu(Control anchor)
+    {
+        ShowMenuFor(anchor, LocalSortNames, _localSort, pick =>
+        {
+            if (pick < 0 || pick >= LocalSortNames.Length) return;
+            _localSort = pick;
+            if (_sortBtnLabel != null) _sortBtnLabel.Text = "排序：" + LocalSortNames[pick] + " ▾";
+            ApplyLocalFilter();
+        });
+    }
+
+    private static readonly string[] ManageItems =
+        { "全部啟用", "全部停用", "整理重複（每個只留一份）", "搬移不會載入的", "刪除目前列出的全部" };
+
+    private void ShowManageMenu(Control anchor)
+    {
+        var list = _localMods.ToList();
+        var disabled = new[]
+        {
+            list.All(v => v.Enabled),              // 全部啟用 — nothing to enable
+            list.All(v => !v.Enabled),             // 全部停用 — nothing to disable
+            !list.Any(v => v.DupCount > 1),        // 整理重複
+            !list.Any(v => !v.Loads),              // 搬移不會載入的
+            list.Count == 0,                       // 刪除目前列出的全部
+        };
+        ShowMenuFor(anchor, ManageItems, -1, disabled, pick => { _ = RunManageActionAsync(pick); });
+    }
+
+    /// <summary>Batch actions apply to the CURRENTLY LISTED rows (i.e. after the filter chips + search).</summary>
+    private async System.Threading.Tasks.Task RunManageActionAsync(int pick)
+    {
+        var list = _localMods.ToList();
+        try
+        {
+            switch (pick)
+            {
+                case 0:
+                case 1:
+                {
+                    bool en = pick == 0;
+                    int n = 0;
+                    foreach (var vm in list.Where(v => v.Enabled != en))
+                    {
+                        try { vm.JarPath = LocalModScanner.SetEnabled(vm.JarPath, en); vm.Enabled = en; n++; }
+                        catch (Exception ex) { LogCrash(ex); }
+                    }
+                    ShowToast(n == 0 ? (en ? "列出的模組都已經啟用" : "列出的模組都已經停用")
+                                     : $"已{(en ? "啟用" : "停用")} {n} 個模組");
+                    RefreshFilterChipStyles();
+                    break;
+                }
+                case 2:
+                {
+                    var targets = list.Where(v => v.DupCount > 1).ToList();
+                    int copies = targets.Sum(v => v.DupPaths.Count);
+                    if (copies == 0) { ShowToast("沒有重複的模組"); break; }
+                    if (!await ConfirmAsync("整理重複",
+                            $"{targets.Count} 個模組共有 {copies} 份多餘的副本。\n每個只保留會被載入的那一份，其餘移到資源回收筒。", "整理", danger: false)) break;
+                    int n = 0;
+                    foreach (var p in targets.SelectMany(v => v.DupPaths))
+                        foreach (var cand in new[] { p, p + ".disabled" })
+                            try { if (File.Exists(cand)) { RecycleFile(cand); n++; } } catch (Exception ex) { LogCrash(ex); }
+                    ShowToast($"已移除 {n} 份重複副本");
+                    _ = RunLocalScanAsync();
+                    break;
+                }
+                case 3:
+                {
+                    var targets = list.Where(v => !v.Loads).ToList();
+                    if (targets.Count == 0) { ShowToast("沒有不會載入的模組"); break; }
+                    if (!await ConfirmAsync("搬移不會載入的模組",
+                            $"把 {targets.Count} 個模組搬到 {CurrentMc()} 會載入的資料夾？\n會先檢查版本是否相容，原檔移到資源回收筒。", "搬移", danger: false)) break;
+                    var moved = await InstallJarsAsync(targets.Select(v => v.JarPath).ToList(), "搬移");
+                    foreach (var src in moved) try { if (File.Exists(src)) RecycleFile(src); } catch (Exception ex) { LogCrash(ex); }
+                    _ = RunLocalScanAsync();
+                    break;
+                }
+                case 4:
+                {
+                    if (list.Count == 0) { ShowToast("目前沒有列出任何模組"); break; }
+                    var filterNote = _localFilter == "all" && string.IsNullOrWhiteSpace(ModSearchBox.Text) ? "" : "（只限目前篩選出來的）";
+                    if (!await ConfirmAsync("刪除模組",
+                            $"刪除目前列出的 {list.Count} 個模組{filterNote}？\n檔案會移到資源回收筒，可以還原。", "全部刪除", danger: true)) break;
+                    int n = 0;
+                    foreach (var vm in list)
+                    {
+                        foreach (var p in new[] { vm.JarPath }.Concat(vm.DupPaths))
+                            foreach (var cand in new[] { p, p + ".disabled" })
+                                try { if (File.Exists(cand)) { RecycleFile(cand); n++; } } catch (Exception ex) { LogCrash(ex); }
+                        var rec = RecordOf(vm);
+                        if (rec != null) _modIndex?.Records.Remove(rec);
+                    }
+                    try { _modIndex?.Save(); } catch { }
+                    ShowToast($"已移到資源回收筒：{n} 個檔案");
+                    _ = RunLocalScanAsync();
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) { LogCrash(ex); ShowToast("操作失敗：" + ex.Message); }
+    }
+
+    private readonly List<(string key, Border chip, TextBlock label)> _filterChips = new();
+
+    /// <summary>Build the browse filter chips once; each re-applies the filter + counts on click.</summary>
+    private void BuildLocalFilterChips()
+    {
+        if (LocalFilterChips is null || _filterChips.Count > 0) return;
+        foreach (var (key, name) in new[] { ("all","全部"), ("update","有更新"), ("disabled","已停用"), ("manual","手動"), ("notload","不會載入") })
+        {
+            var label = new TextBlock { Text = name, FontSize = 12, FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            var chip = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(11, 5),
+                Cursor = new Cursor(StandardCursorType.Hand), Child = label };
+            var k = key;
+            chip.PointerPressed += (_, _) => { _localFilter = k; ApplyLocalFilter(); RefreshFilterChipStyles(); };
+            _filterChips.Add((key, chip, label));
+            LocalFilterChips.Children.Add(chip);
+        }
+        RefreshFilterChipStyles();
+    }
+
+    private void RefreshFilterChipStyles()
+    {
+        foreach (var (key, chip, label) in _filterChips)
+        {
+            bool on = key == _localFilter;
+            int count = key switch
+            {
+                "update"   => _localModsAll.Count(m => m.HasUpdate),
+                "disabled" => _localModsAll.Count(m => !m.Enabled),
+                "manual"   => _localModsAll.Count(m => m.Source == "manual"),
+                "notload"  => _localModsAll.Count(m => !m.Loads),
+                _          => _localModsAll.Count,
+            };
+            var baseName = key switch { "all"=>"全部","update"=>"有更新","disabled"=>"已停用","manual"=>"手動",_=>"不會載入" };
+            label.Text = count > 0 && key != "all" ? $"{baseName} {count}" : baseName;
+            if (on)
+            {
+                chip.Background = this.FindResource("Accent") as IBrush ?? new SolidColorBrush(Color.Parse("#007AFF"));
+                label.Foreground = Brushes.White;
+            }
+            else
+            {
+                chip.Background = new SolidColorBrush(Color.Parse("#22808080"));
+                label.Foreground = this.FindResource("TextMain") as IBrush ?? Brushes.Gray;
+            }
+            // Hide chips that would show zero (except 全部).
+            chip.IsVisible = key == "all" || count > 0;
+        }
     }
 
     // Remembered geometry so CloseGlassMenu can shrink the sheet BACK to the
@@ -4768,6 +6044,49 @@ public partial class MainWindow : Window
             SelPill.Transitions = t;
             return;
         }
-        Canvas.SetTop(SelPill, index * RowStride);
+
+        // Freeze the pill's backdrop over the WHOLE slide path for one capture, then release when the 340 ms
+        // Canvas.Top transition lands. Otherwise every frame of the slide moves the pill to a new Y, each of which
+        // triggers a clip-growth re-capture (re-rasterising the window) — that is the "卡卡的" stutter. The pill
+        // already excludes the rows + itself from capture, so the single held snapshot (the static sidebar material)
+        // is correct for every frame of the travel.
+        double fromTop = Canvas.GetTop(SelPill);
+        if (double.IsNaN(fromTop)) fromTop = index * RowStride;
+        double toTop = index * RowStride;
+        FreezePillTravel(fromTop, toTop);
+
+        Canvas.SetTop(SelPill, toTop);
+    }
+
+    private long _pillFreezeGen;
+
+    /// <summary>One backdrop capture that covers the pill at both <paramref name="fromTop"/> and <paramref name="toTop"/>
+    /// (plus its own travel), held until the 340 ms slide completes.</summary>
+    private void FreezePillTravel(double fromTop, double toTop)
+    {
+        try
+        {
+            if (!SelPill.IsVisible || _captureMode) return;
+            if (TopLevel.GetTopLevel(this) is not { } tlv) return;
+
+            double y0 = Math.Min(fromTop, toTop);
+            double y1 = Math.Max(fromTop, toTop) + SelPill.Height;
+            // Pill-local (Canvas) → top-level DIP. The pill sits in PillLayer; translate its origin.
+            Point o = PillLayer.TranslatePoint(new Point(0, y0), tlv) ?? new Point(0, y0);
+            var travel = new Rect(o.X, o.Y, SelPill.Width, y1 - y0);
+            LiquidGlassAvaloniaUI.LiquidGlassBackdrop.FreezeForAnimation(SelPill, travel);
+
+            long gen = ++_pillFreezeGen;
+            DispatcherTimer.RunOnce(() =>
+            {
+                if (gen != _pillFreezeGen) return;   // a newer slide started: it owns the freeze/unfreeze
+                LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(SelPill);
+            }, TimeSpan.FromMilliseconds(360));
+        }
+        catch
+        {
+            // never let a decorative freeze break navigation
+            try { LiquidGlassAvaloniaUI.LiquidGlassBackdrop.Unfreeze(SelPill); } catch { }
+        }
     }
 }

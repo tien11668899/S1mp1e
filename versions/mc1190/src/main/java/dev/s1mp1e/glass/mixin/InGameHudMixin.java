@@ -76,6 +76,9 @@ public abstract class InGameHudMixin {
     @Unique private boolean s1mp1e$statusPushed;
     /** True while our XP-bar lift push is outstanding on the passed MatrixStack. */
     @Unique private boolean s1mp1e$xpPushed;
+    /** True while the horse-jump-bar / mount-health lift pushes are outstanding (all-glass #17). */
+    @Unique private boolean s1mp1e$jumpPushed;
+    @Unique private boolean s1mp1e$mountHpPushed;
 
     // Backdrop: earliest point in the HUD pass. grabNow (NOT the time-deduped grab) so the HUD glass owns
     // a fresh WORLD backdrop every frame — at the high frame rate of an in-world HUD the 3ms dedup would
@@ -103,6 +106,8 @@ public abstract class InGameHudMixin {
         // Drain any lift a cancel left pushed on the shared MatrixStack (render passes the same instance down).
         if (s1mp1e$statusPushed) { matrices.pop(); s1mp1e$statusPushed = false; }
         if (s1mp1e$xpPushed)     { matrices.pop(); s1mp1e$xpPushed = false; }
+        if (s1mp1e$jumpPushed)   { matrices.pop(); s1mp1e$jumpPushed = false; }
+        if (s1mp1e$mountHpPushed){ matrices.pop(); s1mp1e$mountHpPushed = false; }
         if (MinecraftClient.getInstance().currentScreen != null) return;
         ScreenFade.draw();
         ScreenFade.captureFrame();
@@ -132,6 +137,31 @@ public abstract class InGameHudMixin {
     @Inject(method = "renderExperienceBar", at = @At("RETURN"))
     private void s1mp1e$liftXpTail(MatrixStack m, int x, CallbackInfo ci) {
         if (s1mp1e$xpPushed) { m.pop(); s1mp1e$xpPushed = false; }
+    }
+
+    // The horse jump bar replaces the XP bar in the same slot; lift it the same amount so it clears the enlarged glass
+    // hotbar once both are glass (all-glass #17).
+    @Inject(method = "renderMountJumpBar", at = @At("HEAD"))
+    private void s1mp1e$liftJumpHead(MatrixStack m, int x, CallbackInfo ci) {
+        m.push();
+        m.translate(0f, -DECO_LIFT, 0f);
+        s1mp1e$jumpPushed = true;
+    }
+    @Inject(method = "renderMountJumpBar", at = @At("RETURN"))
+    private void s1mp1e$liftJumpTail(MatrixStack m, int x, CallbackInfo ci) {
+        if (s1mp1e$jumpPushed) { m.pop(); s1mp1e$jumpPushed = false; }
+    }
+    // Mount health takes the food row's place: lift it with the status bars so its bottom row lines up with the
+    // player's (lifted) hearts instead of sitting on the XP / jump bar.
+    @Inject(method = "renderMountHealth", at = @At("HEAD"))
+    private void s1mp1e$liftMountHealthHead(MatrixStack m, CallbackInfo ci) {
+        m.push();
+        m.translate(0f, -DECO_LIFT, 0f);
+        s1mp1e$mountHpPushed = true;
+    }
+    @Inject(method = "renderMountHealth", at = @At("RETURN"))
+    private void s1mp1e$liftMountHealthTail(MatrixStack m, CallbackInfo ci) {
+        if (s1mp1e$mountHpPushed) { m.pop(); s1mp1e$mountHpPushed = false; }
     }
 
     // The XP LEVEL number ("30") is drawn INSIDE renderExperienceBar on 1.19.2 (no separate level method as in

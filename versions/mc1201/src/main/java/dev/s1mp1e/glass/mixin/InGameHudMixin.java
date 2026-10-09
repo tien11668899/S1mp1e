@@ -112,6 +112,28 @@ public abstract class InGameHudMixin {
     private void s1mp1e$liftXpTail(DrawContext context, int x, CallbackInfo ci) {
         context.getMatrices().pop();
     }
+    // The horse jump bar replaces the XP bar in the same slot; lift it the same amount so it clears the enlarged glass
+    // hotbar (it collided with the bar's top edge once both were glass, all-glass #17).
+    @Inject(method = "renderMountJumpBar", at = @At("HEAD"))
+    private void s1mp1e$liftJumpHead(net.minecraft.entity.JumpingMount mount, DrawContext context, int x, CallbackInfo ci) {
+        context.getMatrices().push();
+        context.getMatrices().translate(0f, -DECO_LIFT, 0f);
+    }
+    @Inject(method = "renderMountJumpBar", at = @At("RETURN"))
+    private void s1mp1e$liftJumpTail(net.minecraft.entity.JumpingMount mount, DrawContext context, int x, CallbackInfo ci) {
+        context.getMatrices().pop();
+    }
+    // Mount health takes the food row's place: lift it with the status bars so its bottom row lines up with the
+    // player's (lifted) hearts instead of sitting on the XP / jump bar.
+    @Inject(method = "renderMountHealth", at = @At("HEAD"))
+    private void s1mp1e$liftMountHealthHead(DrawContext context, CallbackInfo ci) {
+        context.getMatrices().push();
+        context.getMatrices().translate(0f, -DECO_LIFT, 0f);
+    }
+    @Inject(method = "renderMountHealth", at = @At("RETURN"))
+    private void s1mp1e$liftMountHealthTail(DrawContext context, CallbackInfo ci) {
+        context.getMatrices().pop();
+    }
 
     // The XP LEVEL number ("30") is drawn INSIDE renderExperienceBar in 1.20.1 (no separate
     // renderExperienceLevel method as in 1.21). Vanilla puts it at scaledHeight-35, just above the bar; we

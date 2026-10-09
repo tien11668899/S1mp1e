@@ -116,6 +116,28 @@ public abstract class InGameHudMixin {
     private void s1mp1e$liftXpTail(MatrixStack m, int x, CallbackInfo ci) {
         if (s1mp1e$decoDepth > 0) { RenderSystem.popMatrix(); s1mp1e$decoDepth--; }
     }
+    // #17: lift the horse-jump bar + mount-health hearts the same DECO_LIFT so they rise with the cluster instead of
+    // sitting pressed onto the raised hotbar. ContextualBarGlassMixin draws the glass jump bar at y-DECO_LIFT to match.
+    @Inject(method = "renderMountJumpBar", at = @At("HEAD"))
+    private void s1mp1e$liftJumpHead(MatrixStack m, int x, CallbackInfo ci) {
+        RenderSystem.pushMatrix();
+        RenderSystem.translatef(0f, -HudLayout.DECO_LIFT, 0f);
+        s1mp1e$decoDepth++;
+    }
+    @Inject(method = "renderMountJumpBar", at = @At("RETURN"))
+    private void s1mp1e$liftJumpTail(MatrixStack m, int x, CallbackInfo ci) {
+        if (s1mp1e$decoDepth > 0) { RenderSystem.popMatrix(); s1mp1e$decoDepth--; }
+    }
+    @Inject(method = "renderMountHealth", at = @At("HEAD"))
+    private void s1mp1e$liftMountHealthHead(MatrixStack m, CallbackInfo ci) {
+        RenderSystem.pushMatrix();
+        RenderSystem.translatef(0f, -HudLayout.DECO_LIFT, 0f);
+        s1mp1e$decoDepth++;
+    }
+    @Inject(method = "renderMountHealth", at = @At("RETURN"))
+    private void s1mp1e$liftMountHealthTail(MatrixStack m, CallbackInfo ci) {
+        if (s1mp1e$decoDepth > 0) { RenderSystem.popMatrix(); s1mp1e$decoDepth--; }
+    }
 
     // Move the XP LEVEL number ("30") from vanilla's y = scaledHeight-35 up to the
     // health/food status row. renderExperienceBar draws it with 5 TextRenderer.draw

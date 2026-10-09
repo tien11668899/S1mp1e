@@ -78,7 +78,16 @@ public abstract class TabButtonGlassMixin {
         // Opacity eases in with the screen — shared with the glass buttons/sliders so a return to the same screen
         // restarts them all together. Tabs draw without a tint, so this is the whole capsule opacity.
         float opacity = ScreenOpenFade.value(MinecraftClient.getInstance().currentScreen);
+        // segmented-control emphasis (the underline is gone): resting tabs faint, hovered half-lit, current full
+        opacity *= self.isCurrentTab() ? 1.0f : ((self.isHovered() || self.isFocused()) ? 0.7f : 0.4f);
 
+        if (dev.s1mp1e.client.gui.SegmentedTabs.active) {
+            // Inside the segmented capsule (SegmentedTabNavMixin): the sliding pill marks the selection, so don't draw a
+            // per-tab capsule — only a faint glow on a hovered non-current tab.
+            if (self.isCurrentTab() || !(self.isHovered() || self.isFocused())) return;
+            opacity *= 0.35f;
+            lift = 1.0f;
+        }
         // Land the deferred menu batch first so the immediate-GL capsule composites over it (layering trap).
         context.draw();
         GlassRenderer.button(x + 2, y + 2, x + w - 2, y + h - 3, 1.0f, lift, opacity, true);
@@ -90,5 +99,22 @@ public abstract class TabButtonGlassMixin {
         if (GlassProgram.ensureReady() && GlassProgram.btnUsable()) {
             ci.cancel();
         }
+    }
+
+    /** No underline under the current tab: the brightest capsule is the selection (Apple segmented control). */
+    @Inject(method = "drawCurrentTabLine", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$noUnderline(DrawContext context, net.minecraft.client.font.TextRenderer tr, int color, CallbackInfo ci) {
+        if (GlassProgram.ensureReady() && GlassProgram.btnUsable()) ci.cancel();
+    }
+
+    /**
+     * Every tab label at the CURRENT tab's height. Vanilla's drawMessage starts an unselected label 3 px lower
+     * ({@code isCurrentTab() ? 0 : 3}), so inside the one segmented capsule the other labels sat lower than the chosen one.
+     * That offset is the only use of isCurrentTab() in drawMessage.
+     */
+    @Redirect(method = "drawMessage", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/widget/TabButtonWidget;isCurrentTab()Z"), require = 0)
+    private boolean s1mp1e$labelAtCurrentHeight(TabButtonWidget self) {
+        return true;
     }
 }

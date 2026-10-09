@@ -5,6 +5,7 @@ import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
+import dev.s1mp1e.client.hud.HudFade;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.DiffuseLighting;
@@ -55,44 +56,65 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
         return MinecraftClient.getInstance().getWindow().getScaledHeight() - 45 - panelH();
     }
 
+    /** Identity key for the peek (key held) fade in {@link HudFade}. */
+    private static final Object PEEK = new Object();
+
     @Override
     public void renderHud(DrawContext ctx) {
-        if (!enabled) return;
+        // module visibility (incl. fade-out after switching off) is decided by the HUD driver via HudFade
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.options.hudHidden) return;
-        if (mc.currentScreen != null) return;   // real inventory / a screen is open -> don't double up
         int k = key.intValue;
-        if (k <= 0 || !InputUtil.isKeyPressed(mc.getWindow().getHandle(), k)) return;
+        // Peek while the key is held (never over a real screen). Holding / releasing fades + grows the panel in and
+        // out instead of popping it; item icons can't take an alpha, so they ride the scale.
+        boolean held = k > 0 && mc.currentScreen == null && InputUtil.isKeyPressed(mc.getWindow().getHandle(), k);
+        float kv = HudFade.visibility(PEEK, held);
+        if (mc.currentScreen != null || kv <= 0.004f) return;   // real inventory / a screen is open -> don't double up
 
         float sc = sc();
         int pw = panelW(), ph = panelH();
         lastW = pw; lastH = ph;
         int x0 = effX(), y0 = effY();
 
-        if (bg.boolValue) HudGlass.glassBox(ctx, x0, y0, x0 + pw, y0 + ph, 0.9f);
-
+        float saved = HudFade.alpha;
+        HudFade.alpha = saved * kv;
         ctx.getMatrices().push();
-        ctx.getMatrices().translate(x0, y0, 0f);
-        ctx.getMatrices().scale(sc, sc, 1f);
         try {
-            // Prime the GUI item state after the raw-GL glass, exactly as the glass hotbar does, or the
-            // first item drawn straight after the glass renders black (corrupted shader/lighting state).
-            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-            DiffuseLighting.enableGuiDepthLighting();
-            RenderSystem.setShaderColor(0f, 0f, 0f, 0f);   // cache-defeat -> force white so no item tints black
-            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
-            PlayerEntity p = mc.player;
-            for (int i = 0; i < COLS * ROWS; i++) {
-                ItemStack st = p.getInventory().main.get(9 + i);   // 0-8 hotbar, 9-35 the three main rows
-                if (st == null || st.isEmpty()) continue;
-                int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
-                ctx.drawItem(p, st, ix, iy, 0);
-                ctx.drawItemInSlot(mc.textRenderer, st, ix, iy);
+            if (kv < 1f) {
+                float s = HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(kv);
+                float cx = x0 + pw * 0.5f, cy = y0 + ph * 0.5f;
+                ctx.getMatrices().translate(cx, cy, 0f);
+                ctx.getMatrices().scale(s, s, 1f);
+                ctx.getMatrices().translate(-cx, -cy, 0f);
             }
-            ctx.draw();
-            DiffuseLighting.disableGuiDepthLighting();
+            if (bg.boolValue) HudGlass.glassBox(ctx, x0, y0, x0 + pw, y0 + ph, 0.9f);
+
+            ctx.getMatrices().push();
+            try {
+                ctx.getMatrices().translate(x0, y0, 0f);
+                ctx.getMatrices().scale(sc, sc, 1f);
+                // Prime the GUI item state after the raw-GL glass, exactly as the glass hotbar does, or the
+                // first item drawn straight after the glass renders black (corrupted shader/lighting state).
+                RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+                DiffuseLighting.enableGuiDepthLighting();
+                RenderSystem.setShaderColor(0f, 0f, 0f, 0f);   // cache-defeat -> force white so no item tints black
+                RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                PlayerEntity p = mc.player;
+                for (int i = 0; i < COLS * ROWS; i++) {
+                    ItemStack st = p.getInventory().main.get(9 + i);   // 0-8 hotbar, 9-35 the three main rows
+                    if (st == null || st.isEmpty()) continue;
+                    int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
+                    ctx.drawItem(p, st, ix, iy, 0);
+                    ctx.drawItemInSlot(mc.textRenderer, st, ix, iy);
+                }
+                ctx.draw();
+                DiffuseLighting.disableGuiDepthLighting();
+            } finally {
+                ctx.getMatrices().pop();
+            }
         } finally {
             ctx.getMatrices().pop();
+            HudFade.alpha = saved;
         }
     }
 

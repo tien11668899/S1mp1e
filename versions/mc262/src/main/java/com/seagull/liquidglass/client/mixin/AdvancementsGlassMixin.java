@@ -65,10 +65,42 @@ public abstract class AdvancementsGlassMixin {
       }
    }
 
+   /** Tab-band extension of the glass sheet per side (GUI px), measured in {@link #lg$measureTabs} one frame earlier. */
+   @org.spongepowered.asm.mixin.Unique private int lg$padUp, lg$padDown, lg$padLeft, lg$padRight;
+
+   /**
+    * Measure which sides carry a tab row, from the real tab set. Done at {@code extractWindow} (the tree is being drawn,
+    * so {@code tabs} is populated — at {@code extractRenderState} HEAD it is not yet), and stored for the next frame's
+    * {@link #lg$advPanel}. The one-frame lag is invisible (tab layout only changes on open / resize).
+    */
+   @Inject(method = "extractWindow", at = @At("HEAD"))
+   private void lg$measureTabs(GuiGraphicsExtractor g, int mouseX, int mouseY, CallbackInfo ci) {
+      int up = 0, down = 0, left = 0, right = 0;
+      // Vanilla draws the tab row only when there is more than one tab; match that so a single-tab window gets no empty band.
+      if (this.tabs != null && this.tabs.size() > 1) {
+         for (AdvancementTab t : this.tabs.values()) {
+            switch (t.getType()) {
+               case ABOVE -> up = 28;
+               case BELOW -> down = 28;
+               case LEFT -> left = 28;
+               case RIGHT -> right = 28;
+            }
+         }
+      }
+      this.lg$padUp = up;
+      this.lg$padDown = down;
+      this.lg$padLeft = left;
+      this.lg$padRight = right;
+   }
+
    @Inject(method = "extractRenderState", at = @At("HEAD"))
    private void lg$advPanel(GuiGraphicsExtractor g, int mouseX, int mouseY, float delta, CallbackInfo ci) {
       int opacity = Math.round(0xFF * ScreenOpenFade.value(Minecraft.getInstance().gui.screen())) & 0xFF;
-      GlassSurface.plateOrPaint(g, this.leftPos, this.topPos, this.leftPos + WINDOW_W, this.topPos + WINDOW_H, opacity, 0x99101014);
+      // Creative-inventory style: each tab row is a band of the SAME glass sheet (no separate tab tiles) — extend the plate
+      // by one tab's depth (28) on every side that carries tabs (measured last frame in lg$measureTabs).
+      int x0 = this.leftPos - lg$padLeft, y0 = this.topPos - lg$padUp;
+      int x1 = this.leftPos + WINDOW_W + lg$padRight, y1 = this.topPos + WINDOW_H + lg$padDown;
+      GlassSurface.plateOrPaint(g, x0, y0, x1, y1, opacity, 0x99101014);
    }
 
    @Redirect(

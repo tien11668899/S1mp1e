@@ -226,7 +226,8 @@ public final class S1mp1eConfigScreen extends Screen {
         easeScroll();
         layout();
 
-        GlassWidgets.panel(g, px0, py0, px1, py1, a);
+        // corner capped at the small-window size (14 px): the size-relative 0.19 corner grew too round fullscreen
+        GlassWidgets.panel(g, px0, py0, px1, py1, a, Math.min(14.0F, Math.min(px1 - px0, py1 - py0) * 0.0475F), 0.16F);
         // a is openFade 0..1 (a FLOAT) — must scale to a 0..255 alpha byte, else
         // round(a*0.15) is 0 for all a and the dividers never render.
         int div = (Math.round(a * 0.15f * 255f) << 24) | 0xFFFFFF;

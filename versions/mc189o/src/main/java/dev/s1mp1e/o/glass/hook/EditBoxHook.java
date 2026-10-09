@@ -58,8 +58,12 @@ public final class EditBoxHook {
 
             boolean bg = box.hasBorder();
             if (bg) {
-                GuiElement.fill(box.x - 1, box.y - 1, box.x + box.width + 1, box.y + box.height + 1, -6250336);
-                GuiElement.fill(box.x, box.y, box.x + box.width, box.y + box.height, -16777216);
+                // ALLGLASS #3 — a 4px rounded glass scrim instead of the grey-bordered black box: focus 0x4DFFFFFF,
+                // else 0x2EFFFFFF, no outline (spec #3). Covers every bordered field (world / server names, seed,
+                // search). The anvil rename field has its border off and is framed by AnvilFieldHook instead.
+                int scrim = box.isFocused() ? 0x4DFFFFFF : 0x2EFFFFFF;
+                dev.s1mp1e.o.client.gui.GlassWidgets.fillRound(
+                        box.x - 1, box.y - 1, box.x + box.width + 1, box.y + box.height + 1, scrim, 4f);
             }
             TextRenderer font = (TextRenderer) fFont.get(box);
             int scroll = fScroll.getInt(box);

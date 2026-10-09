@@ -119,8 +119,104 @@ final class DevShotScenes {
         if (has("inv")) queueInv();
         if (has("load")) queueLoad();
         if (has("trans")) queueTrans();
+        if (has("ag")) queueAg();
         add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });
         wait(5);
+    }
+
+    // ---- ag：全玻璃輪專用場景（#4 選中膠囊、#15 F3 卡、#17 經驗條、#12 附魔三態）----------------------
+    private static void queueAg() {
+        // #4 選中列玻璃膠囊：世界選擇清單。用反射呼叫清單的 entryClicked(0)（＝點第一個世界→選中）。
+        open(new Factory() { Screen make(Minecraft mc) {
+            return new net.minecraft.client.gui.screen.world.SelectWorldScreen(null); } });
+        wait(20);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try {
+                for (java.lang.reflect.Field fd : mc.screen.getClass().getDeclaredFields()) {
+                    if (!net.minecraft.client.gui.widget.ListWidget.class.isAssignableFrom(fd.getType())) continue;
+                    fd.setAccessible(true);
+                    Object list = fd.get(mc.screen);
+                    if (list == null) continue;
+                    for (String n : new String[]{dev.s1mp1e.o.util.Names.of("entryClicked", "m_49999151"), "entryClicked"}) {
+                        try {
+                            java.lang.reflect.Method m = net.minecraft.client.gui.widget.ListWidget.class
+                                    .getDeclaredMethod(n, int.class, boolean.class, int.class, int.class);
+                            m.setAccessible(true);
+                            m.invoke(list, 0, false, 0, 0);
+                            System.out.println("[S1mp1e][DevShot] ag-worldsel selected row 0");
+                            break;
+                        } catch (NoSuchMethodException ignored) {}
+                    }
+                }
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] ag-worldsel select: " + t); }
+            return true; } });
+        wait(10);
+        shot("ag-worldsel.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });
+        wait(40);
+
+        // #15 F3 除錯卡：開啟除錯資訊（原版 DebugOverlay 會畫，證明每組連續行一張圓角玻璃帶、行間無接縫）。
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.openScreen(null);
+            mc.options.debugEnabled = true;
+            return true; } });
+        wait(12);
+        add(new Scene() { public boolean step(Minecraft mc, int f) { capture(mc, "ag-f3.png"); return true; } });
+        wait(2);
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.options.debugEnabled = false; return true; } });
+        wait(6);
+
+        // #17 經驗條：DevShot 世界是創造（沒經驗條），由伺服器切生存＋5 級＋10 點（約 59% 滿），再截。
+        add(new Scene() { public boolean step(final Minecraft mc, int f) {
+            onServer(mc, new Runnable() { public void run() { try {
+                net.minecraft.server.entity.living.player.ServerPlayerEntity p =
+                        mc.getServer().getPlayerManager().getAll().get(0);
+                p.setGameMode(net.minecraft.world.WorldSettings.GameMode.SURVIVAL);
+                p.addXp(5);
+                p.increaseXp(10);
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] ag xp: " + t); } } });
+            return true; } });
+        wait(40);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            System.out.println(String.format("[S1mp1e][DevShot] ag-xp level=%d progress=%.3f survival=%s",
+                    mc.player.xpLevel, mc.player.xpProgress,
+                    mc.interactionManager != null && mc.interactionManager.hasXpBar()));
+            capture(mc, "ag-xp.png"); return true; } });
+        wait(6);
+        // 還原創造，避免影響後續場景
+        add(new Scene() { public boolean step(final Minecraft mc, int f) {
+            onServer(mc, new Runnable() { public void run() { try {
+                mc.getServer().getPlayerManager().getAll().get(0)
+                  .setGameMode(net.minecraft.world.WorldSettings.GameMode.CREATIVE);
+            } catch (Throwable ignored) {} } });
+            return true; } });
+        wait(20);
+
+        // #12 附魔三態：放劍＋3 青金石、client 端填 enchantingCosts（3／10／25）→ 第一列可用（玻璃膠囊）、後兩列淡 scrim。
+        open(new Factory() { Screen make(Minecraft mc) {
+            return new net.minecraft.client.gui.screen.inventory.menu.EnchantingTableScreen(mc.player.inventory, mc.world,
+                    new net.minecraft.block.entity.EnchantingTableBlockEntity()); } });
+        wait(20);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try {
+                InventoryMenuScreen gc = (InventoryMenuScreen) mc.screen;
+                net.minecraft.inventory.menu.EnchantingTableMenu ce =
+                        (net.minecraft.inventory.menu.EnchantingTableMenu) gc.menu;
+                gc.menu.getSlot(0).setItem(new net.minecraft.item.ItemStack(net.minecraft.item.Items.DIAMOND_SWORD));
+                gc.menu.getSlot(1).setItem(new net.minecraft.item.ItemStack(net.minecraft.item.Items.DYE, 3, 4));
+                ce.enchantingCosts[0] = 3; ce.enchantingCosts[1] = 10; ce.enchantingCosts[2] = 25;
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] ag-enchant: " + t); }
+            return true; } });
+        wait(10);
+        shot("ag-enchant.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try {
+                InventoryMenuScreen gc = (InventoryMenuScreen) mc.screen;
+                gc.menu.getSlot(0).setItem(null);
+                gc.menu.getSlot(1).setItem(null);
+            } catch (Throwable ignored) {}
+            mc.openScreen(null); return true; } });
+        wait(8);
     }
 
     // ---- settings：設定頁外殼（第 1 組＋滑桿／數值滾動 delta）-----------------------------------------

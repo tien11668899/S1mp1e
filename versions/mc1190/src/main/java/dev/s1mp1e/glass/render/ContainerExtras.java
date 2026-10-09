@@ -93,6 +93,30 @@ public final class ContainerExtras {
         if (k != src) com.mojang.blaze3d.systems.RenderSystem.setShaderTexture(0, k);
     }
 
+    /**
+     * The vanilla container texture currently bound to unit 0, or null if what is bound is not one of them (same
+     * resolution as {@link #rebindKeyed}, cached in {@link #BOUND}). Used by {@code ContainerFieldsGlassMixin} (#12) to
+     * match the anvil rename field / enchanting rows by texture + uv at the body-blit funnel, since 1.19.2 binds the
+     * texture separately (no Identifier argument to key on).
+     */
+    public static Identifier boundVanillaId() {
+        int bound = com.mojang.blaze3d.systems.RenderSystem.getShaderTexture(0);
+        if (bound <= 0) return null;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        sync(mc);
+        Identifier src = BOUND.get(bound);
+        if (src == null) {
+            src = NONE;
+            for (String name : CONTAINERS) {
+                Identifier id = new Identifier("textures/gui/container/" + name + ".png");
+                net.minecraft.client.texture.AbstractTexture tex = mc.getTextureManager().getOrDefault(id, null);
+                if (tex != null && tex.getGlId() == bound) { src = id; break; }
+            }
+            BOUND.put(bound, src);
+        }
+        return src == NONE ? null : src;
+    }
+
     private static final Map<Identifier, Identifier> KEYED = new HashMap<>();
     private static final Map<String, Identifier> ICONS = new HashMap<>();
     private static final Identifier NONE = new Identifier("s1mp1e", "keyed/none");

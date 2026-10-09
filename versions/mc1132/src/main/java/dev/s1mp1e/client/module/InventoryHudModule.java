@@ -6,6 +6,7 @@ import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassWidgets;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.compat.Mc1132;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.DiffuseLighting;
@@ -46,6 +47,9 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
     public final Setting bg    = add(Setting.bool("Background", true));
     public int lastW = 170, lastH = 62;
 
+    /** Identity key for the peek (key held) fade in {@link HudFade}. */
+    private static final Object PEEK = new Object();
+
     public InventoryHudModule() { super("InventoryHUD", "HUD"); this.enabled = false; }
 
     private float sc()     { return (float) scale.doubleValue; }
@@ -69,7 +73,11 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
         if (mc.player == null || mc.world == null || Mc1132.hudHidden()) return;
         if (mc.currentScreen != null) return;   // real inventory / a screen is open -> don't double up
         int k = key.intValue;
-        if (k <= 0 || !Mc1132.keyDown(k)) return;   // GLFW code, polled natively
+        // Peek while the key is held. Holding / releasing fades + grows the panel in and out instead of popping it;
+        // item icons can't take an alpha, so they ride the scale.
+        boolean held = k > 0 && Mc1132.keyDown(k);   // GLFW code, polled natively
+        float kv = HudFade.visibility(PEEK, held);
+        if (kv <= 0.004f) return;
         HeldItemRenderer ir = Mc1132.itemRenderer();
         if (ir == null) return;
 
@@ -78,40 +86,58 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
         lastW = pw; lastH = ph;
         int x0 = effX(), y0 = effY();
 
-        if (bg.boolValue) HudGlass.glassBox(x0, y0, x0 + pw, y0 + ph, 0.9f);
-
+        float saved = HudFade.alpha;
+        HudFade.alpha = saved * kv;                  // fades the glass panel (glassBox multiplies HudFade.alpha)
+        // peek centre-scale 0.85 -> 1 (ease-out), about the panel centre in screen px. The glass tile (glassBox) and
+        // the items both ride the GL model-view, so folding the centre-scale into the GL model-view grows BOTH as one
+        // block (1.13.2 has no MatrixStack to separate them).
+        float ps = kv < 1f ? HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(kv) : 1f;
+        float cx = x0 + pw * 0.5f, cy = y0 + ph * 0.5f;
         GlStateManager.pushMatrix();
         try {
-            GlStateManager.translate((float) x0, (float) y0, 0f);
-            GlStateManager.scale(sc, sc, 1f);
-            // Prime item lighting after the raw-GL glass and defeat the colour cache (hard rule 5) before
-            // the first item, exactly as ArmorHUD does, or the first icon can render black.
-            GlassWidgets.resetColorCache();
-            PlayerEntity p = mc.player;
-            DefaultedList<ItemStack> main = p.inventory.field_15082;
-            GlStateManager.enableRescaleNormal();
-            DiffuseLighting.enable();
-            try {
-                for (int i = 0; i < COLS * ROWS; i++) {
-                    int slot = 9 + i;   // 0-8 hotbar, 9-35 the three main rows
-                    if (slot >= main.size()) break;
-                    ItemStack st = main.get(slot);
-                    if (st == null || st.isEmpty()) continue;
-                    int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
-                    ir.method_19376(st, ix, iy);                       // renderGuiItem
-                    ir.method_19383(mc.textRenderer, st, ix, iy);      // renderGuiItemOverlay
-                }
-            } finally {
-                DiffuseLighting.disable();
-                GlStateManager.disableRescaleNormal();
+            if (ps != 1f) {
+                GlStateManager.translate(cx, cy, 0f);
+                GlStateManager.scale(ps, ps, 1f);
+                GlStateManager.translate(-cx, -cy, 0f);
             }
-            // Restore for whatever draws after us (including the glass pipeline). Force the colour cache
-            // white and re-enable alpha; NEVER disableBlend on exit (hard rule 5).
-            GlassWidgets.resetColorCache();
-            GlStateManager.enableAlphaTest();
-            GlStateManager.enableBlend();
+            if (bg.boolValue) HudGlass.glassBox(x0, y0, x0 + pw, y0 + ph, 0.9f);
+
+            GlStateManager.pushMatrix();
+            try {
+                GlStateManager.translate((float) x0, (float) y0, 0f);
+                GlStateManager.scale(sc, sc, 1f);
+                // Prime item lighting after the raw-GL glass and defeat the colour cache (hard rule 5) before
+                // the first item, exactly as ArmorHUD does, or the first icon can render black.
+                GlassWidgets.resetColorCache();
+                PlayerEntity p = mc.player;
+                DefaultedList<ItemStack> main = p.inventory.field_15082;
+                GlStateManager.enableRescaleNormal();
+                DiffuseLighting.enable();
+                try {
+                    for (int i = 0; i < COLS * ROWS; i++) {
+                        int slot = 9 + i;   // 0-8 hotbar, 9-35 the three main rows
+                        if (slot >= main.size()) break;
+                        ItemStack st = main.get(slot);
+                        if (st == null || st.isEmpty()) continue;
+                        int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
+                        ir.method_19376(st, ix, iy);                       // renderGuiItem
+                        ir.method_19383(mc.textRenderer, st, ix, iy);      // renderGuiItemOverlay
+                    }
+                } finally {
+                    DiffuseLighting.disable();
+                    GlStateManager.disableRescaleNormal();
+                }
+                // Restore for whatever draws after us (including the glass pipeline). Force the colour cache
+                // white and re-enable alpha; NEVER disableBlend on exit (hard rule 5).
+                GlassWidgets.resetColorCache();
+                GlStateManager.enableAlphaTest();
+                GlStateManager.enableBlend();
+            } finally {
+                GlStateManager.popMatrix();
+            }
         } finally {
             GlStateManager.popMatrix();
+            HudFade.alpha = saved;
         }
     }
 

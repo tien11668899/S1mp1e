@@ -1,9 +1,11 @@
 package dev.s1mp1e.glass;
 
+import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.ModuleManager;
 import dev.s1mp1e.client.S1mp1eConfig;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.gui.S1mp1eConfigScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -136,14 +138,40 @@ public final class S1mp1eClient implements ClientModInitializer {
         // HUD modules paint here, once per frame. Each module guards itself (F1 /
         // no player), and a throw in one is swallowed so it never kills the HUD pass.
         // 1.16.5 HudRenderCallback hands (MatrixStack, float tickDelta) — we ignore the second arg.
+        // The 1.16.5 equivalent of 26.2's HudDriverMixin: VISIBILITY (not the raw enabled flag) decides drawing, so a
+        // module switched on fades in and one switched off keeps drawing while it fades out. Each module is scaled
+        // about its own HudBounds centre (0.85 -> 1 ease-out) and HudFade.alpha is published for the draw helpers
+        // (HudText / HudGlass / Silhouette) to multiply. The scale is applied through the passed MatrixStack, which
+        // carries text and DrawableHelper fills; the raw-GL liquid-glass backgrounds (drawn under the identity
+        // RenderSystem model-view in the HUD pass) can't follow that matrix, so they only alpha-fade — see the
+        // per-module notes. Each module runs in its own push/pop inside a try/catch, so one that throws or leaves the
+        // stack unbalanced can't shift the next, and HudFade.alpha is always restored to 1.
         // The whole registration is guarded so a missing fabric-api disables the HUD pass instead of crashing.
         try {
             HudRenderCallback.EVENT.register((matrices, tickDelta) -> {
                 MinecraftClient c = MinecraftClient.getInstance();
                 if (c.player == null) return;
                 for (Module m : ModuleManager.all()) {
-                    if (m.enabled && m instanceof HudRenderer) {
-                        try { ((HudRenderer) m).renderHud(matrices); } catch (Throwable t) { /* one bad module never breaks the HUD */ }
+                    if (!(m instanceof HudRenderer)) continue;
+                    float vis = HudFade.visibility(m, m.enabled);
+                    if (vis <= 0.004f) continue;
+                    matrices.push();
+                    try {
+                        if (vis < 1f && m instanceof HudBounds) {
+                            HudBounds hb = (HudBounds) m;
+                            float s = HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(vis);
+                            float cx = hb.hudX() + hb.hudW() * 0.5f, cy = hb.hudY() + hb.hudH() * 0.5f;
+                            matrices.translate(cx, cy, 0f);
+                            matrices.scale(s, s, 1f);
+                            matrices.translate(-cx, -cy, 0f);
+                        }
+                        HudFade.alpha = vis;
+                        ((HudRenderer) m).renderHud(matrices);
+                    } catch (Throwable t) {
+                        /* one bad module never breaks the HUD */
+                    } finally {
+                        HudFade.alpha = 1f;
+                        matrices.pop();
                     }
                 }
             });

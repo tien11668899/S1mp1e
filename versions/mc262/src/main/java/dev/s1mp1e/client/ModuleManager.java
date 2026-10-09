@@ -113,6 +113,11 @@ public final class ModuleManager {
         add("HitMarkerModule",     safeHitMarker());
         // particles: one switch for every particle (reduced share or none)
         add("ParticlesModule",     safeParticles());
+        // name-tag plate: glass tint / vanilla / off
+        add("NameTagModule",       safeNameTag());
+        // 正在播放：靈動島外觀已棄用（改做 iOS 控制中心「正在播放」玻璃卡，打開畫面才顯示）。
+        // MediaClient/AlbumArt/DynamicIslandModule 類別先保留給卡片重用，但不再註冊成 HUD 模組。
+        // add("DynamicIslandModule", safeDynamicIsland());
 
         S1mp1eConfig.load();
 
@@ -129,6 +134,14 @@ public final class ModuleManager {
         }
 
         System.out.println("[S1mp1e] " + MODULES.size() + " modules registered");
+    }
+
+    private static Module safeDynamicIsland() {
+        try { return new dev.s1mp1e.client.module.DynamicIslandModule(); } catch (Throwable t) { return fail("DynamicIslandModule", t); }
+    }
+
+    private static Module safeNameTag() {
+        try { return new dev.s1mp1e.client.module.NameTagModule(); } catch (Throwable t) { return fail("NameTagModule", t); }
     }
 
     private static void add(String label, Module m) {

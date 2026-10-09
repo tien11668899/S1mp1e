@@ -986,10 +986,18 @@ public final class DevShot {
         // 伺服器存完檔、停下來才返回），回到標題畫面，等幾幀之後才關。之前直接 shutdown，伺服器關閉流程偶爾在視窗
         // 已經關掉後才跑完，留下一個「Display not created」的伺服器執行緒例外。
         if (mc.theWorld != null) {
+            // 原版「儲存並離開」是 sendQuittingDisconnectingPacket() 後立刻 loadWorld(null)。那個封包會讓單人伺服器
+            // 自己開始關（"Stopping singleplayer server as player logged out"）；小世界關得很快，loadWorld(null) →
+            // IntegratedServer.initiateShutdown 排進去的存檔工作若落在「running=false 之後、serverStopped=true 之前」
+            // 的空檔，就永遠不會被執行，用戶端永久卡住（2026-10-08 ag 輪實際撞到）。等伺服器自己停也不安全：它關掉連線時
+            // 用戶端會自己走 onDisconnect → loadWorld(null)，同樣可能落進空檔。
+            // 所以不送封包，直接 loadWorld(null)：伺服器只會經由 initiateShutdown 關閉（存檔工作在伺服器還在跑時排入、
+            // 下一個 tick 必定執行），Forge 的 loadWorld 等伺服器停好才返回，順序是確定的。返回後把 Minecraft 排程佇列裡
+            // 殘留的舊世界封包工作清掉——否則它們在 theWorld==null 之後才執行，噴大量 handleChunkData NPE。
             System.out.println("[S1mp1e][DevShot] done, leaving the world (save + quit to title) before quitting.");
             try {
-                mc.theWorld.sendQuittingDisconnectingPacket();
                 mc.loadWorld((net.minecraft.client.multiplayer.WorldClient) null);
+                dropStaleTasks(mc);
                 mc.displayGuiScreen(new GuiMainMenu());
             } catch (Throwable t) {
                 skip("leave world", t);
@@ -1001,6 +1009,25 @@ public final class DevShot {
         System.out.println("[S1mp1e][DevShot] done, quitting.");
         try { mc.shutdown(); } catch (Throwable ignored) {}
         phase = P_DONE;
+    }
+
+    /** 清掉 Minecraft.scheduledTasks（field_152351_aB）裡殘留的舊世界封包工作；只在離開世界、伺服器已停之後呼叫。 */
+    private static void dropStaleTasks(Minecraft mc) {
+        for (String n : new String[]{"scheduledTasks", "field_152351_aB"}) {
+            try {
+                java.lang.reflect.Field f = Minecraft.class.getDeclaredField(n);
+                f.setAccessible(true);
+                java.util.Queue<?> q = (java.util.Queue<?>) f.get(mc);
+                int size;
+                synchronized (q) { size = q.size(); q.clear(); }
+                System.out.println("[S1mp1e][DevShot] dropped " + size + " stale client task(s) after leaving the world");
+                return;
+            } catch (NoSuchFieldException ignored) {
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e][DevShot] could not drop stale tasks: " + t);
+                return;
+            }
+        }
     }
 
     // ---- world creation + setup -------------------------------------------

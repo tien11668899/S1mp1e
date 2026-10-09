@@ -1,9 +1,11 @@
 package dev.s1mp1e.glass.mixin;
 
+import dev.s1mp1e.client.gui.AllGlass;
 import dev.s1mp1e.glass.render.ContainerExtras;
 import dev.s1mp1e.glass.render.ContainerGlass;
 import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -38,6 +40,28 @@ public abstract class DrawableBodyBlitMixin {
         if (ContainerGlass.isSuppressedBody(x0, x1, y0, y1)) {
             ci.cancel();
             return;
+        }
+        // #12 — the anvil rename field and the enchanting-table option rows are sub-regions of the (now glass) panel
+        // texture that are NOT panel-grey, so they survive the keyed copy as flat brown bars. Match them here by the
+        // STILL-vanilla bound texture + uv (this runs before rebindKeyed) and draw glass instead. regionWidth/Height
+        // and u/v come from the blit funnel; the rect is (x0,y0)-(x1,y1).
+        if (u == 0f) {
+            Identifier src = ContainerExtras.boundVanillaId();
+            String p = src == null ? null : src.getPath();
+            if (p != null && p.endsWith("container/anvil.png") && regionWidth == 110 && regionHeight == 16
+                    && (v == 166f || v == 182f)) {
+                ci.cancel();
+                AllGlass.scrim(matrices, x0, y0, x1, y1, 4f, v == 182f ? 0x14FFFFFF : 0x2EFFFFFF);
+                return;
+            }
+            if (p != null && p.endsWith("container/enchanting_table.png") && regionWidth == 108 && regionHeight == 19
+                    && (v == 166f || v == 185f || v == 204f)) {
+                ci.cancel();
+                if (v == 185f) AllGlass.scrim(matrices, x0, y0, x1, y1, Math.min(6.3f, (y1 - y0) / 2f), 0x14FFFFFF);
+                else AllGlass.capsule(matrices, x0, y0, x1, y1, AllGlass.hotbarCorner(x1 - x0, y1 - y0),
+                        v == 204f ? 0.81f : 0f, 1f);
+                return;
+            }
         }
         ContainerExtras.rebindKeyed();
     }

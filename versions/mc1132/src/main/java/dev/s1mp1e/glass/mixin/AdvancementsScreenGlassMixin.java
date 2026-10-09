@@ -39,7 +39,50 @@ public abstract class AdvancementsScreenGlassMixin {
 
     @Inject(method = "method_14544", at = @At("HEAD"))
     private void s1mp1e$glassWindow(int mouseX, int mouseY, int originX, int originY, CallbackInfo ci) {
-        GlassScreenPanels.window(this, originX, originY, originX + 252, originY + 140);
+        // #23: creative-inventory style — the tab row is a band of the SAME glass sheet (no separate tab tiles, see
+        // AdvancementSpritesGlassMixin). Extend the panel by one tab's depth (28 = tab 32 minus the 4 px overlap) on
+        // each side that carries tabs; only when >1 tab (vanilla draws the tab row only then). Orientation from the
+        // tab-type enum class_3269 ordinal (0 ABOVE / 1 BELOW / 2 LEFT / 3 RIGHT), read reflectively off each tab
+        // (class_3268) so no extra accessor/mapping is needed.
+        int x0 = originX, y0 = originY, x1 = originX + 252, y1 = originY + 140;
+        if (this.field_16011 != null && this.field_16011.size() > 1) {
+            for (net.minecraft.class_3268 t : this.field_16011.values()) {
+                switch (s1mp1e$tabOrdinal(t)) {
+                    case 0: y0 = originY - 28; break;            // ABOVE
+                    case 1: y1 = originY + 140 + 28; break;      // BELOW
+                    case 2: x0 = originX - 28; break;            // LEFT
+                    case 3: x1 = originX + 252 + 28; break;      // RIGHT
+                    default: break;
+                }
+            }
+        }
+        GlassScreenPanels.window(this, x0, y0, x1, y1);
+    }
+
+    /**
+     * The tab's {@code class_3269} (tab-type enum) ordinal (0 ABOVE / 1 BELOW / 2 LEFT / 3 RIGHT). Read the single
+     * 4-constant enum field of {@code class_3268} reflectively (found by its enum type, not its name — works under any
+     * mapping). Cached. -1 if not found.
+     */
+    @org.spongepowered.asm.mixin.Unique private static java.lang.reflect.Field s1mp1e$typeField;
+    @org.spongepowered.asm.mixin.Unique private static boolean s1mp1e$typeFieldResolved;
+
+    @org.spongepowered.asm.mixin.Unique
+    private static int s1mp1e$tabOrdinal(net.minecraft.class_3268 t) {
+        try {
+            if (!s1mp1e$typeFieldResolved) {
+                s1mp1e$typeFieldResolved = true;
+                for (java.lang.reflect.Field f : net.minecraft.class_3268.class.getDeclaredFields()) {
+                    Object[] consts = f.getType().getEnumConstants();
+                    if (consts != null && consts.length == 4) { f.setAccessible(true); s1mp1e$typeField = f; break; }
+                }
+            }
+            if (s1mp1e$typeField == null) return -1;
+            Object v = s1mp1e$typeField.get(t);
+            return v instanceof Enum ? ((Enum<?>) v).ordinal() : -1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
     }
 
     @Redirect(

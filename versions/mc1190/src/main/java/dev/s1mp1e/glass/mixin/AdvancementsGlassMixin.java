@@ -61,10 +61,26 @@ public abstract class AdvancementsGlassMixin {
         Window win = MinecraftClient.getInstance().getWindow();
         int i = (win.getScaledWidth() - 252) / 2;
         int j = (win.getScaledHeight() - 140) / 2;
+        // #23: creative-inventory style — the tab row is a band of the SAME glass sheet (no separate tab tiles, see
+        // AdvancementSpritesGlassMixin). Extend the panel by one tab's depth (28 = tab 32 minus the 4 px overlap) on
+        // each side that carries tabs; only when >1 tab (vanilla draws the tab row only then). Orientation from the
+        // package-private AdvancementTabType ordinal (0 ABOVE / 1 BELOW / 2 LEFT / 3 RIGHT).
+        int x0 = i, y0 = j, x1 = i + 252, y1 = j + 140;
+        if (this.tabs != null && this.tabs.size() > 1) {
+            for (net.minecraft.client.gui.screen.advancement.AdvancementTab t : this.tabs.values()) {
+                switch (((Enum<?>) (Object) t.getType()).ordinal()) {
+                    case 0: y0 = j - 28; break;         // ABOVE
+                    case 1: y1 = j + 140 + 28; break;   // BELOW
+                    case 2: x0 = i - 28; break;         // LEFT
+                    case 3: x1 = i + 252 + 28; break;   // RIGHT
+                    default: break;
+                }
+            }
+        }
         // world + dim already in the framebuffer (renderBackground ran first). Panel refracts it; the tree's dark
         // interior then draws on top of the panel interior, so only the glass FRAME shows around the tree.
         SceneCapture.grabNow();
-        GlassRenderer.panel(i, j, i + 252, j + 140, 1.0f);
+        GlassRenderer.panel(x0, y0, x1, y1, 1.0f);
     }
 
     /** Drop the wooden {@code WINDOW_TEXTURE} frame while the glass frame is up (else keep it). */

@@ -1,80 +1,158 @@
 package dev.s1mp1e.glass.render;
 
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.RotatingCubeMapRenderer;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.TitleScreen;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GL13;
+
 /**
- * Menu-blur backdrop — replaces vanilla's tiled dirt on world-less screens with
- * the title panorama, blurred (the 1.8.9 equivalent of 26.2's native menu blur).
+ * All-glass #26 (1.18.2): world-less screens get the title screen's panorama, blurred and dimmed — the look 26.2 /
+ * 1.21.1 / 1.20.1 have — instead of vanilla's tiled dirt ({@code Screen.renderBackgroundTexture}, the credits roll).
+ * This is the MatrixStack port of the 1.20.1 line's {@code MenuBackdrop}; it replaces the earlier 1.17.1-era STUB that
+ * returned {@code false} (so menus still showed dirt). 1.18.2 is modern GL (no core-profile restriction) and this
+ * module's {@link GlassProgram} already compiles the GLSL-120 {@code menu_blur} program, so the real blur path runs.
  *
- * <p><b>1.17.1 core-profile status: STUBBED (no-op).</b> The original
- * implementation drew a full-screen quad with immediate mode
- * ({@code glBegin(GL_QUADS)} / {@code glVertex2f} / {@code glColor4f}) inside a
- * {@code glPushAttrib}/{@code glPopAttrib} block and toggled fixed-function
- * enables ({@code GL_TEXTURE_2D}, {@code GL_ALPHA_TEST}, {@code GL_LIGHTING}) —
- * every one of those is <em>illegal</em> under 1.17.1's OpenGL 3.2 forward-
- * compatible core profile and raises {@code GL_INVALID_OPERATION}/{@code ENUM}.
+ * <p>Per frame, where the dirt would be drawn: render the shared {@link RotatingCubeMapRenderer} of
+ * {@link TitleScreen#PANORAMA_CUBE_MAP} (its pitch/yaw kept in step with the title screen's own renderer by
+ * {@code TitleScreenBackdropCaptureMixin}, so the panorama keeps turning without a jump going in and out of menus),
+ * copy the frame into a private texture and redraw it full-screen through the {@code menu_blur} program (two passes —
+ * a single wide pass would ghost; dim on the last). Then {@link SceneCapture#grabNow()} so every glass piece drawn
+ * afterwards (list selection capsules, panels, fields) refracts the new background.
  *
- * <p>The core-legal replacement is fully specified in {@code CORE_PROFILE_SPEC.md}
- * §7: draw the full-screen quad as two triangles through the shared VAO/VBO,
- * bind program {@code BLUR} ({@code menu_blur.fsh}) and set {@code Radius}/{@code
- * Dim}, driving state via {@code RenderSystem} instead of {@code glPushAttrib}.
- *
- * <p><b>Why it is still stubbed (updated — the old note here was stale).</b> The
- * core port it once waited on is now DONE: {@link GlassProgram} compiles core
- * GLSL-150 shaders, links and validates the {@code BLUR} program, and exposes the
- * {@code ProjMat}/{@code ModelViewMat} uniforms, and {@link GlassRenderer} owns a
- * shared VAO/VBO + a full-screen two-triangle quad. So the blur COULD be wired per
- * spec §7. It is deliberately NOT, because the user-approved look (the 1.20.1
- * reference) shows world-less screens — the settings page, Options — over
- * <em>vanilla's own</em> tiled background, not a blurred title panorama. Enabling
- * the menu blur here would make 1.17.1 diverge from that approved look, so this
- * line intentionally keeps parity with the Fabric references and vanilla.
- *
- * <p>This class is therefore inert stubs (signatures preserved): {@link #draw}
- * returns {@code false} so callers fall back to vanilla's background, and
- * {@link #capture}/{@link #ready} do nothing. There are NO call sites for
- * MenuBackdrop today ({@code TitleScreenBackdropCaptureMixin} only feeds the no-op
- * {@link #capture()}), so nothing regresses; the glass hotbar + capsule-button
- * paths do not touch it. To actually enable the blur later, implement §7 here AND
- * add a draw call site — but only if the approved look is changed to want it.
+ * <p>With a world loaded nothing changes ({@link #draw} returns false → the caller keeps its vanilla behaviour), and
+ * without a usable blur program the vanilla dirt is drawn as before.
  */
 public final class MenuBackdrop {
 
-    /**
-     * Intended tuning for the eventual core port (spec §7): blur radius in
-     * physical px and how far the blurred result is darkened. Retained as the
-     * contract of record; unused while the class is stubbed.
-     */
-    private static final float RADIUS = 14f;
-    private static final float DIM    = 0.35f;
+    /** Blur radius per pass in GUI px (scaled to framebuffer px), and how far the result is darkened. */
+    private static final float RADIUS_GUI = 7f;
+    private static final float DIM = 0.35f;
+
+    private static RotatingCubeMapRenderer panorama;
+    private static int src = 0, srcW = 0, srcH = 0;
+    private static long lastDrawNs;
+    private static boolean frameDrawn;
 
     private MenuBackdrop() {}
 
-    /**
-     * TODO(1.17.1 core, spec §7): true once a title-screen frame is captured AND
-     * the BLUR program is usable. Stubbed to {@code false} — the backdrop is not
-     * drawn under core profile yet, so callers must use the vanilla background.
-     */
+    /** The shared rotating panorama (lazily created on the render thread). */
+    public static RotatingCubeMapRenderer panorama() {
+        if (panorama == null) panorama = new RotatingCubeMapRenderer(TitleScreen.PANORAMA_CUBE_MAP);
+        return panorama;
+    }
+
+    /** True when the blurred panorama can be drawn (no world, blur program linked). */
     public static boolean ready() {
-        return false;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        return mc.world == null && GlassProgram.ensureReady() && GlassProgram.blurUsable();
     }
 
+    /** Kept for the title-screen hook's contract; the panorama is rendered live, so nothing to capture. */
+    public static void capture() {}
+
     /**
-     * TODO(1.17.1 core, spec §7): snapshot the panorama with
-     * {@code glCopyTexSubImage2D} (that call itself IS core-legal, cf.
-     * {@link SceneCapture}) so the blur has a source. No-op while stubbed,
-     * because nothing consumes the capture until {@link #draw} is restored.
+     * Start of a screen's frame — called from {@code GameRendererTooltipLayerMixin} right BEFORE
+     * {@code GameRenderer.render} invokes {@code currentScreen.render(...)}, so the backdrop is the first thing in the
+     * frame (1.18.2's world / server / pack screens draw their lists first and call {@code super.render} last, so a
+     * {@code Screen.render} hook would paint over the lists). Every world-less screen except the title (it draws its own
+     * live, sharp panorama); a later {@code renderBackgroundTexture} then has nothing left to do.
      */
-    public static void capture() {
-        // intentionally empty — stubbed for 1.17.1 core profile (spec §7)
+    public static void beginScreen(Screen screen) {
+        frameDrawn = false;
+        if (screen == null || screen instanceof TitleScreen) return;
+        frameDrawn = draw();
+    }
+
+    /** End of the screen's frame. */
+    public static void endScreen() {
+        frameDrawn = false;
     }
 
     /**
-     * TODO(1.17.1 core, spec §7): draw the blurred panorama full-screen via the
-     * shared VAO/VBO + the BLUR program. Stubbed to {@code false} so the caller
-     * draws vanilla's dirt background instead. Draws nothing.
-     *
-     * @return {@code false} — backdrop not drawn under core profile yet.
+     * For the places that would paint a full-screen dirt background: true when the blurred panorama is (now) behind
+     * everything, so the caller skips its dirt; false with a world loaded / no blur program (draw the vanilla dirt).
+     */
+    public static boolean cover() {
+        if (frameDrawn) return true;
+        // Not painted at frame start (e.g. a screen drawn behind the reload overlay): paint now — but never over the
+        // title screen, which must keep its own sharp panorama.
+        if (MinecraftClient.getInstance().currentScreen instanceof TitleScreen) return false;
+        return draw();
+    }
+
+    /**
+     * Paint the blurred panorama full-screen. Returns false (and draws nothing) when a world is loaded or the blur
+     * program is unavailable — the caller then draws its vanilla background.
      */
     public static boolean draw() {
-        return false;
+        if (!ready()) return false;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        int fw = mc.getWindow().getFramebufferWidth(), fh = mc.getWindow().getFramebufferHeight();
+        if (fw <= 0 || fh <= 0) return false;
+
+        float[] sc = RenderSystem.getShaderColor();
+        float r = sc[0], g = sc[1], b = sc[2], a = sc[3];
+        GuiFlush.flush();
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+
+        // advance the rotation once per frame even if several callers paint a background in the same frame
+        long now = System.nanoTime();
+        float delta = now - lastDrawNs < 2_000_000L ? 0f : mc.getLastFrameDuration();
+        lastDrawNs = now;
+        panorama().render(delta, 1.0f);
+
+        float scale = (float) mc.getWindow().getScaleFactor();
+        float sw = mc.getWindow().getScaledWidth(), sh = mc.getWindow().getScaledHeight();
+        RenderSystem.disableDepthTest();
+        copyFrame(fw, fh);
+        blurPass(sw, sh, RADIUS_GUI * scale, 0f);
+        copyFrame(fw, fh);
+        blurPass(sw, sh, RADIUS_GUI * 0.5f * scale, DIM);
+        RenderSystem.enableDepthTest();
+
+        RenderSystem.setShaderColor(r, g, b, a);
+        SceneCapture.grabNow();   // glass drawn after this refracts the blurred panorama
+        return true;
+    }
+
+    /** Copy the current framebuffer into {@link #src} (same recipe as {@link SceneCapture}). */
+    private static void copyFrame(int w, int h) {
+        int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        if (src == 0 || srcW != w || srcH != h) {
+            if (src != 0) GL11.glDeleteTextures(src);
+            src = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, src);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB, w, h, 0, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE,
+                    (java.nio.ByteBuffer) null);
+            srcW = w;
+            srcH = h;
+        } else {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, src);
+        }
+        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
+        RenderSystem.bindTexture(0);
+        RenderSystem.bindTexture(prevTex);
+    }
+
+    /** One full-screen {@code menu_blur} pass sampling {@link #src} (unit 0). */
+    private static void blurPass(float sw, float sh, float radiusPx, float dim) {
+        RenderSystem.activeTexture(GL13.GL_TEXTURE0);
+        RenderSystem.bindTexture(src);
+        if (GlassRenderer.beginBatch(GlassProgram.BLUR)) {
+            GlassProgram.setBlur(radiusPx, dim);
+            GlassRenderer.batchQuad(0f, 0f, sw, sh, 0f, 1f, 1f, 1f, 1f);
+            GlassRenderer.endBatch();
+        }
+        RenderSystem.activeTexture(GL13.GL_TEXTURE0);
+        RenderSystem.bindTexture(0);
     }
 }

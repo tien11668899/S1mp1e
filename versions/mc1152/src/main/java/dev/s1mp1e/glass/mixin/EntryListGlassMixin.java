@@ -77,7 +77,7 @@ public abstract class EntryListGlassMixin {
             s1mp1e$drop(tessellator);
             return;
         }
-        boolean ours = false;
+        boolean ours = false, dropped = false;
         int tex = 0;
         this.s1mp1e$narrow = false;
         try {
@@ -92,9 +92,15 @@ public abstract class EntryListGlassMixin {
                     this.s1mp1e$narrow = ours;
                 }
             } else if (mc.world == null) {
-                // raw immediate-mode quad: independent of the tessellator buffer that is still open here
-                ours = MenuBackdrop.draw();
-                tex = MenuBackdrop.panoramaTex();
+                // draw() first re-renders the live title panorama THROUGH the Tessellator (refreshLive), which threw
+                // "Already building!" here (the dirt slab is still being built) and froze the backdrop for the session.
+                // So: only when the backdrop can draw, finish + discard the dirt slab FIRST, then draw.
+                if (MenuBackdrop.ready()) {
+                    s1mp1e$drop(tessellator);
+                    dropped = true;
+                    ours = MenuBackdrop.draw();
+                    tex = MenuBackdrop.panoramaTex();
+                }
             } else if (GlassProgram.ensureReady() && GlassProgram.blurUsable()) {
                 ours = MenuBackdrop.drawLive(MenuBackdrop.RADIUS, MenuBackdrop.DIM);
                 tex = SceneCapture.texture();
@@ -103,13 +109,23 @@ public abstract class EntryListGlassMixin {
             ours = false;
         }
         if (!ours || tex == 0) {
-            original.call(tessellator);
+            if (!dropped) original.call(tessellator);
             return;
         }
-        s1mp1e$drop(tessellator);
+        if (!dropped) s1mp1e$drop(tessellator);
         this.s1mp1e$listTex = tex;
         this.s1mp1e$listActive = true;
-        DrawableHelper.fill(this.left, this.top, this.right, this.bottom, 0x80000000);
+        if (this.s1mp1e$narrow) {
+            // all-glass #5: a list narrower than the screen (the two resource-pack columns) sits on a glass pane with the
+            // hotbar corner + a 0x30 grey scrim where the dark band was — drawn here, before the header and rows.
+            dev.s1mp1e.client.gui.AllGlass.pane(this.left, this.top, this.right, this.bottom, 1f, 0x30000000);
+            dev.s1mp1e.client.gui.AllGlass.afterFill();
+        } else if (MinecraftClient.getInstance().world != null) {
+            // in a world the list keeps its dimmed body over the blurred live frame (spec #26: in-game unchanged)
+            DrawableHelper.fill(this.left, this.top, this.right, this.bottom, 0x80000000);
+        }
+        // all-glass #26: a full-width list with no world draws no dark band — the rows sit directly on the blurred
+        // title panorama, like 26.2 / 1.21.1 (the header / footer strips re-blit the same backdrop, so it is seamless).
     }
 
     @WrapOperation(method = "render",

@@ -10,6 +10,8 @@ public class LiquidGlassClient implements ClientModInitializer {
 
    public void onInitializeClient() {
       LOG.info("[LiquidGlass] client initialized (v0.1.0, MC 26.2 / mojmap)");
+      // fallback if our preLaunch ran before Essential's loader put it on the classpath (partial, but better than none)
+      com.seagull.liquidglass.client.compat.essential.EssentialPreLaunch.retry();
       // Build the S1mp1e client modules + load saved config (guarded internally; never throws).
       try { dev.s1mp1e.client.ModuleManager.init(); } catch (Throwable t) { LOG.warn("[S1mp1e] module init failed", t); }
       // The menu key (RightShift) is polled by dev.s1mp1e.client.mixin.MenuKeyMixin at Minecraft.tick() RETURN.

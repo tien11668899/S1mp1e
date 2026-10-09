@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.LayoutEditable;
@@ -94,12 +95,12 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
                 for (int i = 0; i < 8; i++) {
                     if (!visible(i)) continue;
                     int x = kx[i].intValue, y = ky[i].intValue, w = KW[i], h = KH[i];
-                    GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, 1f, GlassRenderer.FROST_PANEL);
+                    GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, HudFade.alpha, GlassRenderer.FROST_PANEL);
                     if (fade[i] > 0.02f) {
                         int ga = Math.round(fade[i] * 130f);
                         // (H2) the press highlight follows the chroma too when ChromaHud's Accents are on (else unchanged).
                         int glowArgb = ChromaHudModule.accent((ga << 24) | (glow.colorValue & 0xFFFFFF), x, y);
-                        GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f, glowArgb);
+                        GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f, HudFade.argb(glowArgb));
                     }
                 }
             } finally {

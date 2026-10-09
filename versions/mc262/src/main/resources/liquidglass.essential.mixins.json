@@ -1,0 +1,35 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.seagull.liquidglass.client.compat.essential.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "EssUIBlockMixin",
+    "EssUIRoundedRectMixin",
+    "EssScissorMixin",
+    "EssUcDrawContextMixin",
+    "EssUtilDrawContextMixin",
+    "EssUITextMixin",
+    "EssUIWrappedTextMixin",
+    "EssTruncatingTextMixin",
+    "EssMenuButtonMixin",
+    "EssTextInputMixin",
+    "EssScreenBgInvoker",
+    "EssUScreenBackdropMixin",
+    "EssTransparencyWorkaroundMixin",
+    "EssInputPlaceholderMixin",
+    "EssToggleMixin",
+    "EssGradientMixin",
+    "EssTextShadowMixin",
+    "EssFontShadowMixin",
+    "EssShadowEffectMixin",
+    "EssRenderPassUniformsMixin",
+    "EssExtractorImplMixin",
+    "EssElementaRendererMixin",
+    "EssDrawTextureMixin",
+    "EssLayerRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

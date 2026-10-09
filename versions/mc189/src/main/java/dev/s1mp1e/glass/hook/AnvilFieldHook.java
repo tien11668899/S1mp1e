@@ -1,0 +1,42 @@
+package dev.s1mp1e.glass.hook;
+
+import dev.s1mp1e.client.gui.GlassWidgets;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.util.ResourceLocation;
+
+/**
+ * allglass #12 — the anvil rename field becomes a glass scrim (same look as #3). On 1.8.9 {@code GuiRepair} turns the
+ * GuiTextField's own background OFF ({@code setEnableBackgroundDrawing(false)}) and paints the field's frame itself
+ * from {@code anvil.png}: {@code drawTexturedModalRect(i+59, j+20, 0, ySize (+16 when the input slot is empty), 110, 16)}
+ * — a tan box with a light border that the #3 EditBoxHook never sees. The coremod redirects every blit inside
+ * {@code GuiRepair.drawGuiContainerBackgroundLayer} here; only that 110&times;16 sprite (v = 166 editable, v = 182
+ * disabled) is replaced, by a 4px rounded scrim (0x4DFFFFFF when editable, 0x2EFFFFFF when empty). Everything else
+ * passes through. Afterwards anvil.png is re-bound, because the error-cross blit that follows (and the keyed-texture
+ * swap in BlitSuppressor) relies on it being the bound texture.
+ */
+public final class AnvilFieldHook {
+
+    private AnvilFieldHook() {}
+
+    private static final ResourceLocation TEX = new ResourceLocation("textures/gui/container/anvil.png");
+    private static boolean reported;
+
+    public static void blit(Gui gui, int x, int y, int u, int v, int w, int h) {
+        if (w != 110 || h != 16 || u != 0 || (v != 166 && v != 182)) {
+            gui.drawTexturedModalRect(x, y, u, v, w, h);
+            return;
+        }
+        try {
+            int scrim = v == 166 ? 0x4DFFFFFF : 0x2EFFFFFF;
+            GlassWidgets.fillRound(x, y, x + w, y + h, scrim, 4f);
+            GlStateManager.enableBlend();
+            GlStateManager.color(1f, 1f, 1f, 1f);
+            Minecraft.getMinecraft().getTextureManager().bindTexture(TEX);
+        } catch (Throwable t) {
+            if (!reported) { reported = true; System.out.println("[S1mp1e] AnvilFieldHook failed, vanilla field kept: " + t); }
+            gui.drawTexturedModalRect(x, y, u, v, w, h);
+        }
+    }
+}

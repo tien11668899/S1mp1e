@@ -15,6 +15,12 @@ sha1_smol = "1"
 zip = "2"
 dirs = "5"
 anyhow = "1"
+# 靈動島封面：JPEG/PNG 解碼、縮圖、烤圓角後輸出 PNG（遊戲的 NativeImage 只讀 PNG）
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
+
+# 遊戲內靈動島的「正在播放」：Windows 系統媒體控制（SMTC），Spotify 等播放器都會登記在這裡
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams", "Win32_System_WinRT"] }
 
 [profile.release]
 opt-level = "s"

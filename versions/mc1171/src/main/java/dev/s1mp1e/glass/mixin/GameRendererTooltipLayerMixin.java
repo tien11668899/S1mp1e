@@ -34,10 +34,19 @@ public abstract class GameRendererTooltipLayerMixin {
     private void s1mp1e$screenFrame(Screen screen, MatrixStack matrices, int mouseX, int mouseY, float delta,
                                     Operation<Void> op) {
         GlassTooltip.beginDefer();
-        if (SettingsShell.handles(screen)) {
-            SettingsShell.render(screen, matrices, mouseX, mouseY, delta);
-        } else {
-            op.call(screen, matrices, mouseX, mouseY, delta);
+        // All-glass #26: the blurred title panorama goes down FIRST, before the screen paints anything (a Screen.render
+        // hook is too late — the world / server / pack screens draw their lists first and call super.render last).
+        // World-less only; never on the TitleScreen (it draws its own live panorama, and its Realms notification
+        // sub-screen goes through Screen.render too).
+        dev.s1mp1e.glass.render.MenuBackdrop.beginScreen(screen);
+        try {
+            if (SettingsShell.handles(screen)) {
+                SettingsShell.render(screen, matrices, mouseX, mouseY, delta);
+            } else {
+                op.call(screen, matrices, mouseX, mouseY, delta);
+            }
+        } finally {
+            dev.s1mp1e.glass.render.MenuBackdrop.endScreen();
         }
     }
 }

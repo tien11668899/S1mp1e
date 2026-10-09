@@ -1,0 +1,26 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.seagull.liquidglass.client.compat.rso",
+  "plugin": "com.seagull.liquidglass.client.compat.RsoMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "RsoScreenMixin",
+    "RsoBaseWidgetMixin",
+    "RsoScissorMixin",
+    "RsoRowMixin",
+    "RsoBoolRowMixin",
+    "RsoSliderRowMixin",
+    "RsoTabButtonMixin",
+    "RsoRailMixin",
+    "RsoFlatButtonMixin",
+    "RsoAbstractFrameAccessor",
+    "RsoPageFrameMixin",
+    "RsoTabFrameMixin",
+    "RsoHeaderMixin",
+    "RsoActionButtonMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

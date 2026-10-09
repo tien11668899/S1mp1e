@@ -3,6 +3,7 @@ package dev.s1mp1e.glass.mixin;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.s1mp1e.client.gui.SettingsShell;
+import dev.s1mp1e.glass.render.MenuBackdrop;
 import dev.s1mp1e.glass.ui.GlassTooltip;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.render.GameRenderer;
@@ -34,10 +35,19 @@ public abstract class GameRendererTooltipLayerMixin {
     private void s1mp1e$screenFrame(Screen screen, MatrixStack matrices, int mouseX, int mouseY, float delta,
                                     Operation<Void> op) {
         GlassTooltip.beginDefer();
-        if (SettingsShell.handles(screen)) {
-            SettingsShell.render(screen, matrices, mouseX, mouseY, delta);
-        } else {
-            op.call(screen, matrices, mouseX, mouseY, delta);
+        // All-glass #26: the blurred title panorama goes down FIRST, before the screen paints anything (the 1.18.2
+        // counterpart of 1.20.1's renderWithTooltip HEAD). A Screen.render hook is too late: the world / server / pack
+        // screens draw their lists first and call super.render last. World-less only; never on the TitleScreen (it
+        // draws its own live panorama — and its Realms notification sub-screen goes through Screen.render too).
+        MenuBackdrop.beginScreen(screen);
+        try {
+            if (SettingsShell.handles(screen)) {
+                SettingsShell.render(screen, matrices, mouseX, mouseY, delta);
+            } else {
+                op.call(screen, matrices, mouseX, mouseY, delta);
+            }
+        } finally {
+            MenuBackdrop.endScreen();
         }
     }
 }

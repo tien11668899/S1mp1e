@@ -53,12 +53,26 @@ public abstract class SuggestionsListGlideMixin {
             if (Math.abs(this.selection - s1mp1e$sel) < 0.01f) s1mp1e$sel = this.selection;
         }
         s1mp1e$ns = now;
+        // All-glass: one glass panel for the whole popup + the gliding selection as a glass capsule (spec #13)
+        int px0 = this.area.getX() - 1, py0 = this.area.getY() - 1;
+        int px1 = this.area.getX() + this.area.getWidth() + 1, py1 = this.area.getY() + this.area.getHeight() + 1;
+        dev.s1mp1e.client.gui.AllGlass.plate(ctx, px0, py0, px1, py1, 1f, 0x78000000);
+        float barTop = this.area.getY() + S1_ROW * (s1mp1e$sel - this.inWindowIndex);
+        float top = Math.max(this.area.getY(), barTop), bottom = Math.min(this.area.getY() + this.area.getHeight(), barTop + S1_ROW);
+        if (bottom - top > 1f) {
+            dev.s1mp1e.client.gui.AllGlass.capsule(ctx, this.area.getX(), top, this.area.getX() + this.area.getWidth(), bottom,
+                    dev.s1mp1e.client.gui.AllGlass.hotbarCorner(this.area.getWidth(), S1_ROW), 0.81f, 1f);
+        }
+        s1mp1e$glass = true;
     }
+
+    @Unique private boolean s1mp1e$glass;
 
     /** After each 12 px row background, the slice of the gliding bar that lies over that row. */
     @WrapOperation(method = "render", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/gui/DrawContext;fill(IIIII)V"))
     private void s1mp1e$rowFillThenBar(DrawContext ctx, int x0, int y0, int x1, int y1, int color, Operation<Void> op) {
+        if (s1mp1e$glass) return;   // rows, dotted marks and the bar are all the glass panel + capsule drawn at HEAD
         op.call(ctx, x0, y0, x1, y1, color);
         if (y1 - y0 != S1_ROW || Float.isNaN(s1mp1e$sel)) return;   // only the row backgrounds (the marks are 1 px)
         float barTop = this.area.getY() + S1_ROW * (s1mp1e$sel - this.inWindowIndex);
@@ -76,7 +90,7 @@ public abstract class SuggestionsListGlideMixin {
         int k = (y - 2 - this.area.getY()) / S1_ROW;
         float w = 1f - Math.abs(k + this.inWindowIndex - s1mp1e$sel);
         w = w < 0f ? 0f : (w > 1f ? 1f : w);
-        return op.call(ctx, font, text, x, y, s1mp1e$lerp(S1_GREY, S1_YELLOW, w));
+        return op.call(ctx, font, text, x, y, s1mp1e$glass ? s1mp1e$lerp(0xFFE0E0E0, 0xFFFFFFFF, w) : s1mp1e$lerp(S1_GREY, S1_YELLOW, w));
     }
 
     @Unique

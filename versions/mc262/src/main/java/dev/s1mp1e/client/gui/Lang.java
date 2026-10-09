@@ -40,6 +40,8 @@ public final class Lang {
         MODULE.put("Particles", "粒子");
         MODULE.put("AttackRing", "攻擊冷卻玻璃環");
         MODULE.put("HitMarker", "命中標記");
+        MODULE.put("DynamicIsland", "音樂靈動島");
+        MODULE.put("NameTags", "名牌");
 
         SETTING.put("X", "X 位置");
         SETTING.put("Y", "Y 位置");
@@ -66,6 +68,8 @@ public final class Lang {
         SETTING.put("Show 'FPS'", "顯示 FPS");
         SETTING.put("Show facing", "顯示朝向");
         SETTING.put("Y offset", "Y 偏移");
+        SETTING.put("Expand on track change", "換歌時展開");
+        SETTING.put("Hide when paused", "暫停一陣子後隱藏");
         SETTING.put("Glint colour", "飽食度顏色");
         SETTING.put("Offset X", "X 偏移");
         SETTING.put("Offset Y", "Y 偏移");
@@ -89,6 +93,8 @@ public final class Lang {
         SETTING.put("Sheen colour", "掃光顏色");
         SETTING.put("Glow", "散發微光");
         SETTING.put("Hide vanilla effects", "隱藏原版效果");
+        SETTING.put("Show time", "顯示時間");
+        SETTING.put("Colour fill", "顏色填滿");
         // BlockOutline
         SETTING.put("Line width", "線寬");
         SETTING.put("Chroma", "彩虹色");
@@ -138,6 +144,9 @@ public final class Lang {
         MODE.put("Same", "同上");
         MODE.put("Reduced", "減少");
         MODE.put("None", "無");
+        MODE.put("Glass", "液態玻璃");
+        MODE.put("Vanilla", "原版");
+        MODE.put("Off", "關閉");
     }
 
     public static String module(String id)  { String v = MODULE.get(id);  return v != null ? v : id; }

@@ -69,46 +69,49 @@ public final class S1mp1eHudEditScreen extends Screen {
     @Override
     public void render(int mouseX, int mouseY, float delta) {
         layout();
+        // Appear fade: every chrome element rides the shared screen-open fade (150 ms), so the editor never pops in.
+        // The live HUD behind it keeps its own HudFade; this only fades the editor's own boxes / labels / toolbar.
+        float a = ScreenOpenFade.value(this);
         // Light scrim only (NOT renderBackground: its darkening would hide the HUD being
         // positioned). Immediate-mode fill, then re-sync the colour cache (hard rule 5).
-        GlassWidgets.drawRect(0, 0, this.width, this.height, 0x33000000);
+        GlassWidgets.drawRect(0, 0, this.width, this.height, GlassWidgets.scaleAlpha(0x33000000, a));
         GlassWidgets.resetColorCache();
         // Grab the world + live HUD as the backdrop the glass capsules refract this frame.
         SceneCapture.forceGrab();
 
         if (this.client != null && this.client.options != null && this.client.options.debugEnabled) {
             String h = "關閉 F3 才能編輯 HUD";
-            GlassWidgets.label(h, (this.width - GlassWidgets.strW(h)) / 2f, this.height / 2f, 0xFFD60A, 1f);
+            GlassWidgets.label(h, (this.width - GlassWidgets.strW(h)) / 2f, this.height / 2f, 0xFFD60A, a);
         }
 
         for (HudElement e : elements) {
             float x0 = e.x(), y0 = e.y(), x1 = x0 + e.w(), y1 = y0 + e.h();
             boolean hot = e == dragging || GlassWidgets.inside(mouseX, mouseY, x0, y0, x1, y1);
-            GlassWidgets.capsule(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0.2f, hot ? 0.7f : 0.3f, 1f, true);
-            GlassWidgets.border(x0 - 2, y0 - 2, x1 + 2, y1 + 2, hot ? 0xFF0A84FF : 0x66FFFFFF);
+            GlassWidgets.capsule(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0.2f, hot ? 0.7f : 0.3f, a, true);
+            GlassWidgets.border(x0 - 2, y0 - 2, x1 + 2, y1 + 2, GlassWidgets.scaleAlpha(hot ? 0xFF0A84FF : 0x66FFFFFF, a));
             GlassWidgets.resetColorCache();
-            GlassWidgets.label(e.label(), x0, y0 - GlassWidgets.fontH() - 2, hot ? 0xFFFFFF : 0xB0B0B8, 1f);
+            GlassWidgets.label(e.label(), x0, y0 - GlassWidgets.fontH() - 2, hot ? 0xFFFFFF : 0xB0B0B8, a);
         }
 
         // active snap guides while dragging
         if (dragging != null) {
-            if (dragging.guideVX >= 0) GlassWidgets.drawRect(dragging.guideVX, 0, dragging.guideVX + 1, this.height, 0x880A84FF);
-            if (dragging.guideHY >= 0) GlassWidgets.drawRect(0, dragging.guideHY, this.width, dragging.guideHY + 1, 0x880A84FF);
+            if (dragging.guideVX >= 0) GlassWidgets.drawRect(dragging.guideVX, 0, dragging.guideVX + 1, this.height, GlassWidgets.scaleAlpha(0x880A84FF, a));
+            if (dragging.guideHY >= 0) GlassWidgets.drawRect(0, dragging.guideHY, this.width, dragging.guideHY + 1, GlassWidgets.scaleAlpha(0x880A84FF, a));
             GlassWidgets.resetColorCache();
         }
 
         // toolbar
-        drawChip(grid ? "格線: 開" : "格線: 關", gridRect, mouseX, mouseY);
-        drawChip("重置全部", resetRect, mouseX, mouseY);
+        drawChip(grid ? "格線: 開" : "格線: 關", gridRect, mouseX, mouseY, a);
+        drawChip("重置全部", resetRect, mouseX, mouseY, a);
         String hint = "拖曳定位 · 邊緣/中心自動吸附 · ESC 完成";
-        GlassWidgets.label(hint, (this.width - GlassWidgets.strW(hint)) / 2f, this.height - 40f, 0xC7C7CC, 1f);
+        GlassWidgets.label(hint, (this.width - GlassWidgets.strW(hint)) / 2f, this.height - 40f, 0xC7C7CC, a);
     }
 
-    private void drawChip(String text, float[] r, int mx, int my) {
+    private void drawChip(String text, float[] r, int mx, int my, float a) {
         boolean hover = GlassWidgets.inside(mx, my, r[0], r[1], r[2], r[3]);
-        GlassWidgets.capsule(r[0], r[1], r[2], r[3], 0.5f, hover ? 0.7f : 0.3f, 1f, true);
+        GlassWidgets.capsule(r[0], r[1], r[2], r[3], 0.5f, hover ? 0.7f : 0.3f, a, true);
         GlassWidgets.label(text, r[0] + (r[2] - r[0] - GlassWidgets.strW(text)) / 2f,
-                (r[1] + r[3]) / 2f - GlassWidgets.fontH() / 2f, 0xF5F5F7, 1f);
+                (r[1] + r[3]) / 2f - GlassWidgets.fontH() / 2f, 0xF5F5F7, a);
     }
 
     @Override

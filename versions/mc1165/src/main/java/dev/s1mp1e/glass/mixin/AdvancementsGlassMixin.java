@@ -78,7 +78,51 @@ public abstract class AdvancementsGlassMixin {
         // FRAME-PRIMARY surface: fresh backdrop (world + dim) so the plate never folds onto a stale
         // grab and flickers at high fps (R4).
         SceneCapture.grabNow();
-        GlassRenderer.panel(x, y, x + WIN_W, y + WIN_H, fade);
+        // #23: creative-inventory style — the tab row is a band of the SAME glass sheet (no separate tab tiles, see
+        // AdvancementSpritesGlassMixin). Extend the panel by one tab's depth (28 = tab 32 minus the 4 px overlap) on
+        // each side that carries tabs; only when >1 tab (vanilla draws the tab row only then). Orientation from the
+        // package-private AdvancementTabType ordinal (0 ABOVE / 1 BELOW / 2 LEFT / 3 RIGHT) via AdvancementTabAccessor.
+        int x0 = x, y0 = y, x1 = x + WIN_W, y1 = y + WIN_H;
+        if (this.tabs != null && this.tabs.size() > 1) {
+            for (net.minecraft.client.gui.screen.advancement.AdvancementTab t : this.tabs.values()) {
+                switch (s1mp1e$tabOrdinal(t)) {
+                    case 0: y0 = y - 28; break;             // ABOVE
+                    case 1: y1 = y + WIN_H + 28; break;     // BELOW
+                    case 2: x0 = x - 28; break;             // LEFT
+                    case 3: x1 = x + WIN_W + 28; break;     // RIGHT
+                    default: break;
+                }
+            }
+        }
+        GlassRenderer.panel(x0, y0, x1, y1, fade);
+    }
+
+    /**
+     * The tab's {@code AdvancementTabType} ordinal (0 ABOVE / 1 BELOW / 2 LEFT / 3 RIGHT). {@code AdvancementTabType} is
+     * package-private (can't be named here) and {@code AdvancementTab} has no public {@code getType()} on 1.16.5, and
+     * Mixin's AP rejects an {@code Object}-typed {@code @Accessor} for it — so read the single enum-typed field
+     * reflectively (works under any mapping: the field is found by its enum type, not its name). Cached. -1 if not found.
+     */
+    @Unique private static java.lang.reflect.Field s1mp1e$typeField;
+    @Unique private static boolean s1mp1e$typeFieldResolved;
+
+    @Unique
+    private static int s1mp1e$tabOrdinal(net.minecraft.client.gui.screen.advancement.AdvancementTab t) {
+        try {
+            if (!s1mp1e$typeFieldResolved) {
+                s1mp1e$typeFieldResolved = true;
+                for (java.lang.reflect.Field f : net.minecraft.client.gui.screen.advancement.AdvancementTab.class
+                        .getDeclaredFields()) {
+                    Object[] consts = f.getType().getEnumConstants();
+                    if (consts != null && consts.length == 4) { f.setAccessible(true); s1mp1e$typeField = f; break; }  // AdvancementTabType
+                }
+            }
+            if (s1mp1e$typeField == null) return -1;
+            Object v = s1mp1e$typeField.get(t);
+            return v instanceof Enum ? ((Enum<?>) v).ordinal() : -1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
     }
 
     @Redirect(method = "drawWidgets",

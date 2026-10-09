@@ -56,6 +56,28 @@ public final class HudGlass {
     }
 
     /**
+     * A glass TILE (new glass element → hotbar corner radius via {@link com.seagull.liquidglass.client.render.GlassCorners};
+     * a tile shorter than 4&times; that radius gets the largest corner the shader allows, still a rounded square).
+     * Coords are in the CURRENT pose's units, like {@link #glassBox}.
+     */
+    public static void glassTile(GuiGraphicsExtractor g, int x0, int y0, int x1, int y1, float alpha) {
+        if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;
+        float a = alpha < 0f ? 0f : (alpha > 1f ? 1f : alpha);
+        if (GlassPipeline.ensureReady() && GlassPipeline.usable()) {
+            int ab = Math.round(a * 255f) & 0xFF;
+            int knobs = com.seagull.liquidglass.client.render.GlassCorners.withHotbarCorner(PANEL_KNOBS, x1 - x0, y1 - y0);
+            GuiRenderState rs = ((GuiGraphicsExtractorAccessor) g).liquidglass$guiRenderState();
+            TextureSetup ts = TextureSetup.singleTexture(GlassPipeline.backdropView(), GlassPipeline.sampler());
+            rs.addGuiElement(new GlassRectRenderState(GlassPipeline.glass(), ts, g.pose(),
+                    x0, y0, x1, y1, PAD, (knobs & 0xFFFFFF00) | ab, null));
+        } else {
+            int fa = Math.max(0, Math.min(255, Math.round(a * 0x88)));
+            roundFill(g, x0, y0, x1 - x0, y1 - y0, Math.max(2, Math.min(x1 - x0, y1 - y0) / 4), (fa << 24) | 0x101014);
+        }
+    }
+
+    /**
      * Flat coloured rounded rect with true anti-aliased corners (the 26.2 port of 1.21.1's
      * {@code GlassRenderer.roundRect}) — smooth curves at any GUI scale. Coordinates are absolute scaled-GUI px under
      * the current pose; {@code radiusPx} is clamped to a full capsule. Falls back to the stepped {@link #roundFill}

@@ -131,7 +131,11 @@ public final class GlassHudHandler {
             int height = sr.getHeight();
 
             GlStateManager.color4f(1f, 1f, 1f, 1f);
-            GlStateManager.disableBlend();   // the ICONS_LOCATION sheet strip is opaque, like vanilla
+            // allglass #17: the XP bar as a glass capsule track + round-ended green fill (ContextualBarHook). This
+            // handler owns the XP element (vanilla's is cancelled), so route our own two blits through the hook.
+            // Glass needs blend ON (the old ICONS_LOCATION strip was drawn opaque). Drawn at vanilla's spot — the
+            // push above lifts it with the cluster and the glass follows the GL model-view (never subtract the lift).
+            GlStateManager.enableBlend();
 
             if (mc.interactionManager.hasXpBar()) {
                 mc.getTextureManager().bind(ICONS);
@@ -140,8 +144,8 @@ public final class GlassHudHandler {
                 if (cap > 0) {
                     int filled = (int) (mc.player.xpProgress * 183f);
                     int top = height - 32 + 3;                       // vanilla XP bar top = h-29
-                    XP_BLIT.rect(left, top, 0, 64, 182, 5);
-                    if (filled > 0) XP_BLIT.rect(left, top, 0, 69, filled, 5);
+                    ContextualBarHook.bar(XP_BLIT, left, top, 0, 64, 182, 5);
+                    if (filled > 0) ContextualBarHook.bar(XP_BLIT, left, top, 0, 69, filled, 5);
                 }
                 if (mc.player.xpLevel > 0) {
                     String s = "" + mc.player.xpLevel;

@@ -143,7 +143,9 @@ public final class DevShot {
                              P_TITLE_PAGE = 121,
                              // INTRO mode (S1MP1E_SHOT_MODE=intro): boot brand-intro frames -> after-title -> world-entry
                              // loop preview -> real world entry loop -> after-world. Inert otherwise.
-                             P_LOOPPREV = 130;
+                             P_LOOPPREV = 130,
+                             // all-glass #1-#26 verification modes (DevAudit / DevAllGlass / DevMenus steppers)
+                             P_AUDIT = 210, P_ALLGLASS = 211, P_MENUS = 212;
 
     /** S1MP1E_SHOT_MODE, lower-cased ("" = this line's own full pipeline). */
     private static String mode = "";
@@ -258,7 +260,9 @@ public final class DevShot {
         if (lastFrameNanos != 0L) { dtRing[dtCount % DT_RING] = fnow - lastFrameNanos; dtCount++; }
         lastFrameNanos = fnow;
 
-        long watchdog = DevShotVerify.handles(mode) ? 1_800_000L : WATCHDOG_MS;   // the verify sweeps run long
+        boolean longSweep = DevShotVerify.handles(mode) || "audit".equals(mode) || "allglass".equals(mode)
+                || "menus".equals(mode);
+        long watchdog = longSweep ? 1_800_000L : WATCHDOG_MS;   // the verify / all-glass sweeps run long
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
             System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
@@ -338,6 +342,9 @@ public final class DevShot {
                 case P_TIP_STRIP:       stepTipStrip(client);                   break;
                 case P_SCREENS:         stepScreens(client);                    break;
                 case P_VERIFY2:         if (DevShotVerify.step(client)) goPhase(P_STOP); break;
+                case P_AUDIT:           if (DevAudit.step(client)) goPhase(P_STOP);     break;
+                case P_ALLGLASS:        if (DevAllGlass.step(client)) goPhase(P_STOP);  break;
+                case P_MENUS:           if (DevMenus.step(client)) goPhase(P_STOP);     break;
                 case P_TITLE_PAGE:      stepTitlePage(client);                  break;
                 case P_LOOPPREV:        stepLoopPreview(client);                break;
                 case P_STOP:            stepStop(client);                        break;
@@ -415,6 +422,12 @@ public final class DevShot {
     }
 
     private static void stepTitle(MinecraftClient client) {
+        // menus mode (#26 all-glass): shoot the world-less menus from the title, never entering a world.
+        if ("menus".equals(mode)) {
+            if (!settled(SETTLE_MS)) return;
+            if (DevMenus.step(client)) goPhase(P_STOP);
+            return;
+        }
         if (introWorld) {
             if (!settled(SETTLE_MS)) return;
             // Glass buttons must still render after the boot intro ran during the first resource reload.
@@ -577,6 +590,8 @@ public final class DevShot {
             return;
         }
         if ("combat".equals(mode)) { goPhase(P_COMBAT); return; }   // 26.2 combat trio
+        if ("allglass".equals(mode)) { goPhase(P_ALLGLASS); return; }   // all-glass in-world elements (#12-#23)
+        if ("audit".equals(mode)) { goPhase(P_AUDIT); return; }         // sweep every vanilla screen
         if (DevShotVerify.handles(mode)) {  // the 1.21.1 feature-set sweeps (2026-10 port round)
             DevShotVerify.init(outDir, mode);
             goPhase(P_VERIFY2);

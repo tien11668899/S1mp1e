@@ -35,15 +35,18 @@ public final class GlassWidgets {
     public static void panel(MatrixStack matrices, float x0, float y0, float x1, float y1, float alpha) {
         if (GlassProgram.usable() && SceneCapture.hasBackdrop()) {
             // Real glass: refraction + frost + faint edge shadow over the captured
-            // (blurred, dimmed) backdrop. corner 0.19 ~= 14px on this panel size.
+            // (blurred, dimmed) backdrop. #24: the shader radius is minHalf*0.5*corner, so corner 0.19 = side*0.0475 —
+            // fine on a small panel, too round once the panel is large (fullscreen). corner = min(0.19, 56/minSide)
+            // caps the body corner at ~14 px absolute.
+            float corner = Math.min(0.19f, 56f / Math.min(x1 - x0, y1 - y0));
             GlassRenderer.glass(x0, y0, x1, y1, GlassRenderer.PAD_PANEL,
-                                0.19f, 0f, alpha, GlassRenderer.FROST_PANEL);
+                                corner, 0f, alpha, GlassRenderer.FROST_PANEL);
             // Very light dark scrim — the user wants the panel MORE see-through (like the
             // hotbar glass, which has no scrim), so keep this to a whisper: just enough to
             // seat the text, letting the refracted backdrop read through. Radius tracks the
-            // GLASS body corner (0.0475 of the min side) so no un-scrimmed crescent shows.
+            // GLASS body corner (0.0475 of the min side), capped at 14 px so no un-scrimmed crescent shows.
             if (GlassProgram.roundUsable())
-                GlassRenderer.roundRect(x0, y0, x1, y1, Math.min(x1 - x0, y1 - y0) * 0.0475f,
+                GlassRenderer.roundRect(x0, y0, x1, y1, Math.min(14f, Math.min(x1 - x0, y1 - y0) * 0.0475f),
                                         (clampByte(alpha * 0.16f) << 24) | 0x1C1C1E);
             return;
         }

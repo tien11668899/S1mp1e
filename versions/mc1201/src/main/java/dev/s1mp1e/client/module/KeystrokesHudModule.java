@@ -12,6 +12,7 @@ import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.GlassFont;
 import dev.s1mp1e.client.gui.HudText;
 import dev.s1mp1e.client.gui.S1mp1eHudEditScreen;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
@@ -64,7 +65,9 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
 
     @Override
     public void renderHud(DrawContext ctx) {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by the HUD driver via HudFade. The raw-GL
+        // glass caps can't follow the ctx-matrix scale (see S1mp1eClient), so during the fade they only alpha-fade
+        // (opacity * HudFade.alpha) while the ctx-drawn labels also scale about the whole-block centre.
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.options == null || mc.options.hudHidden) return;
 
@@ -94,13 +97,13 @@ public final class KeystrokesHudModule extends Module implements HudRenderer, Hu
                 for (int i = 0; i < 8; i++) {
                     if (!visible(i)) continue;
                     int x = kx[i].intValue, y = ky[i].intValue, w = KW[i], h = KH[i];
-                    GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, 1f, GlassRenderer.FROST_PANEL);
+                    GlassRenderer.glass(x, y, x + w, y + h, 6f, 0.9f, 0f, HudFade.alpha, GlassRenderer.FROST_PANEL);
                     if (fade[i] > 0.02f) {
                         int ga = Math.round(fade[i] * 130f);
                         // Press highlight is a HUD accent: follows Chroma HUD when its Accents setting is on
                         // (no-op otherwise), sampled at the cap centre so it lines up with the global sweep.
-                        int glowArgb = ChromaHudModule.accent((ga << 24) | (glow.colorValue & 0xFFFFFF),
-                                                              x + w * 0.5f, y + h * 0.5f);
+                        int glowArgb = HudFade.argb(ChromaHudModule.accent((ga << 24) | (glow.colorValue & 0xFFFFFF),
+                                                              x + w * 0.5f, y + h * 0.5f));
                         GlassRenderer.roundRect(x, y, x + w, y + h, Math.min(w, h) * 0.42f, glowArgb);
                     }
                 }

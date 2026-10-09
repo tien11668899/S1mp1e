@@ -31,6 +31,7 @@ public class LauncherSettings
     [JsonPropertyName("default_mods")]        public bool   DefaultMods        { get; set; } = true;    // Fabric default mod set (default_mods.rs)
     [JsonPropertyName("perf_pack")]           public bool   PerfPack           { get; set; } = true;    // measured performance pack (perf.rs)
     [JsonPropertyName("menu_key")]            public int    MenuKey            { get; set; } = 54;      // LWJGL RShift; the in-game config-GUI open key
+    [JsonPropertyName("update_prerelease")]   public bool   UpdatePrerelease   { get; set; }            // mod updates: include beta/alpha, not just release
 }
 
 /// One saved MC account (mirrors Rust's <c>Account</c>). The tokens are the raw

@@ -35,6 +35,13 @@ dependencies {
     // (liquidglass.rso.mixins.json, applied only when RSO is installed). Plain files, not modCompileOnly, so Loom
     // leaves their class tweakers alone; for a dev test drop the same jars into run/mods.
     compileOnly files('libs/compat/sodium-fabric-0.9.1+mc26.2.jar', 'libs/compat/reeses-sodium-options-fabric-2.2.3+mc26.2.jar')
+    // Compile-only: Essential's Elementa + UniversalCraft (+ Kotlin stdlib for their signatures), for the liquid-glass
+    // restyle and zh_TW translation of Essential's UI (liquidglass.essential.mixins.json, @Pseudo targets — Essential is
+    // added late by essential-loader at preLaunch). Never bundled.
+    compileOnly files('libs/compat/essential/elementa-745.jar', 'libs/compat/essential/universalcraft-26.2-fabric-505.jar', 'libs/compat/essential/kotlin-stdlib-2.3.0.jar')
+    // Essential 1.5 (Elementa 774 / UniversalCraft 534, extract-to-texture renderer). AFTER the 1.4 jars on purpose:
+    // classes in both resolve to the 1.4 ones the old hooks were written for; only the new renderer types come from here.
+    compileOnly files('libs/compat/essential/elementa-774.jar', 'libs/compat/essential/universalcraft-26.2-fabric-534.jar', 'libs/compat/essential/essential-1.5.0.1-26.2.jar')
 }
 
 // Dev client only: make LiquidGlassClient force-load every mixin target at startup so a bad injection target
@@ -43,6 +50,8 @@ loom {
     runs {
         client {
             vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // production loads mods in mod-id order; dev shuffles it — keep dev identical (Essential compat relies on it)
+            vmArg "-Dfabric.debug.disableModShuffle=true"
             // Fixed offline identity so every dev/film run shows the same player skin. The default skin is picked by
             // floorMod(uuid.hashCode(), 18); this UUID lands on index 15 = wide (classic) Steve. Without it MC names
             // the dev player "Player<random>" and the skin changes from run to run.

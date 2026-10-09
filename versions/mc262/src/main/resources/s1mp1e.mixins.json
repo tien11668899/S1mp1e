@@ -4,6 +4,7 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "DevShotMixin",
+    "IslandClickMixin",
     "FilmFrameMixin",
     "FilmHandMixin",
     "FilmGuiScaleMixin",
@@ -34,6 +35,7 @@
     "FontSmoothMixin",
     "FontTextureSmoothMixin",
     "FontOversampleMixin",
+    "TextShaderCoverageFixMixin",
     "TextShadowMixin",
     "ScreenShellMixin", "OptionsSubScreenShellMixin", "CycleButtonShellMixin", "KeyEntryShellMixin",
     "KeyCategoryShellMixin", "OptionsHeaderShellMixin", "LanguageEntryShellMixin", "WidgetShellSuppressMixin", "MouseWheelShellMixin", "WorldOptionsShellMixin",
