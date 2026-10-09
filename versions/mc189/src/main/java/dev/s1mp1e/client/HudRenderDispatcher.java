@@ -2,7 +2,9 @@ package dev.s1mp1e.client;
 
 import java.util.List;
 
+import dev.s1mp1e.client.hud.HudFade;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
@@ -34,14 +36,39 @@ public final class HudRenderDispatcher {
         if (mc.thePlayer == null || mc.theWorld == null) return;
         if (mc.gameSettings.hideGUI && mc.currentScreen == null) return;
 
+        // Appear / disappear (ported from mc1122): VISIBILITY (not the raw enabled flag) decides drawing, so a module
+        // switched on fades in and one switched off keeps drawing while it fades out. Each HudBounds module is scaled
+        // about its own centre (0.85 -> 1 ease-out) and HudFade.alpha is published for the draw helpers (HudText /
+        // HudGlass / Silhouette) to multiply. The first sighting (world join) snaps, matching the vanilla HUD.
+        //
+        // 1.8.9 (as on 1.12.2): renderHud() takes no MatrixStack, so the centre scale is folded into the GlStateManager
+        // GL model-view. Everything a module draws under it scales together — text, fills AND the raw-GL liquid-glass
+        // backgrounds (glass.vsh is gl_ModelViewProjectionMatrix * gl_Vertex and glass.fsh samples its backdrop by
+        // gl_FragCoord, so the quad grows out and its refraction stays aligned). Each module runs in its own push/pop
+        // inside try/catch so one that throws can't shift the next, and HudFade.alpha is always restored to 1.
         List<Module> modules = ModuleManager.all();
         for (int i = 0; i < modules.size(); i++) {
             Module m = modules.get(i);
-            if (!m.enabled || !(m instanceof HudRenderer)) continue;
+            if (!(m instanceof HudRenderer)) continue;
+            float vis = HudFade.visibility(m, m.enabled);
+            if (vis <= 0.004f) continue;
+            GlStateManager.pushMatrix();
             try {
+                if (vis < 1f && m instanceof HudBounds) {
+                    HudBounds hb = (HudBounds) m;
+                    float s = HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(vis);
+                    float cx = hb.hudX() + hb.hudW() * 0.5f, cy = hb.hudY() + hb.hudH() * 0.5f;
+                    GlStateManager.translate(cx, cy, 0f);
+                    GlStateManager.scale(s, s, 1f);
+                    GlStateManager.translate(-cx, -cy, 0f);
+                }
+                HudFade.alpha = vis;
                 ((HudRenderer) m).renderHud();
             } catch (Throwable t) {
                 // one bad module never breaks the HUD pass
+            } finally {
+                HudFade.alpha = 1f;
+                GlStateManager.popMatrix();
             }
         }
     }

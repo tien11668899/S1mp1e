@@ -3,6 +3,7 @@ package dev.s1mp1e.client.module;
 import java.util.ArrayList;
 import java.util.List;
 
+import dev.s1mp1e.client.hud.HudFade;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 
@@ -109,7 +110,7 @@ public final class Silhouette {
             int ex = pts[i * 2], ey = pts[i * 2 + 1];
             float ripple = 0.55f + 0.45f * (float) Math.sin(Math.PI * 2 * ((float) i / cnt * 2f - time));
             int a = i < keep ? 255 : 55;
-            int col = (a << 24) | scaleRgb(baseRgb, ripple);
+            int col = HudFade.argb((a << 24) | scaleRgb(baseRgb, ripple));   // HUD-module appear/disappear
             Gui.drawRect(ix + ex, iy + ey, ix + ex + 1, iy + ey + 1, col);
         }
     }
@@ -133,7 +134,8 @@ public final class Silhouette {
      * {@link Gui#drawRect} per-cell path as {@link #draw} — flat colour over the whole mask.
      */
     public static void fill(boolean[][] op, int ix, int iy, int baseRgb) {
-        int argb = 0xFF000000 | (baseRgb & 0xFFFFFF);
+        int argb = HudFade.argb(0xFF000000 | (baseRgb & 0xFFFFFF));   // HUD-module appear/disappear (1 outside a module's draw)
+        if ((argb >>> 24) == 0) return;
         for (int y = -1; y <= 16; y++) {
             for (int x = -1; x <= 16; x++) {
                 if (op(op, x, y)

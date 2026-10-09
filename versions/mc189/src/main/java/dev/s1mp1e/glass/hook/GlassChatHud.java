@@ -1,5 +1,6 @@
 package dev.s1mp1e.glass.hook;
 
+import dev.s1mp1e.client.gui.ScreenOpenFade;
 import dev.s1mp1e.glass.render.GlassCorners;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
@@ -181,21 +182,34 @@ public final class GlassChatHud {
 
     // ---- input bar (GuiChat.drawScreen) ------------------------------------
 
-    /** Redirect target for the input-field background {@code drawRect} in {@code GuiChat.drawScreen}. */
+    /**
+     * Redirect target for the input-field background {@code drawRect} in {@code GuiChat.drawScreen}.
+     *
+     * <p><b>Appear fade (3a, ported from mc1122).</b> Pressing T pops the input bar in; instead it joins the shared
+     * screen-open fade (150 ms) so it fades in with the GuiChat it belongs to. {@code ScreenOpenFade} is keyed by
+     * screen identity and its clock restarts when the current screen changes, so passing the live GuiChat makes the
+     * fade start from 0 the moment the bar first draws (nothing else drives it while a GuiChat is open). The field is
+     * empty at that instant, so only the glass bar is faded (the text/caret follow their own typing animation).
+     */
     public static void inputRect(int x0, int y0, int x1, int y1, int argb) {
         int lx = Math.min(x0, x1), rx = Math.max(x0, x1);
         int ty = Math.min(y0, y1), by = Math.max(y0, y1);
         int w = rx - lx, h = by - ty;
         if (w <= 0 || h <= 0) return;
+        float fade = ScreenOpenFade.value(Minecraft.getMinecraft().currentScreen);
+        if (fade <= 0.004f) return;
         boolean glass = GlassProgram.ensureReady() && GlassProgram.usable() && SceneCapture.hasBackdrop();
         if (glass) {
             GlassRenderer.glass(lx, ty, rx, by, GlassRenderer.PAD_PANEL,
-                                GlassCorners.cornerKnob(w, h), 0f, 0.9f, GlassRenderer.FROST_PANEL);
+                                GlassCorners.cornerKnob(w, h), 0f, 0.9f * fade, GlassRenderer.FROST_PANEL);
             if (GlassProgram.roundUsable()) {
-                GlassRenderer.roundRect(lx, ty, rx, by, GlassCorners.radiusPx(w, h), INPUT_SCRIM);
+                int a = Math.round(((INPUT_SCRIM >>> 24) & 0xFF) * fade) & 0xFF;
+                GlassRenderer.roundRect(lx, ty, rx, by, GlassCorners.radiusPx(w, h),
+                                        (a << 24) | (INPUT_SCRIM & 0xFFFFFF));
             }
         } else {
-            Gui.drawRect(lx, ty, rx, by, argb);
+            int a = Math.round(((argb >>> 24) & 0xFF) * fade) & 0xFF;
+            Gui.drawRect(lx, ty, rx, by, (a << 24) | (argb & 0xFFFFFF));
         }
     }
 

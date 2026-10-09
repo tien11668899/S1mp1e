@@ -40,6 +40,12 @@ public final class HudText {
         if (s == null || s.isEmpty()) return;
         // HUD 框高＝GlassFont.height()＋邊距、字畫在框頂邊距處：讓墨跡中心落在框正中（玻璃字才需要，原版點陣字不動）
         if (GlassFont.available()) y += GlassFont.boxCenterShift();
+        if (HudFade.alpha < 1f) {   // HUD-module appear/disappear (1 outside a module's draw)
+            // promote "alpha 0 = opaque" BEFORE fading, or a fully faded label would read as opaque again
+            if ((argb >>> 24 & 0xFF) == 0) argb |= 0xFF000000;
+            argb = HudFade.argb(argb);
+            if ((argb >>> 24 & 0xFF) < 4) return;   // GlassFont's invisibility cut-off
+        }
         if (!ChromaHudModule.textActive()) {
             GlassFont.drawARGB(s, x, y, argb, shadow);
             return;

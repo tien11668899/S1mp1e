@@ -1,6 +1,7 @@
 package dev.s1mp1e.client.module;
 
 import dev.s1mp1e.client.gui.GlassWidgets;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
@@ -30,6 +31,7 @@ public final class HudGlass {
      */
     public static void glassBox(int x0, int y0, int x1, int y1, float alpha) {
         if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
         if (SceneCapture.hasBackdrop() && GlassProgram.ensureReady() && GlassProgram.usable()) {
             Minecraft mc = Minecraft.getMinecraft();
             // Suppress the drop shadow while a screen darkens the scene, like the hotbar does.
@@ -48,6 +50,7 @@ public final class HudGlass {
     /** Rounded translucent pill from (x,y) size (w,h) in the current matrix space. */
     public static void pill(int x, int y, int w, int h, int argb) {
         if (w <= 0 || h <= 0) return;
+        argb = HudFade.argb(argb);   // HUD-module appear/disappear (1 outside a module's draw)
         int r = Math.min(3, Math.min(w, h) / 2);
         if (r <= 0) { Gui.drawRect(x, y, x + w, y + h, argb); return; }
         Gui.drawRect(x + r,     y,        x + w - r, y + h,     argb);  // centre band, full height
@@ -63,6 +66,7 @@ public final class HudGlass {
      */
     public static void roundFill(int x, int y, int w, int h, int r, int argb) {
         if (w <= 0 || h <= 0) return;
+        argb = HudFade.argb(argb);   // HUD-module appear/disappear (1 outside a module's draw)
         r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
         if (r == 0) { Gui.drawRect(x, y, x + w, y + h, argb); return; }
         Gui.drawRect(x, y + r, x + w, y + h - r, argb);   // centre band (full width)

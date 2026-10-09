@@ -6,6 +6,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -15,11 +18,13 @@ import dev.s1mp1e.client.HudBounds;
 import dev.s1mp1e.client.HudRenderer;
 import dev.s1mp1e.client.Module;
 import dev.s1mp1e.client.Setting;
+import dev.s1mp1e.client.hud.HudFade;
 import dev.s1mp1e.client.hud.HudText;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.potion.Potion;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.ResourceLocation;
@@ -34,9 +39,23 @@ import net.minecraft.util.ResourceLocation;
  *
  * <p>1.8.9 icon path: the potion icons live on the shared {@code textures/gui/container/inventory.png} sheet
  * (18&times;18 tile at {@code u=idx%8*18, v=198+idx/8*18}, scaled to 16&times;16), and the silhouette alpha mask
- * comes from a one-time {@code BufferedImage} read of the same sheet. The glass tiles are drawn at ABSOLUTE
- * scaled-GUI coords (the glass pipeline ignores the GL matrix); the fills, icons and labels are drawn inside the
- * pushed/scaled matrix.
+ * comes from a one-time {@code BufferedImage} read of the same sheet. Only effects with a vanilla sheet icon are
+ * drawn (1.8.9 has no Forge {@code renderHUDEffect} HUD path, so modded iconless effects are skipped, as before).
+ *
+ * <p><b>Appear / glide / disappear (ported from mc1122).</b> Effects are kept as {@link Row}s in a
+ * {@link LinkedHashMap}: a new effect's row fades IN from 0 (its first sighting IS its appearance, so {@code snapFirst}
+ * is false), an expired one keeps drawing in place while it fades OUT then is forgotten, and when the sorted order
+ * changes every row GLIDES to its new slot ({@code y += (slot-y)*(1-e^(-dt/0.07))}) instead of jumping. Each row's
+ * glass tile / silhouette / label fade via {@link HudFade#alpha}; the inventory-sheet icon can't take an alpha through
+ * a plain blit, so its fade rides {@code GlStateManager.color(1,1,1,alpha)} around the blit (reset to opaque white
+ * after). Rows are sorted by DISPLAY NAME (so the order is stable and localised).
+ *
+ * <p>The glass tile is drawn at LOCAL coords UNDER the pushed translate/scale matrix: {@code glass.vsh} is
+ * {@code gl_ModelViewProjectionMatrix * gl_Vertex} and {@code glass.fsh} samples its backdrop by {@code gl_FragCoord},
+ * so a tile grows with the row scale and its refraction stays aligned (verified same as 1.12.2).
+ *
+ * <p><b>"Hide vanilla effects" is inert on 1.8.9</b> — 1.8.9 has no vanilla HUD effect list to hide (effects only show
+ * in the inventory), so {@link #replacesVanilla()} exists only for cross-version parity.
  */
 public final class PotionHudModule extends Module implements HudBounds, HudRenderer {
 
@@ -64,6 +83,23 @@ public final class PotionHudModule extends Module implements HudBounds, HudRende
     public final Setting colorFill = add(Setting.bool("Colour fill", true));
     private int lastW = CELL, lastH = CELL;
 
+    /** One effect's row: its gliding slot y (cell units, unscaled), icon index and last duration, so an expired
+     *  effect keeps drawing in place while it fades out. */
+    private static final class Row {
+        final Potion potion;
+        final int idx;          // inventory.png status-icon index
+        float y;
+        int dur;
+        boolean inf;
+        Row(Potion potion, int idx) { this.potion = potion; this.idx = idx; }
+    }
+
+    /** Known rows: live effects plus expired ones still fading out. Render thread only. */
+    private final LinkedHashMap<Potion, Row> rows = new LinkedHashMap<Potion, Row>();
+    private long lastFrameNs;
+    /** Time constant of a row's glide to its new slot when the sorted list changes. */
+    private static final float GLIDE_S = 0.07f;
+
     public PotionHudModule() {
         super("PotionHUD", "HUD");
         instance = this;
@@ -78,92 +114,118 @@ public final class PotionHudModule extends Module implements HudBounds, HudRende
 
     @Override
     public void renderHud() {
-        if (!enabled) return;
+        // module visibility (incl. the fade-out after switching off) is decided by HudRenderDispatcher via HudFade
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null || mc.theWorld == null) return;
         if (mc.gameSettings.hideGUI && mc.currentScreen == null) return;
 
         Collection<PotionEffect> active = mc.thePlayer.getActivePotionEffects();
-        if (active == null || active.isEmpty()) return;
-
-        List<PotionEffect> sorted = new ArrayList<PotionEffect>(active);
-        Collections.sort(sorted, ID_ORDER);
-
-        // Filter to effects that have a drawable status icon (and a known Potion).
-        List<PotionEffect> drawable = new ArrayList<PotionEffect>(sorted.size());
-        for (int i = 0; i < sorted.size(); i++) {
-            PotionEffect eff = sorted.get(i);
-            int id = eff.getPotionID();
-            if (id < 0 || id >= Potion.potionTypes.length) continue;
-            Potion potion = Potion.potionTypes[id];
-            if (potion == null || !potion.hasStatusIcon()) continue;
-            drawable.add(eff);
+        List<PotionEffect> drawable = new ArrayList<PotionEffect>(active == null ? 0 : active.size());
+        if (active != null) {
+            for (PotionEffect eff : active) {
+                if (eff == null) continue;
+                int id = eff.getPotionID();
+                if (id < 0 || id >= Potion.potionTypes.length) continue;
+                Potion potion = Potion.potionTypes[id];
+                if (potion == null || !potion.hasStatusIcon()) continue;
+                drawable.add(eff);
+            }
         }
+        Collections.sort(drawable, NAME_ORDER);
         int n = drawable.size();
-        if (n == 0) return;
+
+        long now = System.nanoTime();
+        float dt = lastFrameNs == 0L ? 0f : Math.min(0.1f, (now - lastFrameNs) / 1.0e9f);
+        lastFrameNs = now;
+        float glide = 1f - (float) Math.exp(-dt / GLIDE_S);
 
         float s = (float) scale.doubleValue;
         boolean time = showTime.boolValue;
         FontRenderer font = mc.fontRendererObj;
+
+        // Live effects take their sorted slot. A new one appears in its slot (fading in); the others GLIDE to their
+        // new slot instead of jumping when an effect is gained or runs out.
+        HashSet<Potion> live = new HashSet<Potion>();
         int textW = 0;
-        if (time) {
-            for (int i = 0; i < n; i++) textW = Math.max(textW, font.getStringWidth(label(drawable.get(i))));
-        }
-        lastW = Math.round((TILE + (time ? TEXT_GAP + textW : 0)) * s);
-        lastH = Math.round((n * CELL - (CELL - TILE)) * s);
-
-        int bx = posX.intValue, by = posY.intValue;
-        // Glass tiles at ABSOLUTE scaled-GUI coords (the glass pipeline ignores the GL matrix).
         for (int i = 0; i < n; i++) {
-            int ty = i * CELL;
-            int ay0 = by + Math.round(ty * s);
-            int ay1 = by + Math.round((ty + TILE) * s);
-            HudGlass.glassBox(bx, ay0, bx + Math.round(TILE * s), ay1, 0.85f);
+            PotionEffect inst = drawable.get(i);
+            Potion potion = Potion.potionTypes[inst.getPotionID()];
+            live.add(potion);
+            float slot = i * CELL;
+            Row r = rows.get(potion);
+            if (r == null) {
+                r = new Row(potion, potion.getStatusIconIndex());
+                r.y = slot;
+                rows.put(potion, r);
+            } else {
+                r.y += (slot - r.y) * glide;
+            }
+            int d = inst.getDuration();
+            r.inf = d < 0 || d >= 1_000_000;   // treat huge/negative as infinite
+            r.dur = d;
+            if (time) textW = Math.max(textW, font.getStringWidth(label(r)));
         }
 
+        if (rows.isEmpty()) return;
+
+        if (n > 0) {
+            lastW = Math.round((TILE + (time ? TEXT_GAP + textW : 0)) * s);
+            lastH = Math.round((n * CELL - (CELL - TILE)) * s);
+        }
+
+        float saved = HudFade.alpha;
         GlStateManager.pushMatrix();
         try {
-            GlStateManager.translate((float) bx, (float) by, 0f);
+            GlStateManager.translate((float) posX.intValue, (float) posY.intValue, 0f);
             GlStateManager.scale(s, s, 1f);
-
-            // Filled colour silhouettes (immediate-mode fills), optional.
-            if (colorFill.boolValue) {
-                for (int i = 0; i < n; i++) {
-                    Potion potion = Potion.potionTypes[drawable.get(i).getPotionID()];
-                    int ty = i * CELL, ix = (TILE - 16) / 2, iy = ty + (TILE - 16) / 2;
-                    Silhouette.fill(mask(potion.getStatusIconIndex()), ix, iy, color(potion));
+            Iterator<Row> it = rows.values().iterator();
+            while (it.hasNext()) {
+                Row r = it.next();
+                boolean on = live.contains(r.potion);
+                float v = HudFade.visibility(r, on, false);   // new effect fades in, expired one fades out
+                if (v <= 0.004f) {
+                    if (!on) { HudFade.forget(r); it.remove(); }
+                    continue;
                 }
+                HudFade.alpha = saved * v;
+                int ty = Math.round(r.y);
+                int ix = (TILE - 16) / 2, iy = ty + (TILE - 16) / 2;
+
+                // Square liquid-glass tile (drawn under the current GL matrix by glassBox; fades via HudFade.alpha).
+                HudGlass.glassBox(0, ty, TILE, ty + TILE, 0.85f);
                 GlStateManager.color(0f, 0f, 0f, 0f);
                 GlStateManager.color(1f, 1f, 1f, 1f);
-            }
 
-            // Icons from the inventory sheet: 18x18 tile scaled to 16x16.
-            GlStateManager.enableBlend();
-            GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-            GlStateManager.color(1f, 1f, 1f, 1f);
-            mc.getTextureManager().bindTexture(INVENTORY_TEX);
-            for (int i = 0; i < n; i++) {
-                Potion potion = Potion.potionTypes[drawable.get(i).getPotionID()];
-                int idx = potion.getStatusIconIndex();
-                int u = idx % 8 * 18, v = 198 + idx / 8 * 18;
-                int ty = i * CELL, ix = (TILE - 16) / 2, iy = ty + (TILE - 16) / 2;
-                Gui.drawScaledCustomSizeModalRect(ix, iy, u, v, 18, 18, 16, 16, 256f, 256f);
+                // Filled colour silhouette UNDER the icon, optional: fades via HudFade in Silhouette.fill.
+                if (colorFill.boolValue) {
+                    Silhouette.fill(mask(r.idx), ix, iy, color(r.potion));
+                    GlStateManager.color(0f, 0f, 0f, 0f);
+                    GlStateManager.color(1f, 1f, 1f, 1f);
+                }
+
+                // Icon from the inventory sheet: 18x18 tile scaled to 16x16. drawScaledCustomSizeModalRect modulates
+                // by GL colour, so color(1,1,1,alpha) carries the fade; reset to opaque white after.
+                GlStateManager.enableBlend();
+                GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+                mc.getTextureManager().bindTexture(INVENTORY_TEX);
+                int u = r.idx % 8 * 18, vtex = 198 + r.idx / 8 * 18;
+                GlStateManager.color(1f, 1f, 1f, HudFade.alpha);
+                Gui.drawScaledCustomSizeModalRect(ix, iy, u, vtex, 18, 18, 16, 16, 256f, 256f);
+                GlStateManager.color(0f, 0f, 0f, 0f);
+                GlStateManager.color(1f, 1f, 1f, 1f);
+
+                // Remaining-time label (optional); fades via HudText honouring HudFade.alpha.
+                if (time) {
+                    HudText.draw(label(r), TILE + TEXT_GAP, ty + (TILE - font.FONT_HEIGHT) / 2f, 0xFFFFFFFF, true);
+                }
             }
             GlStateManager.color(0f, 0f, 0f, 0f);
             GlStateManager.color(1f, 1f, 1f, 1f);
-
-            // Remaining-time labels to the right of each tile, optional.
-            if (time) {
-                for (int i = 0; i < n; i++) {
-                    int ty = i * CELL;
-                    HudText.draw(label(drawable.get(i)), TILE + TEXT_GAP, ty + (TILE - font.FONT_HEIGHT) / 2f, 0xFFFFFFFF, true);
-                }
-            }
-
             GlStateManager.enableAlpha();
             GlStateManager.enableBlend();
         } finally {
             GlStateManager.popMatrix();
+            HudFade.alpha = saved;
         }
     }
 
@@ -186,10 +248,9 @@ public final class PotionHudModule extends Module implements HudBounds, HudRende
     }
 
     /** Remaining time as m:ss (h:mm:ss past an hour), or ∞ for an effectively-infinite effect. */
-    private static String label(PotionEffect eff) {
-        int d = eff.getDuration();
-        if (d < 0 || d >= 1_000_000) return "∞";
-        int sec = d / 20;
+    private static String label(Row r) {
+        if (r.inf) return "∞";
+        int sec = Math.max(0, r.dur) / 20;
         int h = sec / 3600, m = (sec / 60) % 60, ss = sec % 60;
         return h > 0 ? String.format("%d:%02d:%02d", h, m, ss) : String.format("%d:%02d", m, ss);
     }
@@ -226,10 +287,26 @@ public final class PotionHudModule extends Module implements HudBounds, HudRende
     public void hudResetPos() { posX.reset(); posY.reset(); }
     public String hudLabel() { return name; }
 
-    /** Stable ordering for a HashMap-backed effect collection. */
-    private static final Comparator<PotionEffect> ID_ORDER = new Comparator<PotionEffect>() {
+    /** Stable ordering by DISPLAY NAME (the raw translation key is the fallback). */
+    private static final Comparator<PotionEffect> NAME_ORDER = new Comparator<PotionEffect>() {
         public int compare(PotionEffect a, PotionEffect b) {
-            return a.getPotionID() - b.getPotionID();
+            return displayName(a).compareTo(displayName(b));
         }
     };
+
+    /** The effect's localised display name (the raw translation key if it is untranslated). */
+    private static String displayName(PotionEffect eff) {
+        try {
+            int id = eff.getPotionID();
+            if (id < 0 || id >= Potion.potionTypes.length) return "";
+            Potion potion = Potion.potionTypes[id];
+            if (potion == null) return "";
+            String key = potion.getName();
+            if (key == null) return "";
+            String s = I18n.format(key);
+            return s == null ? key : s;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
 }
