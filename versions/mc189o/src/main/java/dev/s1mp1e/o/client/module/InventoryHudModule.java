@@ -7,6 +7,7 @@ import dev.s1mp1e.o.client.HudRenderer;
 import dev.s1mp1e.o.client.KeyCodes;
 import dev.s1mp1e.o.client.Module;
 import dev.s1mp1e.o.client.Setting;
+import dev.s1mp1e.o.client.hud.HudFade;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.render.Window;
 import net.minecraft.client.render.platform.GlStateManager;
@@ -44,6 +45,9 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
     public final Setting bg    = add(Setting.bool("Background", true));
     public int lastW = 170, lastH = 62;
 
+    /** Identity key for the peek (key held) fade in {@link HudFade}. */
+    private static final Object PEEK = new Object();
+
     public InventoryHudModule() { super("InventoryHUD", "HUD"); this.enabled = false; }
 
     private float sc()   { return (float) scale.doubleValue; }
@@ -63,20 +67,37 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
 
     @Override
     public void renderHud() {
-        if (!enabled) return;
+        // module visibility (incl. the fade-out after switching off) is decided by HudRenderDispatcher via HudFade; no enabled-guard
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.world == null) return;
         if (mc.options.hideGui && mc.screen == null) return;
         if (mc.screen != null) return;   // real inventory / a screen is open -> don't double up
 
         int lwjgl = KeyCodes.glfwToLwjgl(key.intValue);
-        if (lwjgl <= 0 || !Keyboard.isKeyDown(lwjgl)) return;
+        // Peek while the key is held. Holding / releasing fades + grows the panel in and out instead of popping it;
+        // item icons can't take an alpha, so they ride the scale (ported from mc189/mc1122).
+        boolean held = lwjgl > 0 && Keyboard.isKeyDown(lwjgl);
+        float kv = HudFade.visibility(PEEK, held);
+        if (kv <= 0.004f) return;
 
         float sc = sc();
         int pw = panelW(), ph = panelH();
         lastW = pw; lastH = ph;
         int x0 = effX(), y0 = effY();
 
+        float saved = HudFade.alpha;
+        HudFade.alpha = saved * kv;                  // fades the glass panel (glassBox multiplies HudFade.alpha)
+        // peek centre-scale 0.85 -> 1 (ease-out), about the panel centre in screen px. The glass tile (glassBox) and the
+        // items both ride the GL model-view, so folding the centre-scale into the GL model-view grows BOTH as one block.
+        float ps = kv < 1f ? HudFade.SCALE_FROM + (1f - HudFade.SCALE_FROM) * HudFade.easeOut(kv) : 1f;
+        float cx = x0 + pw * 0.5f, cy = y0 + ph * 0.5f;
+        GlStateManager.pushMatrix();
+        try {
+        if (ps != 1f) {
+            GlStateManager.translatef(cx, cy, 0f);
+            GlStateManager.scalef(ps, ps, 1f);
+            GlStateManager.translatef(-cx, -cy, 0f);
+        }
         if (bg.boolValue) HudGlass.glassBox(x0, y0, x0 + pw, y0 + ph, 0.9f);
 
         GlStateManager.pushMatrix();
@@ -92,16 +113,20 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
             ItemRenderer ri = mc.getItemRenderer();
             Lighting.turnOnGui();
             GlStateManager.enableRescaleNormal();
-            PlayerEntity p = mc.player;
-            for (int i = 0; i < COLS * ROWS; i++) {
-                ItemStack st = p.inventory.items[9 + i];   // 0-8 hotbar, 9-35 the three main rows
-                if (st == null) continue;
-                int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
-                ri.renderGuiItem(st, ix, iy);
-                ri.renderGuiItemDecorations(mc.textRenderer, st, ix, iy, null);
+            try {
+                PlayerEntity p = mc.player;
+                for (int i = 0; i < COLS * ROWS; i++) {
+                    ItemStack st = p.inventory.items[9 + i];   // 0-8 hotbar, 9-35 the three main rows
+                    if (st == null) continue;
+                    int ix = PAD + (i % COLS) * SLOT + 1, iy = PAD + (i / COLS) * SLOT + 1;
+                    ri.renderGuiItem(st, ix, iy);
+                    ri.renderGuiItemDecorations(mc.textRenderer, st, ix, iy, null);
+                }
+            } finally {
+                // a throwing item renderer must not leave item lighting on for the rest of the HUD
+                GlStateManager.disableRescaleNormal();
+                Lighting.turnOff();
             }
-            GlStateManager.disableRescaleNormal();
-            Lighting.turnOff();
             // Restore for whatever draws after us (including the glass pipeline). Force the
             // colour cache white; NEVER disableBlend on exit (memory rule).
             GlStateManager.color4f(0f, 0f, 0f, 0f);
@@ -110,6 +135,10 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
             GlStateManager.enableBlend();
         } finally {
             GlStateManager.popMatrix();
+        }
+        } finally {
+            GlStateManager.popMatrix();
+            HudFade.alpha = saved;
         }
     }
 

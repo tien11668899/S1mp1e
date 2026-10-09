@@ -56,43 +56,46 @@ public final class S1mp1eHudEditScreen extends Screen {
     @Override
     public void render(int mouseX, int mouseY, float pt) {
         layout();
-        GlassWidgets.drawRect(0, 0, width, height, 0x33000000);
+        // Appear fade: every chrome element rides the shared screen-open fade (150 ms), so the editor never pops in.
+        // The live HUD behind it keeps its own HudFade; this only fades the editor's own boxes / labels / toolbar.
+        float a = ScreenOpenFade.value(this);
+        GlassWidgets.drawRect(0, 0, width, height, GlassWidgets.scaleAlpha(0x33000000, a));
         GlassWidgets.resetColorCache();
         SceneCapture.forceGrab();
 
         if (minecraft.options.debugEnabled) {
             String h = "關閉 F3 才能編輯 HUD";
-            GlassWidgets.label(h, (width - GlassWidgets.strW(h)) / 2f, height / 2f, 0xFFD60A, 1f);
+            GlassWidgets.label(h, (width - GlassWidgets.strW(h)) / 2f, height / 2f, 0xFFD60A, a);
         }
 
         for (HudElement e : elements) {
             float x0 = e.x(), y0 = e.y(), x1 = x0 + e.w(), y1 = y0 + e.h();
             boolean hot = e == dragging || GlassWidgets.inside(mouseX, mouseY, x0, y0, x1, y1);
-            GlassWidgets.capsule(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0.2f, hot ? 0.7f : 0.3f, 1f, true);
-            GlassWidgets.border(x0 - 2, y0 - 2, x1 + 2, y1 + 2, (hot ? 0xFF0A84FF : 0x66FFFFFF));
+            GlassWidgets.capsule(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0.2f, hot ? 0.7f : 0.3f, a, true);
+            GlassWidgets.border(x0 - 2, y0 - 2, x1 + 2, y1 + 2, GlassWidgets.scaleAlpha(hot ? 0xFF0A84FF : 0x66FFFFFF, a));
             GlassWidgets.resetColorCache();
-            GlassWidgets.label(e.label(), x0, y0 - GlassWidgets.fontH() - 2, hot ? 0xFFFFFF : 0xB0B0B8, 1f);
+            GlassWidgets.label(e.label(), x0, y0 - GlassWidgets.fontH() - 2, hot ? 0xFFFFFF : 0xB0B0B8, a);
         }
 
         // active snap guides
         if (dragging != null) {
-            if (dragging.guideVX >= 0) { GlassWidgets.drawRect(dragging.guideVX, 0, dragging.guideVX + 1, height, 0x880A84FF); }
-            if (dragging.guideHY >= 0) { GlassWidgets.drawRect(0, dragging.guideHY, width, dragging.guideHY + 1, 0x880A84FF); }
+            if (dragging.guideVX >= 0) { GlassWidgets.drawRect(dragging.guideVX, 0, dragging.guideVX + 1, height, GlassWidgets.scaleAlpha(0x880A84FF, a)); }
+            if (dragging.guideHY >= 0) { GlassWidgets.drawRect(0, dragging.guideHY, width, dragging.guideHY + 1, GlassWidgets.scaleAlpha(0x880A84FF, a)); }
             GlassWidgets.resetColorCache();
         }
 
         // toolbar
-        drawChip(grid ? "格線: 開" : "格線: 關", gridRect, mouseX, mouseY);
-        drawChip("重置全部", resetRect, mouseX, mouseY);
+        drawChip(grid ? "格線: 開" : "格線: 關", gridRect, mouseX, mouseY, a);
+        drawChip("重置全部", resetRect, mouseX, mouseY, a);
         String hint = "拖曳定位 · 邊緣/中心自動吸附 · ESC 完成";
-        GlassWidgets.label(hint, (width - GlassWidgets.strW(hint)) / 2f, height - 40f, 0xC7C7CC, 1f);
+        GlassWidgets.label(hint, (width - GlassWidgets.strW(hint)) / 2f, height - 40f, 0xC7C7CC, a);
     }
 
-    private void drawChip(String text, float[] r, int mx, int my) {
+    private void drawChip(String text, float[] r, int mx, int my, float a) {
         boolean hover = GlassWidgets.inside(mx, my, r[0], r[1], r[2], r[3]);
-        GlassWidgets.capsule(r[0], r[1], r[2], r[3], 0.5f, hover ? 0.7f : 0.3f, 1f, true);
+        GlassWidgets.capsule(r[0], r[1], r[2], r[3], 0.5f, hover ? 0.7f : 0.3f, a, true);
         GlassWidgets.label(text, r[0] + (r[2] - r[0] - GlassWidgets.strW(text)) / 2f,
-                (r[1] + r[3]) / 2f - GlassWidgets.fontH() / 2f, 0xF5F5F7, 1f);
+                (r[1] + r[3]) / 2f - GlassWidgets.fontH() / 2f, 0xF5F5F7, a);
     }
 
     @Override
