@@ -119,7 +119,7 @@ public final class CpsModule extends Module implements HudBounds, HudRenderer {
      */
     @Override
     public void renderHud() {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudRenderDispatcher via HudFade; no enabled-guard
 
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.player == null) return;

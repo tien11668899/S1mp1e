@@ -358,6 +358,66 @@ public final class S1mp1eTransformer implements IClassTransformer {
     private static final String RENDERSTRING_SRG  = "func_180455_b";
     private static final String RENDERSTRING_DESC = "(Ljava/lang/String;FFIZ)I";
 
+    // ---- ALLGLASS round (#1-#26) -----------------------------------------
+    // #15 F3 debug card: GuiOverlayDebug.renderDebugInfoLeft()V / renderDebugInfoRight(ScaledResolution)V — redirect
+    //     each per-line Gui.drawRect to DebugCardHook.rect (rounded scrim ribbon).
+    private static final String GUI_OVERLAY_DEBUG = "net.minecraft.client.gui.GuiOverlayDebug";
+    private static final String DBG_LEFT_MCP  = "renderDebugInfoLeft";
+    private static final String DBG_LEFT_SRG  = "func_180798_a";
+    private static final String DBG_RIGHT_MCP = "renderDebugInfoRight";
+    private static final String DBG_RIGHT_SRG = "func_175239_b";
+    private static final String DBG_RIGHT_DESC = "(Lnet/minecraft/client/gui/ScaledResolution;)V";
+    private static final String HOOKS_DEBUG = "dev/s1mp1e/glass/hook/DebugCardHook";
+    // #15 (Forge path): on 1.12.2 the F3 text is actually drawn by GuiIngameForge.renderHUDText(int,int)V — the vanilla
+    //     GuiOverlayDebug.renderDebugInfoLeft/Right are emptied by Forge's GuiOverlayDebugForge. Redirect that method's
+    //     per-line Gui.drawRect into the same DebugCardHook ribbon (a Forge class, name stable in production).
+    private static final String RENDER_HUD_TEXT = "renderHUDText";
+    private static final String RENDER_HUD_TEXT_DESC = "(II)V";
+
+    // #12 anvil rename field: GuiRepair.drawGuiContainerBackgroundLayer — redirect blits to AnvilFieldHook.blit (the
+    //     110x16 field sprite -> glass scrim; GuiRepair disables the text field's own background and paints anvil.png).
+    private static final String GUI_REPAIR = "net.minecraft.client.gui.GuiRepair";
+    private static final String HOOKS_ANVIL = "dev/s1mp1e/glass/hook/AnvilFieldHook";
+
+    // #16 subtitles: GuiSubtitleOverlay.renderSubtitles(ScaledResolution)V — redirect the one Gui.drawRect.
+    private static final String GUI_SUBTITLE = "net.minecraft.client.gui.GuiSubtitleOverlay";
+    private static final String SUB_MCP  = "renderSubtitles";
+    private static final String SUB_SRG  = "func_184068_a";
+    private static final String SUB_DESC = "(Lnet/minecraft/client/gui/ScaledResolution;)V";
+    private static final String HOOKS_SUBTITLE = "dev/s1mp1e/glass/hook/SubtitleGlassHook";
+
+    // #17 XP/jump bars: GuiIngameForge.renderExperience(II)V / renderJumpBar(II)V — redirect drawTexturedModalRect
+    //     to ContextualBarHook.bar (switch on the sprite V).
+    private static final String EXP_NAME  = "renderExperience";
+    private static final String JUMP_NAME = "renderJumpBar";
+    private static final String BARS_DESC = "(II)V";
+    private static final String HOOKS_CONTEXTUAL = "dev/s1mp1e/glass/hook/ContextualBarHook";
+    private static final String CONTEXTUAL_BAR_DESC = "(Lnet/minecraft/client/gui/Gui;IIIIII)V";
+
+    // #21 lock button: GuiLockIconButton.drawButton(Minecraft,int,int,float)V — head splice LockButtonHook.draw.
+    private static final String GUI_LOCK_BUTTON = "net.minecraft.client.gui.GuiLockIconButton";
+    private static final String HOOKS_LOCK = "dev/s1mp1e/glass/hook/LockButtonHook";
+    private static final String LOCK_DRAW_DESC = "(Lnet/minecraft/client/gui/GuiLockIconButton;Lnet/minecraft/client/Minecraft;II)Z";
+
+    // #23 advancement tabs: AdvancementTabType.draw(Gui,int,int,boolean,int)V — head splice AdvTabHook.draw.
+    private static final String ADV_TAB_TYPE = "net.minecraft.client.gui.advancements.AdvancementTabType";
+    private static final String ADV_TAB_DRAW_MCP  = "draw";
+    private static final String ADV_TAB_DRAW_SRG  = "func_192651_a";
+    private static final String ADV_TAB_DRAW_DESC = "(Lnet/minecraft/client/gui/Gui;IIZI)V";
+    private static final String HOOKS_ADV_TAB = "dev/s1mp1e/glass/hook/AdvTabHook";
+    private static final String ADV_TAB_HOOK_DESC = "(Ljava/lang/Object;Lnet/minecraft/client/gui/Gui;IIZI)Z";
+
+    // #1 Apple scroller + #4 selection capsule: GuiSlot sites.
+    private static final String HOOKS_SCROLLER = "dev/s1mp1e/glass/hook/ListScrollerHook";
+    private static final String HOOKS_SELECTION = "dev/s1mp1e/glass/hook/SelectionGlassHook";
+    private static final String MAXSCROLL_MCP = "getMaxScroll";
+    private static final String MAXSCROLL_SRG = "func_148135_f";
+    private static final String SEL_BOX_MCP = "drawSelectionBox";
+    private static final String SEL_BOX_SRG = "func_192638_a";
+    private static final String SEL_BOX_DESC = "(IIIIF)V";
+    private static final String IS_SELECTED_MCP = "isSelected";
+    private static final String IS_SELECTED_SRG = "func_148131_a";
+
     // ---- per-patch success flags (read by the DevShot coremod audit) -------
     //
     // These live on the transformer, never on a hook class, so the transform
@@ -449,6 +509,24 @@ public final class S1mp1eTransformer implements IClassTransformer {
     public static volatile boolean settingsClickPatched = false;
     /** GuiScreen.handleMouseInput SettingsShell wheel gate spliced. */
     public static volatile boolean settingsWheelPatched = false;
+    /** ALLGLASS #1: GuiSlot.drawScreen getMaxScroll redirect + RETURN AppleScroller draw. */
+    public static volatile boolean listScrollerPatched = false;
+    /** ALLGLASS #4: GuiSlot.drawSelectionBox isSelected redirect (glass capsule). */
+    public static volatile boolean selectionGlassPatched = false;
+    /** ALLGLASS #15: GuiOverlayDebug left/right drawRect redirects (debug card). */
+    public static volatile boolean debugCardPatched = false;
+    /** ALLGLASS #15 (Forge path): GuiIngameForge.renderHUDText drawRect redirects — the F3 text actually drawn. */
+    public static volatile boolean debugHudTextPatched = false;
+    /** ALLGLASS #12: GuiRepair.drawGuiContainerBackgroundLayer anvil-field blit redirect (glass scrim). */
+    public static volatile boolean anvilFieldPatched = false;
+    /** ALLGLASS #16: GuiSubtitleOverlay.renderSubtitles drawRect redirect. */
+    public static volatile boolean subtitlePatched = false;
+    /** ALLGLASS #17: GuiIngameForge renderExperience/renderJumpBar blit redirects. */
+    public static volatile boolean contextualBarPatched = false;
+    /** ALLGLASS #21: GuiLockIconButton.drawButton head splice. */
+    public static volatile boolean lockButtonPatched = false;
+    /** ALLGLASS #23: AdvancementTabType.draw head splice (selected inset pill). */
+    public static volatile boolean advTabPatched = false;
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
@@ -511,7 +589,7 @@ public final class S1mp1eTransformer implements IClassTransformer {
                 return patchTabMotion(patchTabList(basicClass));
             }
             if (INGAME_FORGE.equals(transformedName)) {
-                return patchIngameMotion(patchActionBar(basicClass));
+                return patchDebugHudText(patchContextualBars(patchIngameMotion(patchActionBar(basicClass))));
             }
             if (ENTITY_RENDERER.equals(transformedName)) {
                 return patchNameTag(basicClass);
@@ -544,6 +622,21 @@ public final class S1mp1eTransformer implements IClassTransformer {
             }
             if ("net.minecraft.client.gui.GuiIngame".equals(transformedName)) {
                 return patchScoreboardRecord(basicClass);
+            }
+            if (GUI_OVERLAY_DEBUG.equals(transformedName)) {
+                return patchDebugCard(basicClass);
+            }
+            if (GUI_SUBTITLE.equals(transformedName)) {
+                return patchSubtitle(basicClass);
+            }
+            if (GUI_REPAIR.equals(transformedName)) {
+                return patchAnvilField(basicClass);
+            }
+            if (GUI_LOCK_BUTTON.equals(transformedName)) {
+                return patchLockButton(basicClass);
+            }
+            if (ADV_TAB_TYPE.equals(transformedName)) {
+                return patchAdvTab(basicClass);
             }
             if (GUI_CREATE_WORLD.equals(transformedName)) {
                 ClassNode cn = read(basicClass);
@@ -1208,6 +1301,43 @@ public final class S1mp1eTransformer implements IClassTransformer {
             System.out.println("[S1mp1e/ASM] GuiSlot handleMouseInput/drawScreen not found, smooth wheel skipped");
         }
 
+        // ALLGLASS #1 — the macOS overlay scroller. Inside drawScreen, redirect the single getMaxScroll() (the guard
+        // that gates vanilla's three grey scrollbar quads) to ListScrollerHook.killMax -> 0 so none of them draw, then
+        // paint AppleScroller before each RETURN. Direct calls from the hook still see the real getMaxScroll().
+        if (dsc != null) {
+            int killed = redirectInvokeVirtual(dsc, MAXSCROLL_MCP, MAXSCROLL_SRG, "()I",
+                    HOOKS_SCROLLER, "killMax", "(Lnet/minecraft/client/gui/GuiSlot;)I", 1);
+            int rets = 0;
+            for (AbstractInsnNode insn = dsc.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() != Opcodes.RETURN) continue;
+                InsnList a = new InsnList();
+                a.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (GuiSlot)
+                a.add(new VarInsnNode(Opcodes.ILOAD, 1)); // mouseXIn
+                a.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseYIn
+                a.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_SCROLLER, "draw",
+                        "(Lnet/minecraft/client/gui/GuiSlot;II)V", false));
+                dsc.instructions.insertBefore(insn, a);
+                rets++;
+            }
+            listScrollerPatched = killed == 1 && rets > 0;
+            System.out.println("[S1mp1e/ASM] ALLGLASS #1 Apple scroller (getMaxScroll killed: " + killed + ", returns: " + rets + ")");
+            done++;
+        }
+
+        // ALLGLASS #4 — the selected row becomes a glass capsule. In drawSelectionBox, redirect isSelected(j) to
+        // SelectionGlassHook.selected(this, j): it paints the capsule for the real selection and returns false, so the
+        // vanilla grey+black quad is never built (no stale-buffer corruption — spec trap #2).
+        MethodNode sel = find(cn, SEL_BOX_MCP, SEL_BOX_SRG, SEL_BOX_DESC);
+        if (sel != null) {
+            int n = redirectInvokeVirtual(sel, IS_SELECTED_MCP, IS_SELECTED_SRG, "(I)Z",
+                    HOOKS_SELECTION, "selected", "(Lnet/minecraft/client/gui/GuiSlot;I)Z", 0);
+            selectionGlassPatched = n > 0;
+            System.out.println("[S1mp1e/ASM] ALLGLASS #4 selection capsule (isSelected redirects: " + n + ")");
+            if (n > 0) done++;
+        } else {
+            System.out.println("[S1mp1e/ASM] GuiSlot.drawSelectionBox not found, selection capsule skipped");
+        }
+
         if (done == 0) return basic;
         guiSlotPatched = true;
         System.out.println("[S1mp1e/ASM] patched GuiSlot list background (sites: " + done + ")");
@@ -1726,6 +1856,150 @@ public final class S1mp1eTransformer implements IClassTransformer {
             System.out.println("[S1mp1e/ASM] scoreboard fade patch failed: " + t);
             return basic;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #15 — GuiOverlayDebug left/right: redirect every Gui.drawRect to the rounded scrim ribbon.
+    // -----------------------------------------------------------------------
+    private static byte[] patchDebugCard(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode left  = find(cn, DBG_LEFT_MCP,  DBG_LEFT_SRG,  "()V");
+        MethodNode right = find(cn, DBG_RIGHT_MCP, DBG_RIGHT_SRG, DBG_RIGHT_DESC);
+        int n = 0;
+        if (left  != null) n += redirectStaticRect(left,  HOOKS_DEBUG, "rect", 0);
+        if (right != null) n += redirectStaticRect(right, HOOKS_DEBUG, "rect", 0);
+        if (n == 0) { System.out.println("[S1mp1e/ASM] GuiOverlayDebug: no drawRect found"); return basic; }
+        debugCardPatched = true;
+        System.out.println("[S1mp1e/ASM] patched GuiOverlayDebug (debug card scrims: " + n + ")");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #15 (Forge path) — on Forge 1.12.2 the F3 text is NOT drawn by GuiOverlayDebug: GuiIngameForge installs a
+    // GuiOverlayDebugForge whose renderDebugInfoLeft/Right are empty, and renderHUDText(II)V draws both lists with its
+    // own per-line Gui.drawRect. Redirect those to the same DebugCardHook ribbon (patchDebugCard on GuiOverlayDebug is
+    // then only an insurance no-op). Without this the previous build still showed vanilla's grey per-line boxes.
+    // -----------------------------------------------------------------------
+    private static byte[] patchDebugHudText(byte[] basic) {
+        try {
+            ClassNode cn = read(basic);
+            MethodNode hud = find(cn, RENDER_HUD_TEXT, RENDER_HUD_TEXT, RENDER_HUD_TEXT_DESC);
+            int n = hud != null ? redirectStaticRect(hud, HOOKS_DEBUG, "rect", 0) : 0;
+            debugHudTextPatched = n > 0;
+            System.out.println("[S1mp1e/ASM] ALLGLASS #15 Forge HUD text debug card (drawRect redirects: " + n + ")");
+            return n > 0 ? write(cn) : basic;
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e/ASM] renderHUDText debug patch failed: " + t);
+            return basic;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #12 — GuiRepair background layer: the rename field's anvil.png frame becomes a glass scrim. GuiRepair
+    // turns the GuiTextField's own background off and paints the 110x16 field sprite itself (v=166 editable / 182 empty),
+    // so the #3 EditBoxHook never sees it. Redirect every blit to AnvilFieldHook.blit (only that sprite is swapped; the
+    // anvil body and error-cross blits pass straight through, re-entering Gui.drawTexturedModalRect so BlitSuppressor
+    // still drops the opaque panel exactly as before).
+    // -----------------------------------------------------------------------
+    private static byte[] patchAnvilField(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, BG_LAYER_MCP, BG_LAYER_SRG, BG_LAYER_DESC);
+        if (m == null) {
+            System.out.println("[S1mp1e/ASM] GuiRepair.drawGuiContainerBackgroundLayer not found");
+            return basic;
+        }
+        int n = redirectInvokeVirtual(m, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_ANVIL, "blit",
+                "(Lnet/minecraft/client/gui/Gui;IIIIII)V", 0);
+        if (n == 0) { System.out.println("[S1mp1e/ASM] GuiRepair rename field: no blit found"); return basic; }
+        anvilFieldPatched = true;
+        System.out.println("[S1mp1e/ASM] ALLGLASS #12 anvil rename field (blit redirects: " + n + ")");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #16 — GuiSubtitleOverlay.renderSubtitles: redirect the one Gui.drawRect to a rounded scrim.
+    // -----------------------------------------------------------------------
+    private static byte[] patchSubtitle(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, SUB_MCP, SUB_SRG, SUB_DESC);
+        if (m == null) { System.out.println("[S1mp1e/ASM] GuiSubtitleOverlay.renderSubtitles not found"); return basic; }
+        int n = redirectStaticRect(m, HOOKS_SUBTITLE, "rect", 0);
+        if (n == 0) { System.out.println("[S1mp1e/ASM] subtitles: no drawRect found"); return basic; }
+        subtitlePatched = true;
+        System.out.println("[S1mp1e/ASM] patched GuiSubtitleOverlay (rects: " + n + ")");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #17 — GuiIngameForge renderExperience/renderJumpBar: redirect the drawTexturedModalRect blits to the
+    // glass track + coloured fill (ContextualBarHook switches on the sprite V). Spec trap #1: no manual DECO_LIFT.
+    // -----------------------------------------------------------------------
+    private static byte[] patchContextualBars(byte[] basic) {
+        try {
+            ClassNode cn = read(basic);
+            int n = 0;
+            MethodNode exp  = find(cn, EXP_NAME,  EXP_NAME,  BARS_DESC);
+            MethodNode jump = find(cn, JUMP_NAME, JUMP_NAME, BARS_DESC);
+            if (exp  != null) n += redirectInvokeVirtual(exp,  BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_CONTEXTUAL, "bar", CONTEXTUAL_BAR_DESC, 0);
+            if (jump != null) n += redirectInvokeVirtual(jump, BLIT_MCP, BLIT_SRG, BLIT_DESC, HOOKS_CONTEXTUAL, "bar", CONTEXTUAL_BAR_DESC, 0);
+            contextualBarPatched = n > 0;
+            System.out.println("[S1mp1e/ASM] ALLGLASS #17 contextual bars (blit redirects: " + n + ")");
+            return write(cn);
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e/ASM] contextual bar patch failed: " + t);
+            return basic;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #21 — GuiLockIconButton.drawButton: head splice `if (LockButtonHook.draw(this,mc,mx,my)) return;`.
+    // -----------------------------------------------------------------------
+    private static byte[] patchLockButton(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, DRAW_BUTTON_MCP, DRAW_BUTTON_SRG, DRAW_BUTTON_DESC);
+        if (m == null) { System.out.println("[S1mp1e/ASM] GuiLockIconButton.drawButton not found"); return basic; }
+        LabelNode pass = new LabelNode();
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (GuiLockIconButton)
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 1)); // Minecraft
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseX
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 3)); // mouseY
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_LOCK, "draw", LOCK_DRAW_DESC, false));
+        pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+        pre.add(new InsnNode(Opcodes.RETURN));
+        pre.add(pass);
+        pre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+        m.instructions.insert(pre);
+        lockButtonPatched = true;
+        System.out.println("[S1mp1e/ASM] patched GuiLockIconButton.drawButton (glass lock)");
+        return write(cn);
+    }
+
+    // -----------------------------------------------------------------------
+    // ALLGLASS #23 — AdvancementTabType.draw: head splice `if (AdvTabHook.draw(this,gui,x,y,sel,idx)) return;`.
+    // The enum is package-private, so `this` is passed as Object. Always cancels vanilla's tab sprite.
+    // -----------------------------------------------------------------------
+    private static byte[] patchAdvTab(byte[] basic) {
+        ClassNode cn = read(basic);
+        MethodNode m = find(cn, ADV_TAB_DRAW_MCP, ADV_TAB_DRAW_SRG, ADV_TAB_DRAW_DESC);
+        if (m == null) { System.out.println("[S1mp1e/ASM] AdvancementTabType.draw not found"); return basic; }
+        LabelNode pass = new LabelNode();
+        InsnList pre = new InsnList();
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this (AdvancementTabType) as Object
+        pre.add(new VarInsnNode(Opcodes.ALOAD, 1)); // Gui
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 2)); // x
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 3)); // y
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 4)); // selected
+        pre.add(new VarInsnNode(Opcodes.ILOAD, 5)); // index
+        pre.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HOOKS_ADV_TAB, "draw", ADV_TAB_HOOK_DESC, false));
+        pre.add(new JumpInsnNode(Opcodes.IFEQ, pass));
+        pre.add(new InsnNode(Opcodes.RETURN));
+        pre.add(pass);
+        pre.add(new FrameNode(Opcodes.F_SAME, 0, null, 0, null));
+        m.instructions.insert(pre);
+        advTabPatched = true;
+        System.out.println("[S1mp1e/ASM] patched AdvancementTabType.draw (selected inset pill)");
+        return write(cn);
     }
 
     // ---- helpers ----------------------------------------------------------

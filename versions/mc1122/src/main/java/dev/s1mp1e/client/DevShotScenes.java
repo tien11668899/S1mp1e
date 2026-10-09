@@ -105,8 +105,65 @@ final class DevShotScenes {
         if (has("hud")) queueHud();
         if (has("load")) queueLoad();
         if (has("trans")) queueTrans();
+        if (has("ag")) queueAg();
         add(new Scene() { public boolean step(Minecraft mc, int f) { mc.displayGuiScreen(null); return true; } });
         wait(5);
+    }
+
+    // ---- ALLGLASS round extra captures (#15 F3, #23 advancements, #4 world-select selection) ----
+    private static void queueAg() {
+        // #15 — F3 debug overlay card (in-world)
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.displayGuiScreen(null);
+            try { mc.gameSettings.showDebugInfo = true; } catch (Throwable ignored) {}
+            return true; } });
+        wait(6); shot("ag-f3.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try { mc.gameSettings.showDebugInfo = false; } catch (Throwable ignored) {}
+            return true; } });
+        // #23 — advancements window (selected tab = glass inset pill, tab plates dropped)
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try {
+                Object conn = mc.player.connection;
+                Object mgr = null;
+                for (String n : new String[]{"getAdvancementManager", "func_191982_f"}) {
+                    try { java.lang.reflect.Method m = conn.getClass().getMethod(n); mgr = m.invoke(conn); break; }
+                    catch (NoSuchMethodException ignored) {}
+                }
+                if (mgr != null) mc.displayGuiScreen(new net.minecraft.client.gui.advancements.GuiScreenAdvancements(
+                        (net.minecraft.client.multiplayer.ClientAdvancementManager) mgr));
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] advancements open: " + t); }
+            return true; } });
+        wait(30); shot("ag-adv.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.displayGuiScreen(null); return true; } });
+        // #4 — world-select list with a selected row (central selection box -> glass capsule)
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try { mc.displayGuiScreen(new net.minecraft.client.gui.GuiWorldSelection(null)); }
+            catch (Throwable t) { System.out.println("[S1mp1e][DevShot] world-select open: " + t); }
+            return true; } });
+        wait(30);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            try {
+                if (mc.currentScreen instanceof net.minecraft.client.gui.GuiWorldSelection) {
+                    java.lang.reflect.Field lf = null;
+                    for (String n : new String[]{"selectionList", "field_184866_u"}) {
+                        try { lf = net.minecraft.client.gui.GuiWorldSelection.class.getDeclaredField(n); lf.setAccessible(true); break; }
+                        catch (NoSuchFieldException ignored) {}
+                    }
+                    if (lf != null) {
+                        Object list = lf.get(mc.currentScreen);
+                        if (list != null) {
+                            for (String n : new String[]{"selectWorld", "func_186792_d"}) {
+                                try { java.lang.reflect.Method m = list.getClass().getMethod(n, int.class); m.invoke(list, 0); break; }
+                                catch (NoSuchMethodException ignored) {}
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] world-select select: " + t); }
+            return true; } });
+        wait(8); shot("ag-worldsel.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.displayGuiScreen(null); return true; } });
     }
 
     // ---- settings pages (group 1 + slider/roll delta) ----

@@ -20,19 +20,45 @@ public final class GlassActionBar {
 
     private GlassActionBar() {}
 
-    /** Redirect target for {@code FontRenderer.drawString(String,int,int,int)}. Returns the text's advance. */
+    /** Appear-fade length, matching the glass screen-open fade. */
+    private static final long APPEAR_NS = 150_000_000L;
+    /** Not drawn for longer than this = hidden, so the next draw is a fresh appearance. */
+    private static final long GONE_NS = 250_000_000L;
+    private static long lastDrawNs, appearStartNs;
+
+    /**
+     * Redirect target for {@code FontRenderer.drawString(String,int,int,int)}. Returns the text's advance.
+     *
+     * <p><b>Appear fade (2026-10-09, ported from mc1132's ActionBarGlassMixin).</b> Vanilla fades the message OUT
+     * (via {@code overlayMessageTime}, already baked into the colour's alpha byte) but pops it IN. Fade it IN over
+     * 150&nbsp;ms from a hidden&rarr;shown edge, keyed on the GAP since the last draw (NOT on {@code setOverlayMessage}:
+     * the server re-sends the same message each tick and a countdown changes its text, neither of which may restart the
+     * fade or it would flicker; a countdown's text change is a tiny gap, far under {@link #GONE_NS}, so it never
+     * re-triggers). Both the pill's alpha and the text colour's alpha are multiplied by the appear factor, so they fade
+     * in together. The out-fade is still carried by the vanilla timer in {@code argb}'s alpha byte.
+     */
     public static int draw(FontRenderer fr, String text, int x, int y, int argb) {
         if (fr == null || text == null || text.isEmpty()) {
             return fr == null ? x : fr.drawString(text, x, y, argb);
         }
+        long now = System.nanoTime();
+        if (now - lastDrawNs > GONE_NS) appearStartNs = now;   // reappeared after a gap -> start the fade in
+        lastDrawNs = now;
+        float appear = (now - appearStartNs) / (float) APPEAR_NS;
+        appear = appear < 0f ? 0f : (appear > 1f ? 1f : appear);
+
+        int alphaByte = (argb >>> 24) & 0xFF;
         try {
-            int alphaByte = (argb >>> 24) & 0xFF;
             float alphaFactor = alphaByte / 255f;
             int w = fr.getStringWidth(text);
-            HudGlass.glassBox(x - 5, y - 2, x + w + 5, y + 11, 0.85f * alphaFactor);
+            HudGlass.glassBox(x - 5, y - 2, x + w + 5, y + 11, 0.85f * alphaFactor * appear);
         } catch (Throwable ignored) {
             // pill failed -> still draw the text below (no regression to the message)
         }
-        return fr.drawString(text, x, y, argb);
+        int outA = Math.round(alphaByte * appear);
+        // FontRenderer reads an alpha byte < 4 as fully opaque (color |= 0xFF000000), which would snap the text to full
+        // opacity at the start of the fade. Draw nothing while fully faded, but keep the advance so layout is unchanged.
+        if (outA < 4) return x + fr.getStringWidth(text);
+        return fr.drawString(text, x, y, (outA << 24) | (argb & 0xFFFFFF));
     }
 }

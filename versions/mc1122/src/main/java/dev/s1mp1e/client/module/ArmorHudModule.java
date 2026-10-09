@@ -58,7 +58,7 @@ public final class ArmorHudModule extends Module implements HudBounds, HudRender
 
     @Override
     public void renderHud() {
-        if (!enabled) return;
+        // visibility (incl. the fade-out after switching off) is decided by HudRenderDispatcher via HudFade; no enabled-guard
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.player == null || mc.world == null) return;
         if (mc.gameSettings.hideGUI && mc.currentScreen == null) return;

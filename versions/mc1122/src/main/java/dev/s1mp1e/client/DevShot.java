@@ -1125,6 +1125,12 @@ public final class DevShot {
                 "net.minecraft.client.gui.toasts.RecipeToast",
                 "net.minecraft.client.gui.toasts.SystemToast",
                 "net.minecraft.client.gui.toasts.TutorialToast",
+                // ALLGLASS round (#1-#26) new coremod targets (#1/#4 are in GuiSlot, #17 in GuiIngameForge, already above)
+                "net.minecraft.client.gui.GuiOverlayDebug",
+                "net.minecraft.client.gui.GuiSubtitleOverlay",
+                "net.minecraft.client.gui.GuiLockIconButton",
+                "net.minecraft.client.gui.advancements.AdvancementTabType",
+                "net.minecraft.client.gui.GuiRepair",
             };
             for (String t : targets) {
                 try { Class.forName(t, false, cl); }
@@ -1175,6 +1181,16 @@ public final class DevShot {
             auditSite("EntityRenderer.drawNameplate (G6)", dev.s1mp1e.glass.asm.S1mp1eTransformer.nameTagPatched,  fail);
             auditSite("Toasts glass card x" + dev.s1mp1e.glass.asm.S1mp1eTransformer.toastCount + " (G4)",
                       dev.s1mp1e.glass.asm.S1mp1eTransformer.toastCount == 4, fail);
+            // ALLGLASS round (#1-#26)
+            auditSite("GuiSlot Apple scroller (#1)",     dev.s1mp1e.glass.asm.S1mp1eTransformer.listScrollerPatched,  fail);
+            auditSite("GuiSlot selection capsule (#4)",  dev.s1mp1e.glass.asm.S1mp1eTransformer.selectionGlassPatched, fail);
+            auditSite("GuiOverlayDebug card (#15)",      dev.s1mp1e.glass.asm.S1mp1eTransformer.debugCardPatched,      fail);
+            auditSite("GuiIngameForge.renderHUDText (#15)", dev.s1mp1e.glass.asm.S1mp1eTransformer.debugHudTextPatched, fail);
+            auditSite("GuiRepair anvil field (#12)",     dev.s1mp1e.glass.asm.S1mp1eTransformer.anvilFieldPatched,     fail);
+            auditSite("GuiSubtitleOverlay scrim (#16)",  dev.s1mp1e.glass.asm.S1mp1eTransformer.subtitlePatched,       fail);
+            auditSite("Experience/jump bars (#17)",      dev.s1mp1e.glass.asm.S1mp1eTransformer.contextualBarPatched,  fail);
+            auditSite("GuiLockIconButton glass (#21)",   dev.s1mp1e.glass.asm.S1mp1eTransformer.lockButtonPatched,     fail);
+            auditSite("AdvancementTabType pill (#23)",   dev.s1mp1e.glass.asm.S1mp1eTransformer.advTabPatched,         fail);
             // render-only combat transformer
             auditSite("EntityRenderer.hurtCameraEffect", dev.s1mp1e.client.asm.CombatTransformer.hurtCamPatched,    fail);
             auditSite("RenderLivingBase.setBrightness",  dev.s1mp1e.client.asm.CombatTransformer.hurtFlashPatched,  fail);

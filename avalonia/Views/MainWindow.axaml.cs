@@ -3043,6 +3043,10 @@ public partial class MainWindow : Window
             {
                 UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardOutput = true, RedirectStandardError = true,
+                // itest (Rust) writes raw UTF-8 to pipes; without this the Chinese error reasons
+                // can be decoded with the system ANSI code page and turn into mojibake.
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
             };
             psi.ArgumentList.Add("login");
             psi.ArgumentList.Add(clientId);
@@ -3098,19 +3102,33 @@ public partial class MainWindow : Window
             await proc.WaitForExitAsync();
             if (proc.ExitCode != 0)
             {
+                var exitCode = proc.ExitCode;
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
-                    // "LOGIN_ERR 使用者拒絕授權" → 使用者拒絕授權
-                    var msg = lastErr.StartsWith("LOGIN_ERR ") ? lastErr.Substring(10) : "登入失敗";
+                    // itest prints the reason itself (auth.rs: 沒有 Xbox 檔案 / 未擁有 Minecraft / 逾時 …);
+                    // show it on the button. An optional "LOGIN_ERR " prefix is tolerated.
+                    var msg = lastErr.StartsWith("LOGIN_ERR ") ? lastErr.Substring(10) : lastErr;
+                    var tip = lastErr;
+                    if (string.IsNullOrWhiteSpace(msg))
+                    {
+                        // No text at all: itest never got to run. A negative exit code is a Windows
+                        // NTSTATUS (0xC0000135 = DLL not found, 0xC0000005 = crash, …).
+                        msg = exitCode < 0 ? "登入程式無法執行" : "登入失敗";
+                        tip = exitCode < 0
+                            ? $"itest.exe 無法執行（0x{exitCode:X8}）：可能缺少系統元件，或被防毒軟體擋住"
+                            : $"登入失敗（結束碼 {exitCode}）";
+                    }
                     btn.Content = msg.Length > 12 ? msg.Substring(0, 12) + "…" : msg;
-                    ToolTip.SetTip(btn, lastErr);
+                    ToolTip.SetTip(btn, tip);
                     btn.IsEnabled = true;
                 });
             }
         }
-        catch
+        catch (Exception ex)
         {
-            btn.Content = "登入";
+            // Process.Start itself failed — usually antivirus quarantine / blocked exe.
+            btn.Content = "登入程式無法執行";
+            ToolTip.SetTip(btn, $"無法啟動 itest.exe：{ex.Message}（可能被防毒軟體隔離或封鎖）");
             btn.IsEnabled = true;
         }
     }

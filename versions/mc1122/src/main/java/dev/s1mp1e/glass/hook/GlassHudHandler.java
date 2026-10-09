@@ -177,20 +177,22 @@ public final class GlassHudHandler {
             GlStateManager.color(1f, 1f, 1f, 1f);
 
             if (mc.playerController.gameIsSurvivalOrAdventure()) {
-                // ---- opaque strip section: the icons-sheet XP bar is drawn with
-                // blend OFF, like vanilla; blend is switched back on right after.
-                GlStateManager.disableBlend();
+                // allglass #17: the XP bar as a glass capsule track + round-ended green fill (ContextualBarHook). This
+                // handler owns the XP element (vanilla's is cancelled), so GuiIngameForge.renderExperience — where the
+                // coremod redirects the jump bar's blits — never runs for XP: route our own two blits through the hook.
+                // Drawn at vanilla's spot: the push above lifts it with the cluster and the glass follows the GL
+                // model-view (never subtract the lift). The icons sheet stays bound for the hook's vanilla fallback.
                 mc.getTextureManager().bindTexture(Gui.ICONS);
                 int cap = mc.player.xpBarCap();
                 int left = width / 2 - 91;
                 if (cap > 0) {
                     int filled = (int) (mc.player.experience * 183f);
                     int top = height - 32 + 3;                       // vanilla XP bar top = h-29
-                    BLIT.drawTexturedModalRect(left, top, 0, 64, 182, 5);
-                    if (filled > 0) BLIT.drawTexturedModalRect(left, top, 0, 69, filled, 5);
+                    ContextualBarHook.bar(BLIT, left, top, 0, 64, 182, 5);
+                    if (filled > 0) ContextualBarHook.bar(BLIT, left, top, 0, 69, filled, 5);
                 }
                 GlStateManager.enableBlend();
-                // ---- end of the opaque strip section
+                GlStateManager.color(1f, 1f, 1f, 1f);
 
                 FontRenderer fr = mc.fontRenderer;
                 if (mc.player.experienceLevel > 0 && fr != null) {
@@ -217,6 +219,19 @@ public final class GlassHudHandler {
     }
 
     // ---- replace the vanilla hotbar --------------------------------------
+
+    /**
+     * allglass #15: Forge posts the F3 text lists in this event right before {@code renderHUDText} draws them. Hand
+     * them (after every other listener, hence LOWEST) to {@link DebugCardHook} so it can paint ONE rounded plate per
+     * group of consecutive lines instead of a strip per line. On 1.12.2 the F3 text is drawn by
+     * {@code GuiIngameForge.renderHUDText} (its {@code GuiOverlayDebugForge} empties the vanilla left/right methods),
+     * so the coremod redirects that method's per-line {@code drawRect}s into {@link DebugCardHook#rect}.
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onDebugText(RenderGameOverlayEvent.Text e) {
+        if (e.isCanceled()) { DebugCardHook.cancel(); return; }
+        DebugCardHook.prepare(e.getLeft(), e.getRight(), e.getResolution().getScaledWidth());
+    }
 
     @SubscribeEvent
     public void onHotbar(RenderGameOverlayEvent.Pre e) {

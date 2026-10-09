@@ -58,8 +58,12 @@ public final class EditBoxHook {
 
             boolean bg = box.getEnableBackgroundDrawing();
             if (bg) {
-                Gui.drawRect(box.x - 1, box.y - 1, box.x + box.width + 1, box.y + box.height + 1, -6250336);
-                Gui.drawRect(box.x, box.y, box.x + box.width, box.y + box.height, -16777216);
+                // ALLGLASS #3 — glass scrim frame instead of the grey-bordered black box: focus 0x4DFFFFFF, else
+                // 0x2EFFFFFF, 4px rounded, no outline (spec #3). Covers every bordered field (anvil rename, world /
+                // server names, seed, search). Chat input (bg disabled) routes through GlassChatHud instead.
+                int scrim = box.isFocused() ? 0x4DFFFFFF : 0x2EFFFFFF;
+                dev.s1mp1e.client.gui.GlassWidgets.fillRound(
+                        box.x - 1, box.y - 1, box.x + box.width + 1, box.y + box.height + 1, scrim, 4f);
             }
             FontRenderer font = (FontRenderer) fFont.get(box);
             int scroll = fScroll.getInt(box);
