@@ -3,6 +3,11 @@
   "package": "dev.s1mp1e.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "KnifeViewmodelMixin",
+    "CsArmMixin",
+    "KnifeHandDepthMixin",
+    "BufferBuilderAccessor",
+    "KnifeInputMixin",
     "DevShotMixin",
     "IslandClickMixin",
     "FilmFrameMixin",

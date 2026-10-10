@@ -66,6 +66,9 @@ dependencies {
 
     modImplementation("pl.tomgirl:pylon:${v("pylon")}")
 
+    // JOML：執行期由 Argentum JiJ 提供，編譯期要自己補（knife 蒙皮用 Matrix4f/Quaternionf）
+    compileOnly("org.joml:joml:1.10.5")
+
     // 量測／相容測試用：Argentum 本體（作者發佈的 jar）。它正式運行時靠內嵌的 Celeritas/JOML nested jar
     // （Fabric JiJ 自動載），但 loom 的 dev runtime 不會把 files() 來源的 nested jar 解上 classpath，
     // 所以開發期要另外從 repo 補 celeritas（library mod）＋joml（純 lib）。release 已不降到 8，JVM 版本相容。

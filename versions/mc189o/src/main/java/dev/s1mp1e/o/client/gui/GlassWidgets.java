@@ -45,6 +45,20 @@ public final class GlassWidgets {
         }
     }
 
+    /**
+     * {@link #panel} plus the 26.2 readability scrim: a #1C1C1E rounded fill over the glass at {@code alpha*scrim},
+     * its radius tracking the glass body corner (corner 0.19 → min(w,h)*0.0475). For panels over a busy live scene
+     * (the knife locker sits over the HUD and the world, with no full-screen dim).
+     */
+    public static void panel(float x0, float y0, float x1, float y1, float alpha, float scrim) {
+        panel(x0, y0, x1, y1, alpha);
+        if (glassReady() && scrim > 0f) {
+            float r = Math.min(x1 - x0, y1 - y0) * 0.0475f;
+            fillRound(x0, y0, x1, y1, (clampByte(alpha * scrim) << 24) | 0x1C1C1E, r);
+            resetColorCache();
+        }
+    }
+
     /** Glass capsule (button/chip/toggle track). corner 1 = full capsule. */
     public static void capsule(float x0, float y0, float x1, float y1,
                                float corner, float lift, float alpha, boolean enabled) {

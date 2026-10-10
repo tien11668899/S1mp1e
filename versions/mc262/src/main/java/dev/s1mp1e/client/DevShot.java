@@ -142,7 +142,7 @@ public final class DevShot {
                              P_FLICKER = 21, P_TABS = 22, P_SCROLL = 23, P_CLICKS = 24, P_GLIDE = 25,
                              P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28, P_TRANS = 29, P_INGAME = 30, P_LISTS = 31,
                              P_LOOPPREV = 32, P_AUDIT = 34, P_GLASSHUD = 35, P_ESSENTIAL = 36,
-                             P_NAMETAGS = 37;
+                             P_NAMETAGS = 37, P_KNIFE = 38, P_LOCKER = 39, P_KANIM = 40, P_KHOLD = 41, P_LOCKANIM = 42, P_CSARM = 43, P_SEEDS = 44, P_CSROLL = 45;
 
     /** Per-screen shot timing for the {@code screens} sweep. */
     private static final int SCREEN_SETTLE = 45;   // frames rendered before the capture request
@@ -206,6 +206,26 @@ public final class DevShot {
      *  (armed through {@link GuiLayerProbe}). Inert otherwise. */
     private static boolean effectsMode;
     private static boolean nameTagsMode;
+    private static boolean knifeMode;
+    private static boolean lockerMode;
+    private static boolean lkSetup;
+    private static long lkT0;
+    private static int lkStep = -1;
+    private static boolean kanimMode;
+    private static boolean kaSetup;
+    private static long kaT0;
+    private static int kaStep;
+    private static int kaPhase;   // 0 settle, 1 draw sweep, 2 settle, 3 inspect sweep
+    private static int kaKnife;
+    private static boolean kholdMode, khSetup;
+    private static boolean csarmMode, csSetup, csShot; private static long csT0; private static int csStage;
+    private static boolean seedsMode, sdSetup; private static long sdT0; private static int sdIdx;
+    private static boolean csrollMode, crSetup; private static long crT0; private static int crIdx;
+    private static boolean lockanimMode, laSetup;
+    private static long laT0;
+    private static int laStep;
+    private static dev.s1mp1e.client.gui.KnifeInventoryScreen laScreen;
+    private static long khT0;
     private static int ntStage;
     private static final String[] NT_MODES = { "Glass", "Vanilla", "Off" };
     /** When set (env {@code S1MP1E_SHOT_MODE=trans}) the run stays in the main menu and walks menu-to-menu screen
@@ -293,6 +313,14 @@ public final class DevShot {
                     tooltipsMode = mode != null && mode.trim().equalsIgnoreCase("tooltips");
                     effectsMode = mode != null && mode.trim().equalsIgnoreCase("effects");
                     nameTagsMode = mode != null && mode.trim().equalsIgnoreCase("nametags");
+                    knifeMode = mode != null && mode.trim().equalsIgnoreCase("knife");
+                    lockerMode = mode != null && mode.trim().equalsIgnoreCase("locker");
+                    kanimMode = mode != null && mode.trim().equalsIgnoreCase("kanim");
+                    kholdMode = mode != null && mode.trim().equalsIgnoreCase("khold");
+                    csarmMode = mode != null && mode.trim().equalsIgnoreCase("csarm");
+                    seedsMode = mode != null && mode.trim().equalsIgnoreCase("seeds");
+                    csrollMode = mode != null && mode.trim().equalsIgnoreCase("csroll");
+                    lockanimMode = mode != null && mode.trim().equalsIgnoreCase("lockanim");
                     combatMode = mode != null && mode.trim().equalsIgnoreCase("combat");
                     transMode = mode != null && mode.trim().equalsIgnoreCase("trans");
                     ingameMode = mode != null && mode.trim().equalsIgnoreCase("ingame");
@@ -390,6 +418,14 @@ public final class DevShot {
                 case P_TOOLTIPS:     stepTooltips(client);                 break;
                 case P_EFFECTS:      stepEffects(client);                  break;
                 case P_NAMETAGS:     stepNameTags(client);                 break;
+                case P_KNIFE:        stepKnife(client);                    break;
+                case P_LOCKER:       stepLocker(client);                   break;
+                case P_KANIM:        stepKanim(client);                    break;
+                case P_KHOLD:        stepKhold(client);                    break;
+                case P_CSARM:        stepCsarm(client);                    break;
+                case P_SEEDS:        stepSeeds(client);                    break;
+                case P_CSROLL:       stepCsroll(client);                   break;
+                case P_LOCKANIM:     stepLockanim(client);                 break;
                 case P_COMBAT:       stepCombat(client);                   break;
                 case P_TRANS:        stepTrans(client);                    break;
                 case P_INGAME:       stepIngame(client);                   break;
@@ -630,7 +666,7 @@ public final class DevShot {
         frames = 0; phase = glassHudMode ? P_GLASSHUD : auditMode ? P_AUDIT : transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
                 : modulesMode ? P_MODULES : flickerMode ? P_FLICKER : tabsMode ? P_TABS
                 : scrollMode ? P_SCROLL : clicksMode ? P_CLICKS : glideMode ? P_GLIDE : tooltipsMode ? P_TOOLTIPS
-                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : P_WORLD;
+                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : P_WORLD;
     }
 
     private static void stepWorld(Minecraft client) {
@@ -1159,6 +1195,584 @@ public final class DevShot {
                 if (s != null) s.setMode(m);
             }
         } catch (Throwable t) { skip("nametag set mode", t); }
+    }
+
+    // ---- CS2 knife sweep (S1MP1E_SHOT_MODE=knife): draw / idle / inspect / light per knife ----------
+    /** {knife, glove, inspect-capture seconds...} per stage. */
+    private static final String[][] KN_STAGES = {
+        {"knife_karambit", "default", "fade"},
+        {"knife_karambit", "default", "ruby"},
+        {"knife_karambit", "default", "marble_fade"},
+        {"knife_karambit", "default", "case_hardened"},
+        {"knife_karambit", "default", "crimson_web"},
+        {"knife_karambit", "default", "lore"},
+        {"knife_karambit", "default", "autotronic"},
+        {"knife_karambit", "default", "tiger_tooth"},
+        {"knife_karambit", "default", "emerald"},
+        {"knife_karambit", "default", "slaughter"},
+    };
+    private static int knStage = -1;
+    private static long knT0;
+    private static int knStep;
+    private static boolean knSetup;
+
+    /**
+     * Gives a sword, enables CS2Knife, then per stage: draw (shots at 0.15/0.45/0.9 s), idle, inspect
+     * (shots spread over the clip), light swing. Wall-clock scheduled so dev-client FPS doesn't matter.
+     * Inert unless {@code S1MP1E_SHOT_MODE=knife}. Fully guarded.
+     */
+    private static void stepKnife(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        try { client.gui.hud.getChat().clearMessages(false); } catch (Throwable ignored) {}
+        frames++;
+        if (!knSetup) {
+            knSetup = true;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) {
+                    // run ON the server thread: touching inventories from the render thread races the
+                    // container listeners (ConcurrentModificationException -> server crash)
+                    server.execute(() -> {
+                        Commands cmd = server.getCommands();
+                        CommandSourceStack src = server.createCommandSourceStack();
+                        cmd.performPrefixedCommand(src, "item replace entity @a weapon.mainhand with minecraft:diamond_sword");
+                        cmd.performPrefixedCommand(src, "item replace entity @a weapon.offhand with minecraft:air");
+                    });
+                }
+            } catch (Throwable t) { skip("knife give sword", t); }
+            try { player.setXRot(8f); } catch (Throwable ignored) {}
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            knT0 = System.nanoTime();
+            return;
+        }
+        try {                                    // a focus-loss pause menu would hide the knife
+            if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null);
+        } catch (Throwable ignored) {}
+        double t = (System.nanoTime() - knT0) / 1e9;
+        if (knStage < 0) {                       // let the sword sync + the pack load
+            if (t < 1.5) return;
+            knStage = 0; knStep = 0; knT0 = System.nanoTime(); t = 0;
+            knifeConfigure(KN_STAGES[0][0], KN_STAGES[0][1], KN_STAGES[0][2]);
+        }
+        if (knStage >= KN_STAGES.length) { frames = 0; phase = P_DRAIN; return; }
+        String tag = KN_STAGES[knStage][0].replace("knife_", "") + "-" + KN_STAGES[knStage][2];
+        dev.s1mp1e.client.knife.KnifeAnimator a = dev.s1mp1e.client.knife.KnifeRenderer.animator();
+        // schedule: {time, action}  action: 0 draw, 1 capture, 2 inspect, 3 light, 4 next stage
+        double[][] plan = {
+            {0.00, 0}, {1.40, 1},                        // draw, then idle (the skin composites on the first frame)
+            {1.50, 2}, {2.40, 1}, {3.40, 1},             // inspect: two looks
+            {3.60, 3}, {3.75, 5}, {3.90, 6},             // sound check: slash(miss), heavy hit, backstab
+            {4.20, 4},
+        };
+        String[] names = {"", "idle", "", "insp1", "insp2", "", "", "", ""};
+        while (knStep < plan.length && t >= plan[knStep][0]) {
+            int act = (int) plan[knStep][1];
+            try {
+                switch (act) {
+                    case 0: a.draw(); break;
+                    case 1: capture(client, "knife-" + tag + "-" + names[knStep] + ".png"); break;
+                    case 2: a.inspect(); break;
+                    case 3: a.light(false, false); break;      // slash (miss)
+                    case 5: a.heavy(true, false); break;       // heavy hit
+                    case 6: a.light(true, true); break;        // backstab
+                    case 4:
+                        knStage++; knStep = -1; knT0 = System.nanoTime();
+                        if (knStage < KN_STAGES.length) knifeConfigure(KN_STAGES[knStage][0], KN_STAGES[knStage][1], KN_STAGES[knStage][2]);
+                        break;
+                    default: break;
+                }
+            } catch (Throwable th) { skip("knife step " + knStep, th); }
+            knStep++;
+            if (act == 1 || act == 4) break;          // one capture per frame; fresh clock after a stage switch
+        }
+    }
+
+    /**
+     * CS arms everywhere (S1MP1E_SHOT_MODE=csarm): enable the module + "CS arms everywhere", then show the first-person
+     * arm with an empty hand and with a non-knife item (a block). Captures csarm-empty / csarm-block for the fit check.
+     * S1MP1E_CSARM="tx,ty,tz,rx,ry,rz,scale" tunes the arm placement live (no rebuild).
+     */
+    private static void stepCsarm(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        frames++;
+        if (!csSetup) {
+            csSetup = true;
+            knifeConfigure("knife_karambit", System.getenv("S1MP1E_KA_GLOVES") != null ? System.getenv("S1MP1E_KA_GLOVES") : "sporty", "fade");
+            try { dev.s1mp1e.client.Module mod = dev.s1mp1e.client.ModuleManager.byName("CS2Knife");
+                if (mod != null) { dev.s1mp1e.client.Setting aa = mod.setting("CS arms everywhere"); if (aa != null) aa.boolValue = true; } } catch (Throwable t) { skip("csarm enable", t); }
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> {
+                    Commands cmd = server.getCommands();
+                    CommandSourceStack src = server.createCommandSourceStack();
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.mainhand with minecraft:air");
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.offhand with minecraft:air");
+                });
+            } catch (Throwable t) { skip("csarm empty hand", t); }
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            csT0 = System.nanoTime();
+            return;
+        }
+        try {
+            if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null);
+        } catch (Throwable ignored) {}
+        double held = (System.nanoTime() - csT0) / 1e9;
+        if (csStage == 0 && held > 2.0) {
+            capture(client, "csarm-empty.png");
+            try { player.swing(net.minecraft.world.InteractionHand.MAIN_HAND); } catch (Throwable t) { skip("csarm swing", t); }
+            csStage = 10; csT0 = System.nanoTime();
+            return;
+        }
+        if (csStage >= 10 && csStage < 16 && held > 0.04 * (csStage - 9)) {
+            capture(client, "csarm-swing" + (csStage - 9) + ".png");
+            csStage++;
+            if (csStage < 16) return;
+            csT0 = System.nanoTime();                 // 16: wait, then the second punch (left fist)
+            return;
+        }
+        if (csStage == 16 && held > 0.6) {
+            try { player.swing(net.minecraft.world.InteractionHand.MAIN_HAND); } catch (Throwable t) { skip("csarm swing2", t); }
+            csStage = 20; csT0 = System.nanoTime();
+            return;
+        }
+        if (csStage >= 20 && csStage < 26 && held > 0.04 * (csStage - 19)) {
+            capture(client, "csarm-swingL" + (csStage - 19) + ".png");
+            csStage++;
+            if (csStage < 26) return;
+            csT0 = System.nanoTime();                 // 26: a block in front of the eyes, then dig it (hammer fist)
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> server.getCommands().performPrefixedCommand(
+                        server.createCommandSourceStack(),
+                        "execute as @p at @s anchored eyes run setblock ^ ^ ^2 minecraft:stone"));
+            } catch (Throwable t) { skip("csarm block place", t); }
+            return;
+        }
+        if (csStage == 26 && held > 0.8) {
+            try { player.swing(net.minecraft.world.InteractionHand.MAIN_HAND); } catch (Throwable t) { skip("csarm mine swing", t); }
+            csStage = 30; csT0 = System.nanoTime();
+            return;
+        }
+        if (csStage >= 30 && csStage < 36 && held > 0.04 * (csStage - 29)) {
+            capture(client, "csarm-mine" + (csStage - 29) + ".png");
+            csStage++;
+            if (csStage < 36) return;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> server.getCommands().performPrefixedCommand(server.createCommandSourceStack(),
+                        "execute as @p at @s anchored eyes run setblock ^ ^ ^2 minecraft:air"));
+            } catch (Throwable t) { skip("csarm block clear", t); }
+            csStage = 1; csT0 = System.nanoTime();
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> {
+                    Commands cmd = server.getCommands();
+                    CommandSourceStack src = server.createCommandSourceStack();
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.mainhand with minecraft:dirt");
+                });
+            } catch (Throwable t) { skip("csarm block", t); }
+            return;
+        }
+        if (csStage == 1 && held > 2.0) { capture(client, "csarm-block.png"); csStage = 2; csT0 = System.nanoTime(); return; }
+        if (csStage >= 2 && held > 1.5) { frames = 0; phase = P_DRAIN; }
+    }
+
+    /**
+     * Pattern seeds (S1MP1E_SHOT_MODE=seeds): hold S1MP1E_SEED_KNIFE (karambit) in S1MP1E_SEED_SKIN (case_hardened) and
+     * step through S1MP1E_SEEDS ("387,1,500"), capturing seed-<n>.png once each composite is ready. With
+     * S1MP1E_SKIN_DUMP the flat composited textures are written too.
+     */
+    private static void stepSeeds(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        frames++;
+        String env = System.getenv("S1MP1E_SEEDS");
+        String[] seeds = (env == null || env.isBlank() ? "387,1,500" : env).split(",");
+        String knife = System.getenv("S1MP1E_SEED_KNIFE") != null ? System.getenv("S1MP1E_SEED_KNIFE") : "knife_karambit";
+        String skin = System.getenv("S1MP1E_SEED_SKIN") != null ? System.getenv("S1MP1E_SEED_SKIN") : "case_hardened";
+        dev.s1mp1e.client.Module mod = dev.s1mp1e.client.ModuleManager.byName("CS2Knife");
+        if (!sdSetup) {
+            sdSetup = true;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> server.getCommands().performPrefixedCommand(server.createCommandSourceStack(),
+                        "item replace entity @a weapon.mainhand with minecraft:diamond_sword"));
+            } catch (Throwable t) { skip("seeds give sword", t); }
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            knifeConfigure(knife, "default", skin);
+            try { mod.setting("Wear").doubleValue = 0.01; mod.setting("Pattern seed").intValue = Integer.parseInt(seeds[0].trim()); } catch (Throwable t) { skip("seeds cfg", t); }
+            sdT0 = System.nanoTime();
+            return;
+        }
+        try { if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null); } catch (Throwable ignored) {}
+        if (sdIdx >= seeds.length) { if ((System.nanoTime() - sdT0) / 1e9 > 1.0) { frames = 0; phase = P_DRAIN; } return; }
+        double held = (System.nanoTime() - sdT0) / 1e9;
+        boolean ready = !dev.s1mp1e.client.knife.KnifeSkins.pending(knife, skin, 0.01f);
+        if (held > 3.0 && ready || held > 12.0) {
+            capture(client, "seed-" + seeds[sdIdx].trim() + ".png");
+            sdIdx++;
+            if (sdIdx < seeds.length) try { mod.setting("Pattern seed").intValue = Integer.parseInt(seeds[sdIdx].trim()); } catch (Throwable t) { skip("seeds next", t); }
+            sdT0 = System.nanoTime();
+        }
+    }
+
+    /**
+     * Fist roll sweep (S1MP1E_SHOT_MODE=csroll): empty hands with "CS arms everywhere"; for each roll in S1MP1E_ROLLS
+     * ("0,90,180,270") captures a static guard (roll-<r>-guard.png) and a static punch peak (roll-<r>-punch.png).
+     */
+    private static void stepCsroll(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        frames++;
+        String env = System.getenv("S1MP1E_ROLLS");
+        String[] rolls = (env == null || env.isBlank() ? "0,90,180,270" : env).split(",");
+        if (!crSetup) {
+            crSetup = true;
+            knifeConfigure("knife_karambit", "sporty", "fade");
+            try { dev.s1mp1e.client.Module mod = dev.s1mp1e.client.ModuleManager.byName("CS2Knife");
+                if (mod != null) mod.setting("CS arms everywhere").boolValue = true; } catch (Throwable t) { skip("csroll enable", t); }
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> {
+                    server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), "item replace entity @a weapon.mainhand with minecraft:air");
+                    server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), "item replace entity @a weapon.offhand with minecraft:air");
+                });
+            } catch (Throwable t) { skip("csroll empty", t); }
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            crT0 = System.nanoTime() + 2_000_000_000L;
+            return;
+        }
+        try { if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null); } catch (Throwable ignored) {}
+        double held = (System.nanoTime() - crT0) / 1e9;
+        if (held < 0) return;
+        if (crIdx >= rolls.length * 2) {
+            dev.s1mp1e.client.knife.CsArm.DBG_ROLL = Float.NaN; dev.s1mp1e.client.knife.CsArm.DBG_E = Float.NaN;
+            if (held > 0.5) { frames = 0; phase = P_DRAIN; }
+            return;
+        }
+        String r = rolls[crIdx / 2].trim();
+        boolean punch = (crIdx % 2) == 1;
+        dev.s1mp1e.client.knife.CsArm.DBG_ROLL = Float.parseFloat(r);
+        dev.s1mp1e.client.knife.CsArm.DBG_E = punch ? 1f : 0f;
+        if (held > 0.35) {
+            capture(client, "roll-" + r + (punch ? "-punch" : "-guard") + ".png");
+            crIdx++;
+            crT0 = System.nanoTime();
+        }
+    }
+
+    private static void knifeConfigure(String knife, String glove, String skin) {
+        try {
+            dev.s1mp1e.client.Module mod = dev.s1mp1e.client.ModuleManager.byName("CS2Knife");
+            if (mod != null) {
+                mod.enabled = true;
+                dev.s1mp1e.client.Setting k = mod.setting("Knife");
+                if (k != null) k.setMode(knife);
+                dev.s1mp1e.client.Setting g = mod.setting("Gloves");
+                if (g != null) g.setMode(glove);
+                dev.s1mp1e.client.Setting sk = mod.setting("Skin");
+                if (sk != null) sk.setMode(skin);
+                dev.s1mp1e.client.Setting ar = mod.setting("Arms");
+                if (ar != null) ar.setMode(System.getenv("S1MP1E_KA_MCARMS") != null ? "mc_arms" : "cs2_arms");
+            }
+        } catch (Throwable t) { skip("knife configure", t); }
+    }
+
+    // ---- CS2-inventory knife locker (S1MP1E_SHOT_MODE=locker): open the picker, select finishes --------
+
+    /**
+     * Opens {@link dev.s1mp1e.client.gui.KnifeInventoryScreen} and drives a few selections, capturing the glass
+     * picker against the live first-person preview. Inert unless {@code S1MP1E_SHOT_MODE=locker}.
+     */
+    private static void stepLocker(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        frames++;
+        if (!lkSetup) {
+            lkSetup = true;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> {
+                    Commands cmd = server.getCommands();
+                    CommandSourceStack src = server.createCommandSourceStack();
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.mainhand with minecraft:diamond_sword");
+                });
+            } catch (Throwable t) { skip("locker give sword", t); }
+            try { player.setXRot(6f); } catch (Throwable ignored) {}
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            knifeConfigure("knife_karambit", "default", "vanilla");
+            lkT0 = System.nanoTime();
+            return;
+        }
+        try {
+            if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null);
+        } catch (Throwable ignored) {}
+        double t = (System.nanoTime() - lkT0) / 1e9;
+        // schedule: {time, action}  0 open locker, 1 capture, 2 select finish (step index into SEL), 3 next knife
+        double[][] plan = {
+            {1.20, 0}, {1.60, 1},                        // open the locker on the karambit
+            {1.70, 2}, {2.60, 1},                        // pick Fade -> inspect + composite
+            {2.70, 2}, {3.60, 1},                        // pick Doppler P4
+            {3.70, 2}, {4.60, 1},                        // pick Marble Fade
+            {4.70, 3}, {5.60, 1},                        // switch knife -> butterfly, show its grid
+            {6.20, 4},
+        };
+        String[] names = {"", "open", "", "fade", "", "doppler", "", "marble", "", "butterfly", ""};
+        String[] sel = {"fade", "doppler_p4", "marble_fade"};
+        while (lkStep >= 0 ? lkStep < plan.length : true) {
+            if (lkStep < 0) lkStep = 0;
+            if (lkStep >= plan.length) break;
+            if (t < plan[lkStep][0]) break;
+            int act = (int) plan[lkStep][1];
+            try {
+                switch (act) {
+                    case 0:
+                        client.gui.setScreen(new dev.s1mp1e.client.gui.KnifeInventoryScreen());
+                        break;
+                    case 1:
+                        capture(client, "locker-" + names[lkStep] + ".png");
+                        break;
+                    case 2: {
+                        int si = lkStep == 2 ? 0 : lkStep == 4 ? 1 : 2;
+                        knifeConfigure("knife_karambit", "default", sel[si]);
+                        dev.s1mp1e.client.knife.KnifeRenderer.animator().inspect();
+                        break;
+                    }
+                    case 3:
+                        knifeConfigure("knife_butterfly", "default", "fade");
+                        dev.s1mp1e.client.knife.KnifeRenderer.animator().inspect();
+                        break;
+                    case 4:
+                        frames = 0; phase = P_DRAIN; return;
+                    default: break;
+                }
+            } catch (Throwable th) { skip("locker step " + lkStep, th); }
+            lkStep++;
+            if (act == 1) break;                         // one capture per frame
+        }
+    }
+
+    /**
+     * Dense frame-by-frame capture of the karambit Fade draw then inspect (S1MP1E_SHOT_MODE=kanim):
+     * ka-draw-NN.png every 0.12s through the deploy, then ka-insp-NN.png through the lookat. For diagnosing
+     * the switch / inspect motion against CS2.
+     */
+    private static void stepKanim(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        try { client.gui.hud.getChat().clearMessages(false); } catch (Throwable ignored) {}
+        frames++;
+        if (!kaSetup) {
+            kaSetup = true;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> {
+                    Commands cmd = server.getCommands();
+                    CommandSourceStack src = server.createCommandSourceStack();
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.mainhand with minecraft:diamond_sword");
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.offhand with minecraft:air");
+                });
+            } catch (Throwable t) { skip("kanim give sword", t); }
+            try { player.setXRot(6f); } catch (Throwable ignored) {}
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            knifeConfigure("knife_karambit", "default", "fade");
+            kaT0 = System.nanoTime();
+            return;
+        }
+        try {
+            if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null);
+        } catch (Throwable ignored) {}
+        dev.s1mp1e.client.knife.KnifeAnimator a = dev.s1mp1e.client.knife.KnifeRenderer.animator();
+        double t = (System.nanoTime() - kaT0) / 1e9;
+        // phases: 0 settle, 1 draw sweep, 2 settle, 3 inspect sweep — per knife in KA_KNIVES
+        // frames are taken on the CLIP's own playhead (capture stalls clamp the animator's dt)
+        String[] KA_KNIVES = {"knife_karambit", "knife_butterfly"};
+        String gs = System.getenv("S1MP1E_KA_GLOVESKINS");   // "glove:skin,glove:skin,..." skin sweep
+        if (gs != null) {
+            String[] items = gs.split(",");
+            if (kaKnife >= items.length) {
+                if (kaPhase == 0) {                          // finally the locker on its gloves tab
+                    client.gui.setScreen(new dev.s1mp1e.client.gui.KnifeInventoryScreen().gloves());
+                    kaPhase = 9; kaT0 = System.nanoTime();
+                } else if (kaPhase == 9 && t >= 1.0) {
+                    capture(client, "gs-locker.png");
+                    kaPhase = 10; kaT0 = System.nanoTime();
+                } else if (kaPhase == 10 && t >= 0.3) {
+                    client.gui.setScreen(null);
+                    frames = 0; phase = P_DRAIN;
+                }
+                return;
+            }
+            String[] gsk = items[kaKnife].split(":");
+            if (kaPhase == 0) {
+                if (t < 1.2) return;
+                knifeConfigure("knife_karambit", gsk[0], "fade");
+                dev.s1mp1e.client.module.KnifeModule km = dev.s1mp1e.client.module.KnifeModule.get();
+                km.gloveSkin.setMode(gsk.length > 1 ? gsk[1] : "vanilla");
+                kaPhase = 1; kaT0 = System.nanoTime();
+            } else if (kaPhase == 1 && t >= 1.0) {
+                capture(client, "gs-" + kaKnife + "-idle.png");
+                a.inspect(); kaPhase = 2; kaT0 = System.nanoTime();
+            } else if (kaPhase == 2 && t >= 1.7) {
+                capture(client, "gs-" + kaKnife + "-insp.png");
+                kaKnife++; kaPhase = 0; kaT0 = System.nanoTime() - 2_000_000_000L;
+            }
+            return;
+        }
+        String gl = System.getenv("S1MP1E_KA_GLOVES");
+        if (gl != null) {                                  // glove sweep: idle + mid-inspect per glove
+            String[] G = dev.s1mp1e.client.module.KnifeModule.GLOVES;
+            if (kaKnife >= G.length) { frames = 0; phase = P_DRAIN; return; }
+            if (kaPhase == 0) {
+                if (t < 1.2) return;
+                knifeConfigure("knife_karambit", G[kaKnife], "fade");
+                kaPhase = 1; kaT0 = System.nanoTime();
+            } else if (kaPhase == 1 && t >= 1.5) {
+                capture(client, "gl-" + G[kaKnife] + "-idle.png");
+                a.inspect(); kaPhase = 2; kaT0 = System.nanoTime();
+            } else if (kaPhase == 2 && t >= 1.6) {
+                capture(client, "gl-" + G[kaKnife] + "-insp.png");
+                kaKnife++; kaPhase = 0; kaT0 = System.nanoTime() - 2_000_000_000L;
+            }
+            return;
+        }
+        if (kaKnife >= KA_KNIVES.length) {
+            // combat sound check (CS:GO code events): slash, hit, stab, hitwall
+            dev.s1mp1e.client.knife.KnifeSounds.attack(false, false, false);
+            dev.s1mp1e.client.knife.KnifeSounds.attack(false, true, false);
+            dev.s1mp1e.client.knife.KnifeSounds.attack(true, true, false);
+            dev.s1mp1e.client.knife.KnifeSounds.attack(false, false, true);
+            frames = 0; phase = P_DRAIN; return;
+        }
+        String tag = KA_KNIVES[kaKnife].replace("knife_", "");
+        switch (kaPhase) {
+            case 0:
+                if (t < 1.2) return;
+                knifeConfigure(KA_KNIVES[kaKnife], "default", "fade");
+                a.draw(); kaPhase = 1; kaStep = 0;
+                return;
+            case 1: {
+                if (!"draw".equals(a.clipName())) { kaPhase = 2; kaT0 = System.nanoTime(); return; }
+                if (a.clipTime() >= kaStep * 0.07f) {
+                    capture(client, String.format("ka-%s-draw-%02d.png", tag, kaStep));
+                    kaStep++;
+                }
+                return;
+            }
+            case 2:
+                if (t < 0.6) return;
+                a.inspect(); kaPhase = 3; kaStep = 0;
+                return;
+            case 3: {
+                String c = a.clipName();
+                if (c == null || !c.startsWith("lookat")) { kaKnife++; kaPhase = 0; kaT0 = System.nanoTime(); return; }
+                if (a.clipTime() >= kaStep * 0.25f) {
+                    capture(client, String.format("ka-%s-insp-%02d.png", tag, kaStep));
+                    kaStep++;
+                }
+                return;
+            }
+            default: break;
+        }
+    }
+
+    /**
+     * Pure-hold equip check (S1MP1E_SHOT_MODE=khold): give a sword and enable CS2Knife, then do NOTHING for a
+     * few seconds. No explicit draw/inspect — only the renderer's own equip trigger runs. With S1MP1E_SND_LOG=1
+     * the deploy sound logs once per draw, so the log must show exactly ONE "deploy" for a single equip.
+     */
+    private static void stepKhold(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        frames++;
+        if (!khSetup) {
+            khSetup = true;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> {
+                    Commands cmd = server.getCommands();
+                    CommandSourceStack src = server.createCommandSourceStack();
+                    cmd.performPrefixedCommand(src, "item replace entity @a weapon.mainhand with minecraft:diamond_sword");
+                });
+            } catch (Throwable t) { skip("khold give sword", t); }
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            knifeConfigure("knife_karambit", "default", "fade");   // enables the module; renderer owns the draw
+            khT0 = System.nanoTime();
+            System.out.println("[S1mp1e] khold: holding, counting auto-draws");
+            return;
+        }
+        try {
+            if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null);
+        } catch (Throwable ignored) {}
+        double khSecs = 3.5;
+        try { String e = System.getenv("S1MP1E_KHOLD_SECS"); if (e != null) khSecs = Double.parseDouble(e); } catch (Throwable ignored) {}
+        if ((System.nanoTime() - khT0) / 1e9 > khSecs) { frames = 0; phase = P_DRAIN; }
+    }
+
+    /**
+     * Locker interaction motion (S1MP1E_SHOT_MODE=lockanim): open, click a skin tile, change knife, switch to the
+     * gloves tab, pick a glove skin, close — capturing mid-transition frames. With S1MP1E_LOCKER_LOG=1 every frame's
+     * animation values are logged for the smoothness check.
+     */
+    private static void stepLockanim(Minecraft client) {
+        final LocalPlayer player = client.player;
+        if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        frames++;
+        if (!laSetup) {
+            laSetup = true;
+            try {
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null) server.execute(() -> server.getCommands().performPrefixedCommand(server.createCommandSourceStack(),
+                        "item replace entity @a weapon.mainhand with minecraft:diamond_sword"));
+            } catch (Throwable t) { skip("lockanim sword", t); }
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            knifeConfigure("knife_karambit", "default", "vanilla");
+            laT0 = System.nanoTime();
+            return;
+        }
+        double t = (System.nanoTime() - laT0) / 1e9;
+        // {time, action}: 0 open, 1 capture, 2 grid tile 3, 3 release, 4 knife -> butterfly, 5 tab -> gloves,
+        //                 6 glove tile 2, 7 close, 8 done
+        double[][] plan = {
+            {1.00, 0}, {1.05, 1}, {1.30, 1},
+            {2.00, 2}, {2.07, 1}, {2.16, 3}, {2.30, 1},
+            {3.00, 4}, {3.07, 1}, {3.25, 1}, {3.60, 1},
+            {4.20, 5}, {4.27, 1}, {4.45, 1}, {4.90, 1},
+            {5.20, 9}, {5.60, 1}, {6.00, 6}, {6.06, 1}, {6.20, 3}, {6.40, 1},
+            {6.80, 7}, {6.88, 1}, {7.40, 8},
+        };
+        String[] names = {"", "open-a", "open-b", "", "tile-mid", "", "tile-end", "", "knife-out", "knife-in", "knife-end",
+                "", "tab-out", "tab-in", "tab-end", "", "sporty", "", "glove-mid", "", "glove-end", "", "close-mid", ""};
+        while (laStep < plan.length && t >= plan[laStep][0]) {
+            int act = (int) plan[laStep][1];
+            try {
+                switch (act) {
+                    case 0: laScreen = new dev.s1mp1e.client.gui.KnifeInventoryScreen(); client.gui.setScreen(laScreen); break;
+                    case 1: capture(client, "la-" + String.format("%02d", laStep) + "-" + names[laStep] + ".png"); break;
+                    case 2: laScreen.testGrid(3); break;
+                    case 3: laScreen.testRelease(); break;
+                    case 4: laScreen.testLeft("knife_butterfly"); break;
+                    case 5: laScreen.testTab(1); break;
+                    case 6: laScreen.testGrid(2); break;
+                    case 7: laScreen.onClose(); break;
+                    case 8: frames = 0; phase = P_DRAIN; return;
+                    case 9: laScreen.testLeft("glove_sporty"); break;
+                    default: break;
+                }
+            } catch (Throwable th) { skip("lockanim step " + laStep, th); }
+            laStep++;
+            if (act == 1) break;
+        }
     }
 
     // ---- flicker sweep (S1MP1E_SHOT_MODE=flicker): consecutive-frame self-ghost check ---------------

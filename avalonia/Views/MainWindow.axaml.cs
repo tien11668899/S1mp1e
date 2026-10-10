@@ -1570,6 +1570,60 @@ public partial class MainWindow : Window
                 Environment.Exit(0);
             }
 
+            // Focused CS2-knife-row check (S1MP1E_KNIFESHOT=1): the Play page's knife row in its three states and the
+            // settings switch. S1MP1E_KNIFESHOT_EMPTY names an empty temp mc dir for the "not downloaded" state; the
+            // installed state reads the real .minecraft (read-only — nothing is written in capture mode).
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("S1MP1E_KNIFESHOT")))
+            {
+                _cfg.Settings.Cs2Knives = true;
+                var vi = Array.IndexOf(SupportedVersions, "26.2");
+                if (vi >= 0) VersionBox.SelectedIndex = vi;
+                ShowPage(0);
+                var empty = Environment.GetEnvironmentVariable("S1MP1E_KNIFESHOT_EMPTY");
+                if (!string.IsNullOrWhiteSpace(empty))
+                {
+                    _cfg.Settings.McPath = empty;
+                    UpdateInstallState();
+                    await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "knife-notdl.png"));
+                    _knifeBusy = true; _knifeProgress = "下載中 42%";
+                    UpdateKnifeRow();
+                    if (KnifeDlLabel is not null) KnifeDlLabel.Text = "42%";
+                    await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "knife-downloading.png"));
+                    _knifeBusy = false; _knifeProgress = null;
+                    // S1MP1E_KNIFESHOT_DL=1: really run the download into the empty dir (pair with S1MP1E_KNIFEPACK_MANIFEST)
+                    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("S1MP1E_KNIFESHOT_DL")))
+                    {
+                        UpdateKnifeRow();
+                        OnKnifeDownload(KnifeDlBtn, new RoutedEventArgs());
+                        await System.Threading.Tasks.Task.Delay(200);
+                        for (int i = 0; i < 1200 && _knifeBusy; i++) await System.Threading.Tasks.Task.Delay(250);
+                        await NextFrameAsync();
+                        SaveWindowPng(System.IO.Path.Combine(outDir, "knife-afterdl.png"));
+                        System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "dl-result.txt"),
+                            $"installed={KnifePackService.Installed(empty)} error={_knifeError ?? "none"} status={KnifeStatus?.Text}");
+                    }
+                }
+                _cfg.Settings.McPath = "";
+                UpdateInstallState();
+                await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                SaveWindowPng(System.IO.Path.Combine(outDir, "knife-installed.png"));
+                _hydrating = true;
+                try { if (KnivesSettingToggle is not null) KnivesSettingToggle.IsChecked = true; } finally { _hydrating = false; }
+                _currentPage = -1;          // snap (capture mode's virtual clock would freeze the page cross-fade)
+                ShowPage(3);
+                await System.Threading.Tasks.Task.Delay(400); await NextFrameAsync();
+                KnivesSettingToggle?.BringIntoView();
+                await System.Threading.Tasks.Task.Delay(300); await NextFrameAsync();
+                SaveWindowPng(System.IO.Path.Combine(outDir, "knife-settings.png"));
+                // optional hold so an external DPI-aware PrintWindow can grab the real window (RenderTargetBitmap
+                // mis-scales some settings-page controls at 125 % DPI)
+                if (int.TryParse(Environment.GetEnvironmentVariable("S1MP1E_KNIFESHOT_HOLD"), out var hold) && hold > 0)
+                    await System.Threading.Tasks.Task.Delay(hold);
+                Environment.Exit(0);
+            }
+
             // Focused mod-management check (S1MP1E_MODSHOT=1): scan the real 1.21.1 mods folder,
             // show the browse list with version/source/time/dup metadata, screenshot, exit. Hits
             // Modrinth for the hash backfill, so it needs network + the real .minecraft.
@@ -2479,6 +2533,7 @@ public partial class MainWindow : Window
             if (GlassToggle is not null) GlassToggle.IsChecked = s.Glass;
             if (PerfToggle is not null) PerfToggle.IsChecked = s.PerfPack;
             if (PrereleaseToggle is not null) PrereleaseToggle.IsChecked = s.UpdatePrerelease;
+            if (KnivesSettingToggle is not null) KnivesSettingToggle.IsChecked = s.Cs2Knives;
             if (DemoToggle is not null) DemoToggle.IsChecked = s.ReduceTransparency;
             // Theme: restore the saved 自動/淺色/深色 choice (was previously never
             // persisted, so it reset to 自動 on every launch).
@@ -2788,6 +2843,103 @@ public partial class MainWindow : Window
             InstallBtn.IsEnabled = true;
             InstallBtn.Tag = mc;
             InstallBtn.IsVisible = true;
+        }
+        UpdateKnifeRow();
+    }
+
+    // ---- CS2 knife pack row (設定 › CS2 刀皮) -----------------------------------------------------------
+
+    private bool _knifeBusy, _knifeSync;
+    private string? _knifeProgress, _knifeError;
+
+    // Show / refresh the Play page's CS2 knife row: hidden unless the setting is on; a download icon while the shared
+    // pack isn't on disk, then the in-game CS2 knife module's switch.
+    private void UpdateKnifeRow()
+    {
+        if (KnifeRow is null || KnifeStatus is null || KnifeDlBtn is null || KnifeToggle is null) return;
+        bool show = _cfg.Settings.Cs2Knives || _knifeBusy;
+        KnifeRow.IsVisible = show;
+        if (KnifeRowDivider is not null) KnifeRowDivider.IsVisible = show;
+        if (!show) return;
+
+        var mc = string.IsNullOrEmpty(VersionBox?.SelectedText) ? "26.2" : VersionBox!.SelectedText;
+        var dir = EffectiveMcDir();
+        bool installed = KnifePackService.Installed(dir);
+        string support = KnifePackService.Supports(mc) ? "" : $"（{mc} 尚未支援，支援 26.3 / 26.2 / 1.8.9）";
+
+        if (_knifeBusy)
+        {
+            KnifeStatus.Text = _knifeProgress ?? "準備下載…";
+            KnifeDlBtn.IsVisible = true;
+            KnifeDlBtn.IsEnabled = false;
+            KnifeToggle.IsVisible = false;
+            return;
+        }
+        if (!installed)
+        {
+            KnifeStatus.Text = _knifeError ?? ("尚未下載 — 約 570 MB，所有版本共用一份" + support);
+            KnifeDlLabel.Text = _knifeError is null ? "下載" : "重試";
+            KnifeDlBtn.IsEnabled = true;
+            KnifeDlBtn.IsVisible = true;
+            KnifeToggle.IsVisible = false;
+            return;
+        }
+        bool on = KnifePackService.ReadEnabled(dir) ?? false;
+        KnifeDlBtn.IsVisible = false;
+        KnifeToggle.IsVisible = true;
+        _knifeSync = true;
+        try { KnifeToggle.IsChecked = on; } finally { _knifeSync = false; }
+        KnifeStatus.Text = (on ? "已開啟 — 拿劍時顯示 CS2 刀，B 鍵開刀庫存" : "已下載 — 目前關閉") + support;
+    }
+
+    private void OnKnivesSettingToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || KnivesSettingToggle is null) return;
+        _cfg.Settings.Cs2Knives = KnivesSettingToggle.IsChecked == true;
+        SaveCfg();
+        UpdateKnifeRow();
+    }
+
+    private void OnKnifeToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || _knifeSync || KnifeToggle is null) return;
+        KnifePackService.WriteEnabled(EffectiveMcDir(), KnifeToggle.IsChecked == true);
+        UpdateKnifeRow();
+    }
+
+    private async void OnKnifeDownload(object? sender, RoutedEventArgs e)
+    {
+        if (_knifeBusy) return;
+        _knifeBusy = true;
+        _knifeError = null;
+        _knifeProgress = "準備下載…";
+        UpdateKnifeRow();
+        var dir = EffectiveMcDir();
+        var progress = new Progress<(string phase, double frac)>(p =>
+        {
+            if (!_knifeBusy) return;   // Progress<T> posts async: a late report must not overwrite the final state
+            int pct = (int)Math.Round(Math.Clamp(p.frac, 0, 1) * 100);
+            _knifeProgress = p.phase == "download" ? $"下載中 {pct}%" : $"解壓縮中 {pct}%";
+            if (KnifeDlLabel is not null) KnifeDlLabel.Text = $"{pct}%";
+            if (KnifeStatus is not null) KnifeStatus.Text = _knifeProgress;
+        });
+        try
+        {
+            await KnifePackService.DownloadAsync(dir, progress, CancellationToken.None);
+            KnifePackService.WriteEnabled(dir, true);   // downloaded to use it: switch the module on
+        }
+        catch (Exception ex)
+        {
+            LogCrash(ex);
+            _knifeError = ex is System.Net.Http.HttpRequestException
+                ? "下載失敗 — 請檢查網路連線後重試"
+                : "下載失敗 — " + ex.Message;
+        }
+        finally
+        {
+            _knifeBusy = false;
+            _knifeProgress = null;
+            UpdateKnifeRow();
         }
     }
 

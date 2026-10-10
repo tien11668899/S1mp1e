@@ -111,6 +111,64 @@ final class DevShotScenes {
         }
     }
 
+    /** 主欄位（9–35）塞滿物品後：生存背包、創造「物品欄」分頁各拍一張（使用者回報：主欄位物品看不到、熱欄看得到）。 */
+    private static void queueInvFill() {
+        add(new Scene() { public boolean step(final Minecraft mc, int f) {
+            onServer(mc, new Runnable() { public void run() { try {
+                net.minecraft.entity.living.player.PlayerEntity p = mc.getServer().getPlayerManager().getAll().get(0);
+                net.minecraft.item.Item[] items = { net.minecraft.item.Items.DIAMOND, net.minecraft.item.Items.APPLE,
+                        net.minecraft.item.Items.IRON_INGOT, net.minecraft.item.Items.BOW, net.minecraft.item.Items.ARROW,
+                        net.minecraft.item.Items.GOLDEN_APPLE, net.minecraft.item.Items.BREAD, net.minecraft.item.Items.COAL,
+                        net.minecraft.item.Items.IRON_PICKAXE };
+                for (int i = 9; i < 36; i++) p.inventory.setItem(i, new net.minecraft.item.ItemStack(items[i % items.length], 1 + i % 16));
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] invfill: " + t); } } });
+            return true; } });
+        wait(20);
+        open(new Factory() { Screen make(Minecraft mc) { return new SurvivalInventoryScreen(mc.player); } });
+        wait(40);
+        shot("if-survival.png");
+        // empty hand (slot 8): "CS arms everywhere" draws the boxing fists instead of the knife
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); mc.player.inventory.selectedSlot = 8; return true; } });
+        wait(30);
+        shot("if-emptyhand-world.png");
+        open(new Factory() { Screen make(Minecraft mc) { return new SurvivalInventoryScreen(mc.player); } });
+        wait(40);
+        shot("if-survival-emptyhand.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });
+        wait(8);
+        add(new Scene() { public boolean step(final Minecraft mc, int f) {
+            onServer(mc, new Runnable() { public void run() { try {
+                mc.getServer().getPlayerManager().getAll().get(0)
+                  .setGameMode(net.minecraft.world.WorldSettings.GameMode.CREATIVE);
+            } catch (Throwable t) { System.out.println("[S1mp1e][DevShot] creative: " + t); } } });
+            return true; } });
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            return (mc.interactionManager != null && mc.interactionManager.hasCreativeInventory()) || f > 200; } });
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.openScreen(new net.minecraft.client.gui.screen.inventory.menu.CreativeInventoryScreen(mc.player)); return true; } });
+        wait(30);
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            selectCreative(mc, net.minecraft.item.CreativeModeTab.INVENTORY); return true; } });
+        wait(40);
+        shot("if-creative-inv.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });
+        wait(10);
+    }
+
+    /** CS2 刀庫存（B 鍵）：刀分頁、手套分頁各拍一張，背後是即時的第一人稱刀預覽。 */
+    private static void queueLocker() {
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.openScreen(new dev.s1mp1e.o.client.gui.KnifeLockerScreen()); return true; } });
+        wait(60);
+        shot("locker-knife.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) {
+            mc.openScreen(new dev.s1mp1e.o.client.gui.KnifeLockerScreen().gloves()); return true; } });
+        wait(60);
+        shot("locker-gloves.png");
+        add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });
+        wait(10);
+    }
+
     /** 世界階段（world.png 之後，玩家已拿到固定的裝備）。 */
     static void queueWorld() {
         if (has("settings")) queueSettings();
@@ -118,6 +176,8 @@ final class DevShotScenes {
         if (has("hud")) queueHud();
         if (has("inv")) queueInv();
         if (has("load")) queueLoad();
+        if (has("locker")) queueLocker();
+        if (has("invfill")) queueInvFill();
         if (has("trans")) queueTrans();
         if (has("ag")) queueAg();
         add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });

@@ -32,6 +32,7 @@ public class LauncherSettings
     [JsonPropertyName("perf_pack")]           public bool   PerfPack           { get; set; } = true;    // measured performance pack (perf.rs)
     [JsonPropertyName("menu_key")]            public int    MenuKey            { get; set; } = 54;      // LWJGL RShift; the in-game config-GUI open key
     [JsonPropertyName("update_prerelease")]   public bool   UpdatePrerelease   { get; set; }            // mod updates: include beta/alpha, not just release
+    [JsonPropertyName("cs2_knives")]          public bool   Cs2Knives          { get; set; }            // show the CS2 knife-pack row on the Play page
 }
 
 /// One saved MC account (mirrors Rust's <c>Account</c>). The tokens are the raw

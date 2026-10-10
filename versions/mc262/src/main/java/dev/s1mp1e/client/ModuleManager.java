@@ -115,6 +115,7 @@ public final class ModuleManager {
         add("ParticlesModule",     safeParticles());
         // name-tag plate: glass tint / vanilla / off
         add("NameTagModule",       safeNameTag());
+        add("KnifeModule",         safeKnife());
         // 正在播放：靈動島外觀已棄用（改做 iOS 控制中心「正在播放」玻璃卡，打開畫面才顯示）。
         // MediaClient/AlbumArt/DynamicIslandModule 類別先保留給卡片重用，但不再註冊成 HUD 模組。
         // add("DynamicIslandModule", safeDynamicIsland());
@@ -138,6 +139,10 @@ public final class ModuleManager {
 
     private static Module safeDynamicIsland() {
         try { return new dev.s1mp1e.client.module.DynamicIslandModule(); } catch (Throwable t) { return fail("DynamicIslandModule", t); }
+    }
+
+    private static Module safeKnife() {
+        try { return new dev.s1mp1e.client.module.KnifeModule(); } catch (Throwable t) { return fail("KnifeModule", t); }
     }
 
     private static Module safeNameTag() {

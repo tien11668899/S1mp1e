@@ -673,6 +673,35 @@
                                             VerticalAlignment="Center" IsVisible="False"
                                             Click="OnInstallSelectedVersion"/>
                                 </Grid>
+
+                                <!-- CS2 knife pack (設定 › CS2 刀皮): download icon until the shared pack is on disk,
+                                     then the in-game CS2 knife module's on/off switch -->
+                                <Rectangle x:Name="KnifeRowDivider" Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0" IsVisible="False"/>
+                                <Grid x:Name="KnifeRow" Margin="16,12" ColumnDefinitions="Auto,*,Auto" IsVisible="False">
+                                    <Border Grid.Column="0" Classes="tile" Background="#FF375F">
+                                        <Image Source="avares://S1mp1e/Assets/Icons/scissors.png" Width="18" Height="18"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="CS2 刀皮" FontSize="13" Foreground="{DynamicResource TextMain}"/>
+                                        <TextBlock x:Name="KnifeStatus" Text="" FontSize="11" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextSub}"/>
+                                    </StackPanel>
+                                    <Panel Grid.Column="2" VerticalAlignment="Center">
+                                        <Button x:Name="KnifeDlBtn" Classes="mini" Padding="10,5" Click="OnKnifeDownload"
+                                                ToolTip.Tip="下載 CS2 刀皮">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Border Width="16" Height="16" Background="{DynamicResource Accent}" VerticalAlignment="Center">
+                                                    <Border.OpacityMask>
+                                                        <ImageBrush Source="avares://S1mp1e/Assets/Icons/arrow.down.circle.fill.png" Stretch="Uniform"/>
+                                                    </Border.OpacityMask>
+                                                </Border>
+                                                <TextBlock x:Name="KnifeDlLabel" Text="下載" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <ctl:LiquidToggle x:Name="KnifeToggle" IsVisible="False" Margin="0,-6"
+                                                          IsCheckedChanged="OnKnifeToggleChanged"/>
+                                    </Panel>
+                                </Grid>
                             </StackPanel>
                         </Border>
                         </StackPanel>
@@ -879,6 +908,12 @@
                                         <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/circle.righthalf.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="模組更新含測試版" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="檢查模組更新時也納入 beta / alpha，而不只是正式版" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
                                         <ctl:LiquidToggle x:Name="PrereleaseToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnPrereleaseToggleChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#FF375F"><Image Source="avares://S1mp1e/Assets/Icons/scissors.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="CS2 刀皮" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="拿劍時改用 CS2 刀與動畫（26.2 / 26.3 / 1.8.9）；開啟後可在「開始遊戲」下載刀包" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:LiquidToggle x:Name="KnivesSettingToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnKnivesSettingToggleChanged"/>
                                     </Grid>
                                 </StackPanel>
                             </Border>

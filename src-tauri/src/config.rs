@@ -37,6 +37,7 @@ pub struct Settings {
     // token-refresh save doesn't drop the value).
     #[serde(default)]               pub menu_key: i32,        // in-game config-GUI open key (UI-owned)
     #[serde(default)]               pub update_prerelease: bool, // mod updates include beta/alpha
+    #[serde(default)]               pub cs2_knives: bool,     // show the CS2 knife-pack row on the Play page (UI-owned)
 }
 
 fn d_ram() -> u32 { 4096 }
@@ -57,7 +58,7 @@ impl Default for Settings {
             theme: d_theme(),
             jvm_args: String::new(), res_width: 0, res_height: 0, java_path: String::new(),
             default_mods: d_true(), perf_pack: d_true(),
-            menu_key: 0, update_prerelease: false,
+            menu_key: 0, update_prerelease: false, cs2_knives: false,
         }
     }
 }

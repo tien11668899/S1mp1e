@@ -18,6 +18,7 @@ import dev.s1mp1e.o.client.module.HandPositionModule;
 import dev.s1mp1e.o.client.module.HungerSaturationHudModule;
 import dev.s1mp1e.o.client.module.InventoryHudModule;
 import dev.s1mp1e.o.client.module.KeystrokesHudModule;
+import dev.s1mp1e.o.client.module.KnifeModule;
 import dev.s1mp1e.o.client.module.NoHurtCamModule;
 import dev.s1mp1e.o.client.module.OldAnimationsModule;
 import dev.s1mp1e.o.client.module.PotionHudModule;
@@ -108,6 +109,7 @@ public final class ModuleManager {
         add("ChromaHudModule",     safeChromaHud());
         add("HitMarkerModule",     safeHitMarker());   // 1.8.9 combat (no cooldown -> no AttackRing)
         add("LowFireModule",       safeLowFire());
+        add("CS2KnifeModule",      safeKnife());       // CS2 knives on swords (viewmodel / skins / boxing arms)
 
         S1mp1eConfig.load();
 
@@ -148,6 +150,10 @@ public final class ModuleManager {
 
     private static Module safeLowFire() {
         try { return new LowFireModule(); } catch (Throwable t) { return fail("LowFireModule", t); }
+    }
+
+    private static Module safeKnife() {
+        try { return new KnifeModule(); } catch (Throwable t) { return fail("CS2KnifeModule", t); }
     }
 
     private static Module safeCrosshair() {
