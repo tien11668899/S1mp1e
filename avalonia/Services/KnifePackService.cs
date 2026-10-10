@@ -111,28 +111,19 @@ public static class KnifePackService
         var dest = PackDir(mcDir);
         try
         {
-            // 1) stream the zip, hashing as it arrives
-            using (var resp = await Http.GetAsync(m.Url, HttpCompletionOption.ResponseHeadersRead, ct))
+            // 1) download: 8 parallel ranges when the server supports them (GitHub's release CDN caps each
+            //    connection at ~150 KB/s here but serves ~14 MB/s across 8), else one stream; then verify
+            long total = m.Size;
+            if (await SupportsRangesAsync(m.Url, ct)) await DownloadRangesAsync(m.Url, zip, total, progress, ct);
+            else await DownloadSingleAsync(m.Url, zip, total, progress, ct);
+            progress.Report(("download", 1));
+            progress.Report(("verify", 0));
+            string got = await Task.Run(() =>
             {
-                resp.EnsureSuccessStatusCode();
-                long total = resp.Content.Headers.ContentLength ?? m.Size;
-                await using var src = await resp.Content.ReadAsStreamAsync(ct);
-                await using var dst = new FileStream(zip, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, true);
-                using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                var buf = new byte[1 << 20];
-                long done = 0; int n; long lastTick = 0;
-                while ((n = await src.ReadAsync(buf, ct)) > 0)
-                {
-                    await dst.WriteAsync(buf.AsMemory(0, n), ct);
-                    sha.AppendData(buf, 0, n);
-                    done += n;
-                    long now = Environment.TickCount64;
-                    if (now - lastTick > 100) { lastTick = now; progress.Report(("download", total > 0 ? (double)done / total : 0)); }
-                }
-                progress.Report(("download", 1));
-                var got = Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant();
-                if (got != m.Sha256) throw new InvalidDataException("下載的檔案校驗不符，請重試");
-            }
+                using var f = new FileStream(zip, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20);
+                return Convert.ToHexString(SHA256.HashData(f)).ToLowerInvariant();
+            }, ct);
+            if (got != m.Sha256) throw new InvalidDataException("下載的檔案校驗不符，請重試");
 
             // 2) extract into a sibling stage folder (zip-slip guarded)
             if (Directory.Exists(stage)) Directory.Delete(stage, true);
@@ -172,6 +163,106 @@ public static class KnifePackService
             try { if (File.Exists(zip)) File.Delete(zip); } catch { }
             try { if (Directory.Exists(stage)) Directory.Delete(stage, true); } catch { }
         }
+    }
+
+    private const int Parts = 8;
+    /// <summary>No byte for this long on a connection = stalled: drop it and resume the range.</summary>
+    private const int StallMs = 15000;
+
+    private static async Task<bool> SupportsRangesAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 0);
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            return resp.StatusCode == System.Net.HttpStatusCode.PartialContent;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return false; }
+    }
+
+    private static async Task DownloadSingleAsync(string url, string zip, long total,
+                                                  IProgress<(string, double)> progress, CancellationToken ct)
+    {
+        using var stall = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        stall.CancelAfter(StallMs);
+        using var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, stall.Token);
+        resp.EnsureSuccessStatusCode();
+        await using var src = await resp.Content.ReadAsStreamAsync(stall.Token);
+        await using var dst = new FileStream(zip, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, true);
+        var buf = new byte[1 << 20];
+        long done = 0; int n; long lastTick = 0;
+        while (true)
+        {
+            stall.CancelAfter(StallMs);
+            n = await src.ReadAsync(buf, stall.Token);
+            if (n <= 0) break;
+            await dst.WriteAsync(buf.AsMemory(0, n), ct);
+            done += n;
+            long now = Environment.TickCount64;
+            if (now - lastTick > 100) { lastTick = now; progress.Report(("download", total > 0 ? (double)done / total : 0)); }
+        }
+    }
+
+    /// <summary>
+    /// Split [0, total) into <see cref="Parts"/> ranges, each fetched on its own connection into its slot of a
+    /// pre-sized file; a dropped connection resumes its range from where it stopped (a few retries).
+    /// </summary>
+    private static async Task DownloadRangesAsync(string url, string zip, long total,
+                                                  IProgress<(string, double)> progress, CancellationToken ct)
+    {
+        using (var fs = new FileStream(zip, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)) fs.SetLength(total);
+        long seg = (total + Parts - 1) / Parts, done = 0;
+        var tasks = new Task[Parts];
+        for (int i = 0; i < Parts; i++)
+        {
+            long from = i * seg, to = Math.Min(total, from + seg) - 1;
+            tasks[i] = Task.Run(async () =>
+            {
+                long pos = from;
+                for (int attempt = 0; pos <= to; attempt++)
+                {
+                    if (attempt > 12) throw new IOException("下載連線一直中斷，請稍後重試");
+                    // stall guard: a CDN connection can go silent mid-range and HttpClient's timeout is infinite here,
+                    // so every header wait / read gets its own deadline; on expiry the range resumes from `pos`
+                    using var stall = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    try
+                    {
+                        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                        req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(pos, to);
+                        stall.CancelAfter(StallMs);
+                        using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, stall.Token);
+                        if (resp.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                            throw new HttpRequestException($"range request returned {(int)resp.StatusCode}");
+                        await using var src = await resp.Content.ReadAsStreamAsync(stall.Token);
+                        await using var dst = new FileStream(zip, FileMode.Open, FileAccess.Write, FileShare.ReadWrite, 1 << 16, true);
+                        dst.Seek(pos, SeekOrigin.Begin);
+                        var buf = new byte[1 << 16];
+                        while (pos <= to)
+                        {
+                            stall.CancelAfter(StallMs);
+                            int n = await src.ReadAsync(buf.AsMemory(0, (int)Math.Min(buf.Length, to - pos + 1)), stall.Token);
+                            if (n <= 0) break;
+                            await dst.WriteAsync(buf.AsMemory(0, n), ct);
+                            pos += n;
+                            Interlocked.Add(ref done, n);
+                        }
+                    }
+                    catch (Exception) when (!ct.IsCancellationRequested && attempt < 12)
+                    {
+                        await Task.Delay(Math.Min(4000, 500 * (attempt + 1)), ct);
+                    }
+                }
+            }, ct);
+        }
+        var all = Task.WhenAll(tasks);
+        while (!all.IsCompleted)
+        {
+            await Task.WhenAny(all, Task.Delay(150, ct));
+            progress.Report(("download", (double)Interlocked.Read(ref done) / total));
+        }
+        await all;   // rethrows the first failure
     }
 
     // ---- the in-game module switch (shared modules.json, merging write) -------------------------------------

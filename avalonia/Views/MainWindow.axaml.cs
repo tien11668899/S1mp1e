@@ -1598,7 +1598,7 @@ public partial class MainWindow : Window
                         UpdateKnifeRow();
                         OnKnifeDownload(KnifeDlBtn, new RoutedEventArgs());
                         await System.Threading.Tasks.Task.Delay(200);
-                        for (int i = 0; i < 1200 && _knifeBusy; i++) await System.Threading.Tasks.Task.Delay(250);
+                        for (int i = 0; i < 2400 && _knifeBusy; i++) await System.Threading.Tasks.Task.Delay(250);
                         await NextFrameAsync();
                         SaveWindowPng(System.IO.Path.Combine(outDir, "knife-afterdl.png"));
                         System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "dl-result.txt"),
@@ -2919,7 +2919,12 @@ public partial class MainWindow : Window
         {
             if (!_knifeBusy) return;   // Progress<T> posts async: a late report must not overwrite the final state
             int pct = (int)Math.Round(Math.Clamp(p.frac, 0, 1) * 100);
-            _knifeProgress = p.phase == "download" ? $"下載中 {pct}%" : $"解壓縮中 {pct}%";
+            _knifeProgress = p.phase switch
+            {
+                "download" => $"下載中 {pct}%",
+                "verify"   => "驗證檔案中…",
+                _          => $"解壓縮中 {pct}%",
+            };
             if (KnifeDlLabel is not null) KnifeDlLabel.Text = $"{pct}%";
             if (KnifeStatus is not null) KnifeStatus.Text = _knifeProgress;
         });
@@ -2931,9 +2936,12 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             LogCrash(ex);
-            _knifeError = ex is System.Net.Http.HttpRequestException
-                ? "下載失敗 — 請檢查網路連線後重試"
-                : "下載失敗 — " + ex.Message;
+            _knifeError = ex switch
+            {
+                System.Net.Http.HttpRequestException => "下載失敗 — 請檢查網路連線後重試",
+                OperationCanceledException or TimeoutException => "下載逾時 — 網路太慢或中斷，請重試",
+                _ => "下載失敗 — " + ex.Message,
+            };
         }
         finally
         {
