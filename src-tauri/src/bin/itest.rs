@@ -379,6 +379,9 @@ async fn cmd_play(a: &[String]) -> i32 {
     // （Ornithe 1.8.9 沒有：Modrinth 上 1.8.9 的「fabric」是 LegacyFabric，對 Ornithe 不相容）
     if settings.default_mods && is_fabric_loader(&loader) && !is_ornithe {
         let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
+    } else if settings.glass && is_fabric_loader(&loader) && !is_ornithe {
+        // default set switched off: still give liquid glass its one hard prerequisite
+        let _ = default_mods::ensure_fabric_api(&root, &mc, &silent_emit()).await;
     }
     // Forge has no dependency resolution for coremods: a mod whose coremod needs a library
     // that is not installed (MixinBooter on 1.12.2) makes the game exit before its window
@@ -488,8 +491,13 @@ async fn cmd_install(a: &[String]) -> i32 {
     let res = match kind {
         "fabric" => {
             let res = install::install_fabric(root.clone(), mc.clone(), silent_emit()).await;
-            if res.is_ok() && config::load().settings.default_mods && mc != ornithe::MC {
-                let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
+            let st = config::load().settings;
+            if res.is_ok() && mc != ornithe::MC {
+                if st.default_mods {
+                    let _ = default_mods::ensure_default_mods(&root, &mc, &silent_emit()).await;
+                } else if st.glass {
+                    let _ = default_mods::ensure_fabric_api(&root, &mc, &silent_emit()).await;
+                }
             }
             res
         }

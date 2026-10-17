@@ -210,6 +210,22 @@ pub async fn ensure_default_mods(root: &PathBuf, mc: &str, emit: &Emit) -> Resul
     Ok(())
 }
 
+/// Liquid glass's prerequisite on its own: from 1.17 the glass shaders are resources that only Fabric API's
+/// resource loader registers, so a glass launch without Fabric API silently renders no glass. Called when the
+/// default mod set is switched off; Modrinth having no build for this version (1.13.2) is a quiet no-op.
+pub async fn ensure_fabric_api(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
+    let dir = root.join("s1mp1e-mods").join(mc);
+    let present = installed_ids(&dir);
+    let Some(api) = MODS.iter().find(|m| m.slug == "fabric-api") else { return Ok(()) };
+    if api.ids.iter().any(|id| present.contains(*id)) {
+        return Ok(());
+    }
+    tick(emit, "準備液態玻璃前置 Fabric API".into(), 0, 1);
+    let _ = install_one(&client(), api, mc, &dir).await; // offline / failed: try again on the next launch
+    tick(emit, "液態玻璃前置就緒".into(), 1, 1);
+    Ok(())
+}
+
 /// Ok(true) = downloaded, Ok(false) = no build for this version (still counts as offered).
 async fn install_one(cl: &reqwest::Client, m: &DefaultMod, mc: &str, dir: &Path) -> Result<bool> {
     let Some(file) = resolve(cl, m, mc).await? else { return Ok(false) };
@@ -242,6 +258,23 @@ mod tests {
         v.retain(|n| n.ends_with(".jar"));
         v.sort();
         v
+    }
+
+    /// Network test: glass's prerequisite alone (default set off) — only Fabric API, once; no build = quiet no-op.
+    #[tokio::test]
+    async fn fabric_api_alone_for_glass() {
+        let root = std::env::temp_dir().join(format!("s1mp1e-glassapi-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("s1mp1e-mods").join("26.3");
+        ensure_fabric_api(&root, "26.3", &quiet()).await.unwrap();
+        let first = jars(&dir);
+        assert_eq!(first.len(), 1, "exactly Fabric API: {first:?}");
+        assert!(first[0].contains("fabric-api"), "{first:?}");
+        ensure_fabric_api(&root, "26.3", &quiet()).await.unwrap();
+        assert_eq!(jars(&dir), first, "second call must not download again");
+        ensure_fabric_api(&root, "1.13.2", &quiet()).await.unwrap();
+        assert!(jars(&root.join("s1mp1e-mods").join("1.13.2")).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Network test against Modrinth (about 6 MB).

@@ -62,6 +62,12 @@ public final class Lang {
         SETTING.put("Center Dot", "中心點");
         SETTING.put("Dot Size", "點大小");
         SETTING.put("Rotation", "旋轉");
+        SETTING.put("Vertical Size", "直向長度（0＝同大小）");
+        SETTING.put("Top Arm", "上臂");
+        SETTING.put("Bottom Arm", "下臂");
+        SETTING.put("Left Arm", "左臂");
+        SETTING.put("Right Arm", "右臂");
+        SETTING.put("Outline Thickness", "外框粗細");
         SETTING.put("Camera shake", "鏡頭晃動");
         SETTING.put("Red flash", "紅色閃爍");
         SETTING.put("Swing while using", "使用時揮手");

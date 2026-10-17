@@ -422,6 +422,71 @@ fn setup_instance(root: &PathBuf, mc: &str) -> PathBuf {
     inst
 }
 
+/// 26.x lets the player pick a graphics backend (`preferredGraphicsBackend` in options.txt); the liquid-glass shaders
+/// assume OpenGL's bottom-left framebuffer origin, so on Vulkan the mod drops to flat grey panels. Pin the instance to
+/// OpenGL: replace the line's value, or append the line when absent; every other line (and the file's line endings)
+/// is kept, and nothing is written when it is already OpenGL. Never fatal.
+fn force_opengl_backend(inst: &std::path::Path) {
+    let path = inst.join("options.txt");
+    let old = std::fs::read_to_string(&path).unwrap_or_default();
+    if let Some(new) = with_opengl_backend(&old) {
+        let tmp = path.with_extension("txt.s1tmp");
+        if std::fs::write(&tmp, new).is_ok() && std::fs::rename(&tmp, &path).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+}
+
+/// The options text with `preferredGraphicsBackend:"opengl"`, or None when it already says so.
+fn with_opengl_backend(old: &str) -> Option<String> {
+    const KEY: &str = "preferredGraphicsBackend:";
+    const WANT: &str = "preferredGraphicsBackend:\"opengl\"";
+    let nl = if old.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut found = false;
+    let mut changed = false;
+    let mut lines: Vec<String> = Vec::new();
+    for line in old.lines() {
+        if line.starts_with(KEY) {
+            found = true;
+            if line.trim_end() != WANT {
+                changed = true;
+                lines.push(WANT.to_string());
+                continue;
+            }
+        }
+        lines.push(line.to_string());
+    }
+    if !found {
+        lines.push(WANT.to_string());
+        changed = true;
+    }
+    if !changed {
+        return None;
+    }
+    let mut out = lines.join(nl);
+    out.push_str(nl);
+    Some(out)
+}
+
+#[cfg(test)]
+mod opengl_backend_tests {
+    use super::with_opengl_backend;
+
+    #[test]
+    fn replaces_vulkan_keeps_rest() {
+        let old = "version:4671\r\npreferredGraphicsBackend:\"vulkan\"\r\nfov:0.0\r\n";
+        assert_eq!(with_opengl_backend(old).unwrap(),
+                   "version:4671\r\npreferredGraphicsBackend:\"opengl\"\r\nfov:0.0\r\n");
+    }
+
+    #[test]
+    fn appends_when_missing_and_noop_when_set() {
+        assert_eq!(with_opengl_backend("fov:0.0\n").unwrap(), "fov:0.0\npreferredGraphicsBackend:\"opengl\"\n");
+        assert_eq!(with_opengl_backend("").unwrap(), "preferredGraphicsBackend:\"opengl\"\n");
+        assert!(with_opengl_backend("a:1\npreferredGraphicsBackend:\"opengl\"\n").is_none());
+    }
+}
+
 pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::config::Settings) -> Result<LaunchPlan> {
     let ram_mb = settings.ram_mb;
     let glass = settings.glass;
@@ -429,6 +494,10 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     let natives = extract_natives(root, &merged)?;
     // Per-version gameDir for mod isolation (assets/libraries/natives stay shared under root).
     let gamedir = setup_instance(root, &merged.base_id);
+    // 26.x: liquid glass refracts only on the OpenGL backend (Vulkan falls back to flat grey panels)
+    if glass && merged.base_id.starts_with("26.") {
+        force_opengl_backend(&gamedir);
+    }
 
     // classpath: all allowed library jars + the base client jar
     let mut cp: Vec<String> = Vec::new();

@@ -141,7 +141,7 @@ public final class DevShot {
                              P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28, P_TRANS = 29, P_INGAME = 30, P_LISTS = 31,
                              P_LOOPPREV = 32, P_AUDIT = 34, P_GLASSHUD = 35, P_ESSENTIAL = 36, P_OPTCLICK = 37, P_SLIDERDRAG = 38,
                              P_NAMETAGS = 39, P_KEYGUARD = 40,
-                             P_KNIFE = 41, P_LOCKER = 42, P_KANIM = 43, P_KHOLD = 44, P_LOCKANIM = 45, P_CSARM = 46, P_SEEDS = 47, P_CSROLL = 48;
+                             P_KNIFE = 41, P_LOCKER = 42, P_KANIM = 43, P_KHOLD = 44, P_LOCKANIM = 45, P_CSARM = 46, P_SEEDS = 47, P_CSROLL = 48, P_XHAIR = 49;
 
     /** Per-screen shot timing for the {@code screens} sweep. */
     private static final int SCREEN_SETTLE = 45;   // frames rendered before the capture request
@@ -219,6 +219,7 @@ public final class DevShot {
     private static int kaKnife;
     private static boolean kholdMode, khSetup, khShot;
     private static boolean csarmMode, csSetup, csShot; private static long csT0; private static int csStage;
+    private static boolean xhairMode; private static int xhIdx; private static long xhT0;
     private static boolean seedsMode, sdSetup; private static long sdT0; private static int sdIdx;
     private static boolean csrollMode, crSetup; private static long crT0; private static int crIdx;
     private static boolean lockanimMode, laSetup;
@@ -325,6 +326,7 @@ public final class DevShot {
                     kholdMode = mode != null && mode.trim().equalsIgnoreCase("khold");
                     csarmMode = mode != null && mode.trim().equalsIgnoreCase("csarm");
                     seedsMode = mode != null && mode.trim().equalsIgnoreCase("seeds");
+                    xhairMode = mode != null && mode.trim().equalsIgnoreCase("xhair");
                     csrollMode = mode != null && mode.trim().equalsIgnoreCase("csroll");
                     lockanimMode = mode != null && mode.trim().equalsIgnoreCase("lockanim");
                     combatMode = mode != null && mode.trim().equalsIgnoreCase("combat");
@@ -437,6 +439,7 @@ public final class DevShot {
                 case P_CSARM:        stepCsarm(client);                    break;
                 case P_SEEDS:        stepSeeds(client);                    break;
                 case P_CSROLL:       stepCsroll(client);                   break;
+                case P_XHAIR:        stepXhair(client);                    break;
                 case P_LOCKANIM:     stepLockanim(client);                 break;
                 case P_COMBAT:       stepCombat(client);                   break;
                 case P_TRANS:        stepTrans(client);                    break;
@@ -602,7 +605,7 @@ public final class DevShot {
             if (essentialMode) { frames = 0; phase = P_ESSENTIAL; return; }   // menus only, no world
             if (optClickMode) { frames = 0; phase = P_OPTCLICK; return; }   // menus only, no world
             if (sliderDragMode) { frames = 0; phase = P_SLIDERDRAG; return; }   // menus only, no world
-            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode || keyGuardMode || knifeMode || lockerMode || kanimMode || kholdMode || lockanimMode || csarmMode || seedsMode || csrollMode) {
+            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode || keyGuardMode || knifeMode || lockerMode || kanimMode || kholdMode || lockanimMode || csarmMode || seedsMode || csrollMode || xhairMode) {
                 // Screens / HUD / modules / flicker / tabs / scroll / clicks / effects sweep: skip the title/config baseline shots and head straight for the world.
                 if (createWorld(client)) {
                     frames = 0; phase = P_WAIT_WORLD;
@@ -679,7 +682,7 @@ public final class DevShot {
         frames = 0; phase = glassHudMode ? P_GLASSHUD : auditMode ? P_AUDIT : transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
                 : modulesMode ? P_MODULES : flickerMode ? P_FLICKER : tabsMode ? P_TABS
                 : scrollMode ? P_SCROLL : clicksMode ? P_CLICKS : glideMode ? P_GLIDE : tooltipsMode ? P_TOOLTIPS
-                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : keyGuardMode ? P_KEYGUARD : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : P_WORLD;
+                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : keyGuardMode ? P_KEYGUARD : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : xhairMode ? P_XHAIR : P_WORLD;
     }
 
     private static void stepWorld(Minecraft client) {
@@ -4703,8 +4706,8 @@ public final class DevShot {
                     if (ch != null) {
                         ch.enabled = true;
                         ch.shape.modeValue = combatStage == 13 ? "Cross" : "Circle";
-                        ch.size.intValue = 7; ch.gap.intValue = 3; ch.thick.intValue = 2;
-                        ch.rotation.intValue = combatStage == 13 ? 45 : 0;
+                        ch.size.doubleValue = 7; ch.gap.doubleValue = 3; ch.thick.doubleValue = 2;
+                        ch.rotation.doubleValue = combatStage == 13 ? 45 : 0;
                     }
                     if (ring != null) ring.shape.modeValue = "Wrap";
                     client.player.resetAttackStrengthTicker();
@@ -5224,6 +5227,41 @@ public final class DevShot {
      * step through S1MP1E_SEEDS ("387,1,500"), capturing seed-<n>.png once each composite is ready. With
      * S1MP1E_SKIN_DUMP the flat composited textures are written too.
      */
+    /** Crosshair presets (S1MP1E_SHOT_MODE=xhair): {name, shape, size, vSize, thick, gap, rot, dot(0=off), outlineW, top}. */
+    private static final Object[][] XH = {
+        { "base",   "Cross",  4.0, 0.0, 1.0, 2.0,  0.0, 0.0, 1.0, true },
+        { "dec",    "Cross",  4.5, 0.0, 1.5, 1.5,  0.0, 0.0, 0.5, true },
+        { "vsize",  "Cross",  6.0, 3.0, 1.0, 3.0,  0.0, 0.0, 1.0, false },
+        { "rot",    "Cross",  5.0, 0.0, 1.0, 2.0, 22.5, 1.5, 1.0, true },
+        { "circle", "Circle", 3.5, 0.0, 1.5, 4.0,  0.0, 0.0, 0.5, true },
+    };
+
+    private static void stepXhair(Minecraft client) {
+        if (client.player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
+        try { client.gui.toastManager().clear(); } catch (Throwable ignored) {}
+        try { if (client.gui.screen() != null) client.gui.setScreen(null); } catch (Throwable ignored) {}
+        dev.s1mp1e.client.module.CrosshairModule ch =
+                (dev.s1mp1e.client.module.CrosshairModule) ModuleManager.byName("Crosshair");
+        if (ch == null || xhIdx >= XH.length) { frames = 0; phase = P_DRAIN; return; }
+        if (frames++ == 0) {
+            Object[] p = XH[xhIdx];
+            ch.enabled = true;
+            ch.shape.modeValue = (String) p[1];
+            ch.size.doubleValue = (double) p[2]; ch.vSize.doubleValue = (double) p[3];
+            ch.thick.doubleValue = (double) p[4]; ch.gap.doubleValue = (double) p[5];
+            ch.rotation.doubleValue = (double) p[6];
+            ch.centerDot.boolValue = (double) p[7] > 0; if ((double) p[7] > 0) ch.dotSize.doubleValue = (double) p[7];
+            ch.outline.boolValue = true; ch.outlineW.doubleValue = (double) p[8];
+            ch.armTop.boolValue = (boolean) p[9];
+            xhT0 = System.nanoTime();
+            return;
+        }
+        if ((System.nanoTime() - xhT0) / 1e9 > 0.6) {
+            capture(client, "xhair-" + XH[xhIdx][0] + ".png");
+            xhIdx++; frames = 0;
+        }
+    }
+
     private static void stepSeeds(Minecraft client) {
         final LocalPlayer player = client.player;
         if (player == null || client.gui == null) { frames = 0; phase = P_DRAIN; return; }
