@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 namespace S1mp1e.Services;
 
@@ -33,6 +34,10 @@ public class LauncherSettings
     [JsonPropertyName("menu_key")]            public int    MenuKey            { get; set; } = 54;      // LWJGL RShift; the in-game config-GUI open key
     [JsonPropertyName("update_prerelease")]   public bool   UpdatePrerelease   { get; set; }            // mod updates: include beta/alpha, not just release
     [JsonPropertyName("cs2_knives")]          public bool   Cs2Knives          { get; set; }            // show the CS2 knife-pack row on the Play page
+    [JsonPropertyName("discord_presence")]    public bool   DiscordPresence    { get; set; } = true;    // show the game on the Discord profile (DiscordPresence.cs)
+
+    /// <summary>Settings this build does not know (written by a newer launcher or the CLI): kept and written back.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 
 /// One saved MC account (mirrors Rust's <c>Account</c>). The tokens are the raw
@@ -65,6 +70,16 @@ public class LauncherConfig
     /// version before writing the new one (else two versions double-load and clash).
     [JsonPropertyName("downloaded_mod_files")]
     public Dictionary<string, string> DownloadedModFiles { get; set; } = new();
+
+    /// <summary>Top-level keys this build does not know: kept and written back, so nothing another version wrote is lost.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+
+    /// <summary>
+    /// True for the stand-in returned when config.json exists but could not be read (locked by antivirus, the indexer,
+    /// or the CLI saving at that instant). It must never be saved: it holds no accounts, and writing it would replace the
+    /// player's real file. <see cref="ConfigStore"/> refuses to persist it.
+    /// </summary>
+    [JsonIgnore] public bool Unreadable { get; init; }
 }
 
 /// <summary>Load / save the launcher config shared with the Rust CLI.</summary>
@@ -80,23 +95,38 @@ public static class ConfigStore
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                      "S1mp1e", "config.json");
 
+    /// <summary>
+    /// The saved config. A missing file is a fresh install. A file that exists but cannot be read right now is retried
+    /// briefly; if it stays unreadable the result is an empty stand-in marked <see cref="LauncherConfig.Unreadable"/>,
+    /// which every save path refuses to write — an I/O hiccup must never turn into "all accounts deleted". Only JSON
+    /// that does not parse is treated as corrupt: it is moved aside under a timestamped name (an earlier backup is never
+    /// overwritten) and a fresh config starts.
+    /// </summary>
     public static LauncherConfig Load()
     {
+        string? json = null;
+        for (int attempt = 0; attempt < 6; attempt++)
+        {
+            try
+            {
+                if (!File.Exists(ConfigPath)) return new LauncherConfig();
+                json = File.ReadAllText(ConfigPath);
+                break;
+            }
+            catch (FileNotFoundException) { return new LauncherConfig(); }
+            catch (DirectoryNotFoundException) { return new LauncherConfig(); }
+            catch (Exception) when (attempt < 5) { Thread.Sleep(50 * (attempt + 1)); }
+            catch (Exception) { return new LauncherConfig { Unreadable = true }; }
+        }
         try
         {
-            if (File.Exists(ConfigPath))
-            {
-                var json = File.ReadAllText(ConfigPath);
-                return JsonSerializer.Deserialize<LauncherConfig>(json) ?? new LauncherConfig();
-            }
+            return JsonSerializer.Deserialize<LauncherConfig>(json!) ?? new LauncherConfig();
         }
-        catch
+        catch (JsonException)
         {
-            // Corrupt config → keep a copy for recovery instead of silently wiping the
-            // account + settings, then start fresh.
-            try { File.Move(ConfigPath, ConfigPath + ".corrupt", overwrite: true); } catch { }
+            try { File.Move(ConfigPath, $"{ConfigPath}.corrupt-{DateTime.Now:yyyyMMdd-HHmmss}", overwrite: false); } catch { }
+            return new LauncherConfig();
         }
-        return new LauncherConfig();
     }
 
     /// <summary>
@@ -113,31 +143,49 @@ public static class ConfigStore
     /// straight over the successful sign-in and the next launch fell back to
     /// offline. Account changes are deliberate and go through <see cref="Save"/>.
     /// </remarks>
-    public static void SaveUiOwned(LauncherConfig cfg)
+    public static bool SaveUiOwned(LauncherConfig cfg)
     {
+        // The in-memory copy may itself be the stand-in from an unreadable startup: its settings are defaults, not the
+        // player's, and must not be merged into the real file either.
+        if (cfg.Unreadable) return false;
         try
         {
             var live = Load();
+            if (live.Unreadable) return false;   // never write over a file we could not read
             live.Settings           = cfg.Settings;
             live.ClientId           = cfg.ClientId;
             live.DownloadedMods     = cfg.DownloadedMods;
             live.DownloadedModFiles = cfg.DownloadedModFiles;
-            Save(live);
+            return Save(live);
         }
-        catch { /* best effort */ }
+        catch { return false; }
     }
 
-    public static void Save(LauncherConfig cfg)
+    /// <summary>
+    /// Write the whole config atomically: a per-process temp file (the CLI uses its own), then a rename over the real
+    /// file, retried briefly when another process has config.json open for a moment. Refuses an
+    /// <see cref="LauncherConfig.Unreadable"/> stand-in. Returns false when nothing was written.
+    /// </summary>
+    public static bool Save(LauncherConfig cfg)
     {
+        if (cfg.Unreadable) return false;
+        string? tmp = null;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-            // Atomic: write a temp file then move over the real one, so a crash mid-write
-            // can't corrupt config.json (which Load would then reset — losing the account).
-            var tmp = ConfigPath + ".tmp";
+            tmp = $"{ConfigPath}.{Environment.ProcessId}.tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(cfg, Opts));
-            File.Move(tmp, ConfigPath, overwrite: true);
+            for (int attempt = 0; ; attempt++)
+            {
+                try { File.Move(tmp!, ConfigPath, overwrite: true); tmp = null; return true; }
+                catch (IOException) when (attempt < 5) { Thread.Sleep(40 * (attempt + 1)); }
+                catch (UnauthorizedAccessException) when (attempt < 5) { Thread.Sleep(40 * (attempt + 1)); }
+            }
         }
-        catch { /* best effort */ }
+        catch { return false; }
+        finally
+        {
+            if (tmp != null) try { File.Delete(tmp); } catch { }
+        }
     }
 }

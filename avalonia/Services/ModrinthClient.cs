@@ -31,7 +31,7 @@ public static class ModrinthLoaders
 
 public sealed record ModrinthFile(string Url, string Filename, string? Sha512, bool Primary);
 public sealed record ModrinthDep(string? ProjectId, string DependencyType);
-public sealed record ModrinthVersion(string Id, string VersionNumber, string VersionType, ModrinthFile[] Files, ModrinthDep[] Dependencies);
+public sealed record ModrinthVersion(string Id, string VersionNumber, string VersionType, ModrinthFile[] Files, ModrinthDep[] Dependencies, string ProjectId = "");
 
 /// <summary>Result of a sha512 → Modrinth lookup: which project/version a jar is.</summary>
 public sealed record ModrinthHashHit(string Hash, string ProjectId, string VersionId, string VersionNumber, string VersionType,
@@ -167,6 +167,25 @@ public static class ModrinthClient
         {
             if (v.TryGetProperty("version_type", out var vt) && vt.GetString() == "release") { pick = v; break; }
         }
+        return ParseVersion(pick);
+    }
+
+    /// <summary>
+    /// One exact version by id (<c>GET /version/{id}</c>). Updates install the version the update check chose, so the
+    /// check and the download can never disagree (e.g. a beta found with "include prereleases" on, then a release-preferring
+    /// resolve picking the installed release again — the loop that kept 有更新 lit forever).
+    /// </summary>
+    public static async Task<ModrinthVersion?> GetVersionAsync(string versionId, CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync($"{Base}/version/{Uri.EscapeDataString(versionId)}", ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) return null;
+        await using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct).ConfigureAwait(false);
+        return doc.RootElement.ValueKind == JsonValueKind.Object ? ParseVersion(doc.RootElement) : null;
+    }
+
+    private static ModrinthVersion ParseVersion(JsonElement pick)
+    {
         var files = new List<ModrinthFile>();
         foreach (var f in pick.GetProperty("files").EnumerateArray())
         {
@@ -193,34 +212,110 @@ public static class ModrinthClient
             VersionNumber: pick.GetProperty("version_number").GetString() ?? "",
             VersionType: pick.TryGetProperty("version_type", out var vt2) ? vt2.GetString() ?? "" : "",
             Files: files.ToArray(),
-            Dependencies: deps.ToArray());
+            Dependencies: deps.ToArray(),
+            ProjectId: pick.TryGetProperty("project_id", out var pj) ? pj.GetString() ?? "" : "");
     }
 
-    /// <summary>Stream-download <paramref name="url"/> to <paramref name="destPath"/>.
-    /// Writes to <c>dest.part</c> then atomically renames so a mid-transfer abort
-    /// never leaves a truncated jar Fabric would refuse to load.</summary>
-    public static async Task DownloadFileAsync(
-        string url, string destPath, IProgress<double>? progress, CancellationToken ct = default)
+    /// <summary>Downloads currently writing a temp file; orphan cleanup only runs while this is 0.</summary>
+    public static int ActiveDownloads => Volatile.Read(ref _activeDownloads);
+    private static int _activeDownloads;
+
+    /// <summary>The suffix of in-flight download temp files (<c>name.jar.&lt;random&gt;.part</c>).</summary>
+    public const string PartSuffix = ".part";
+
+    /// <summary>
+    /// Stream-download <paramref name="url"/> to <paramref name="destPath"/>, safely:
+    /// <list type="bullet">
+    ///   <item>an existing file whose SHA-512 already equals <paramref name="expectedSha512"/> is kept and nothing is
+    ///   downloaded (returns false);</item>
+    ///   <item>the bytes go to a uniquely named <c>.part</c> file next to the target, are checked against
+    ///   <paramref name="expectedSha512"/> when Modrinth supplied one, and only then replace the target in one atomic
+    ///   rename (MoveFileEx REPLACE_EXISTING) — a failed or cancelled transfer never touches the existing jar;</item>
+    ///   <item>the <c>.part</c> file is removed on every failure path, so no stray copies are left behind;</item>
+    ///   <item>a target held open by another process (on Windows: a running game with the jar loaded) raises
+    ///   <see cref="FileInUseException"/> so the caller can say so instead of failing silently.</item>
+    /// </list>
+    /// Returns true when the file was written.
+    /// </summary>
+    public static async Task<bool> DownloadFileAsync(
+        string url, string destPath, IProgress<double>? progress, CancellationToken ct = default, string? expectedSha512 = null)
     {
-        var part = destPath + ".part";
-        using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        resp.EnsureSuccessStatusCode();
-        var total = resp.Content.Headers.ContentLength ?? -1L;
-        await using (var net = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-        await using (var fs = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, useAsync: true))
+        if (!string.IsNullOrEmpty(expectedSha512) && File.Exists(destPath)
+            && string.Equals(await Sha512OfAsync(destPath, ct).ConfigureAwait(false), expectedSha512, StringComparison.OrdinalIgnoreCase))
         {
-            var buf = new byte[64 * 1024];
-            long read = 0;
-            int n;
-            while ((n = await net.ReadAsync(buf.AsMemory(0, buf.Length), ct).ConfigureAwait(false)) > 0)
-            {
-                await fs.WriteAsync(buf.AsMemory(0, n), ct).ConfigureAwait(false);
-                read += n;
-                if (total > 0) progress?.Report((double)read / total);
-            }
+            progress?.Report(1.0);
+            return false;
         }
-        if (File.Exists(destPath)) File.Delete(destPath);
-        File.Move(part, destPath);
+        if (File.Exists(destPath) && FileLocks.IsLocked(destPath)) throw new FileInUseException(destPath);
+
+        var part = destPath + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + PartSuffix;
+        Interlocked.Increment(ref _activeDownloads);
+        try
+        {
+            using (var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
+            {
+                resp.EnsureSuccessStatusCode();
+                var total = resp.Content.Headers.ContentLength ?? -1L;
+                await using var net = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                await using var fs = new FileStream(part, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, useAsync: true);
+                var buf = new byte[64 * 1024];
+                long read = 0;
+                int n;
+                while ((n = await net.ReadAsync(buf.AsMemory(0, buf.Length), ct).ConfigureAwait(false)) > 0)
+                {
+                    await fs.WriteAsync(buf.AsMemory(0, n), ct).ConfigureAwait(false);
+                    read += n;
+                    if (total > 0) progress?.Report((double)read / total);
+                }
+                if (total > 0 && read != total)
+                    throw new IOException($"下載不完整：收到 {read} / {total} 位元組");
+            }
+            if (!string.IsNullOrEmpty(expectedSha512))
+            {
+                var got = await Sha512OfAsync(part, ct).ConfigureAwait(false);
+                if (!string.Equals(got, expectedSha512, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("下載的檔案校驗失敗（SHA-512 不符），已捨棄");
+            }
+            try
+            {
+                File.Move(part, destPath, overwrite: true);
+            }
+            catch (IOException ex) when (FileLocks.IsSharingViolation(ex) || FileLocks.IsLocked(destPath))
+            {
+                throw new FileInUseException(destPath, ex);
+            }
+            catch (UnauthorizedAccessException ex) when (FileLocks.IsLocked(destPath))
+            {
+                throw new FileInUseException(destPath, ex);
+            }
+            return true;
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeDownloads);
+            try { if (File.Exists(part)) File.Delete(part); } catch { /* the orphan sweep gets it next scan */ }
+        }
+    }
+
+    /// <summary>Lower-case hex SHA-512 of a file (the form Modrinth uses).</summary>
+    public static async Task<string> Sha512OfAsync(string path, CancellationToken ct = default)
+    {
+        await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+        var hash = await System.Security.Cryptography.SHA512.HashDataAsync(fs, ct).ConfigureAwait(false);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// A file name from network data (Modrinth "filename", a modpack path segment) that is safe to put inside our folder:
+    /// no directory parts, no "..", no characters Windows rejects. Throws instead of silently rewriting, so a malformed
+    /// listing can never write outside the mods folder.
+    /// </summary>
+    public static string SafeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name != Path.GetFileName(name) || name is "." or ".."
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new InvalidDataException($"不安全的檔名：{name}");
+        return name;
     }
 
     /// <summary>Fetch an icon PNG as raw bytes; caller decodes on the UI thread.</summary>
@@ -231,6 +326,20 @@ public static class ModrinthClient
             using var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>The changelog (Markdown) of one Modrinth version, or null.</summary>
+    public static async Task<string?> GetChangelogAsync(string versionId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await _http.GetAsync($"{Base}/version/{Uri.EscapeDataString(versionId)}", ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return null;
+            await using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct).ConfigureAwait(false);
+            return doc.RootElement.TryGetProperty("changelog", out var c) ? c.GetString() : null;
         }
         catch { return null; }
     }

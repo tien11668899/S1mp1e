@@ -147,15 +147,54 @@ async fn install_assets(
     Ok(())
 }
 
+/// Written last, after every file of an install was downloaded and verified. Its absence means the install never
+/// finished (network drop, closed launcher), even though early files such as the version json or `bin/javaw.exe` exist.
+const COMPLETE_MARKER: &str = ".s1mp1e-complete";
+
+/// True when the version `id` was fully installed (or repaired) by this launcher.
+pub fn is_complete(root: &PathBuf, id: &str) -> bool {
+    version_json(root, id).with_file_name(COMPLETE_MARKER).exists()
+}
+
+pub(crate) fn mark_complete(root: &PathBuf, id: &str) {
+    let _ = std::fs::write(version_json(root, id).with_file_name(COMPLETE_MARKER), crate::config::now_secs().to_string());
+}
+
+/// A Java runtime is usable only when its last file landed: `bin/javaw.exe` alone is downloaded early (files arrive in
+/// sorted order), so an interrupted download used to leave a runtime that could never start and was never repaired.
+fn java_ready(dir: &std::path::Path) -> bool {
+    dir.join("bin").join("javaw.exe").exists() && dir.join(COMPLETE_MARKER).exists()
+}
+
+/// Bring an installed-but-unfinished version up to date: verify (and fetch what is missing of) the vanilla base —
+/// client jar, libraries, assets, Java — then the loader profile's own libraries, and mark it complete. Every step skips
+/// files that are already present and verified, so on a complete install this only re-checks hashes once.
+pub async fn repair_version(root: PathBuf, id: String, emit: Emit) -> Result<()> {
+    let mut base = id.clone();
+    for _ in 0..8 {
+        let text = tokio::fs::read_to_string(version_json(&root, &base)).await
+            .with_context(|| format!("read version json {base}"))?;
+        let vj: VersionJson = serde_json::from_str(&text).with_context(|| format!("parse version json {base}"))?;
+        match vj.inherits_from { Some(p) => base = p, None => break }
+    }
+    install_version(root.clone(), base.clone(), emit.clone()).await?;
+    if base != id {
+        ensure_libraries(root.clone(), id.clone(), emit.clone()).await?;
+        ensure_java(root.clone(), id.clone(), emit.clone()).await?;
+    }
+    mark_complete(&root, &id);
+    Ok(())
+}
+
 /// Download the Java runtime component this version requires (jre-legacy=8,
 /// gamma=17, delta=21, java-runtime-epsilon=25, ...). Idempotent + verified.
 async fn install_java(
     cl: &reqwest::Client, root: &PathBuf, jv: &JavaVersion, emit: &Emit,
 ) -> Result<PathBuf> {
     let out = runtime_dir(root, &jv.component);
-    // Idempotent fast path: if this runtime is already unpacked, do NOT re-fetch
+    // Idempotent fast path: if this runtime is already completely unpacked, do NOT re-fetch
     // its manifest or re-hash its ~600 files every launch — just use it.
-    if out.join("bin").join("javaw.exe").exists() {
+    if java_ready(&out) {
         tick(emit, "java", format!("Java {} 已就緒", jv.major_version), 1, 1);
         return Ok(out);
     }
@@ -187,6 +226,9 @@ async fn install_java(
             _ => {} // "link" — rare on windows; skip
         }
     }
+    // Every file is present and verified: only now does the runtime count as installed.
+    std::fs::write(out.join(COMPLETE_MARKER), crate::config::now_secs().to_string())
+        .with_context(|| format!("mark java runtime {} complete", jv.component))?;
     Ok(out)
 }
 
@@ -240,9 +282,17 @@ pub async fn ensure_glass(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
     if let Some(p) = dst.parent() {
         tokio::fs::create_dir_all(p).await?;
     }
+    // Only a real mod jar may replace the installed one: a 2xx error page or a truncated body would otherwise become
+    // glass-<mc>.jar (and its ETag would stop any re-download).
+    if !looks_like_mod_jar(&bytes) {
+        return Ok(()); // keep whatever is installed; the next launch asks again
+    }
     // Atomic: temp + rename so a mid-download abort never leaves a truncated jar.
     let tmp = dst.with_extension("jar.part");
-    tokio::fs::write(&tmp, &bytes).await?;
+    if let Err(e) = tokio::fs::write(&tmp, &bytes).await {
+        let _ = tokio::fs::remove_file(&tmp).await; // e.g. disk full: no half-written temp file left behind
+        return Err(e.into());
+    }
     if tokio::fs::rename(&tmp, &dst).await.is_err() {
         // e.g. the jar is held open by a game that is still running: keep the old one
         let _ = tokio::fs::remove_file(&tmp).await;
@@ -253,6 +303,15 @@ pub async fn ensure_glass(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
     }
     tick(emit, "glass", format!("{mc} 液態玻璃就緒"), 1, 1);
     Ok(())
+}
+
+/// True when `bytes` is a zip that carries a mod descriptor (Fabric `fabric.mod.json`, legacy Forge `mcmod.info`, or a
+/// `META-INF/mods.toml`). Used to refuse a downloaded "glass jar" that is not one.
+fn looks_like_mod_jar(bytes: &[u8]) -> bool {
+    let Ok(mut zip) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else { return false };
+    ["fabric.mod.json", "mcmod.info", "META-INF/mods.toml"]
+        .iter()
+        .any(|n| zip.by_name(n).is_ok())
 }
 
 /// Full vanilla install for `id`. Returns the java runtime dir used (if any).
@@ -267,6 +326,7 @@ pub async fn install_version(root: PathBuf, id: String, emit: Emit) -> Result<()
     if let Some(jv) = &vj.java_version {
         install_java(&cl, &root, jv, &emit).await?;
     }
+    mark_complete(&root, &id);
     tick(&emit, "done", format!("{id} 安裝完成"), 1, 1);
     Ok(())
 }
@@ -312,6 +372,7 @@ pub async fn install_fabric(root: PathBuf, mc: String, emit: Emit) -> Result<Str
 
     // fabric libraries (maven.fabricmc.net + others via lib.url)
     install_libraries(&cl, &root, &vj, &emit).await?;
+    mark_complete(&root, &new_id);
     tick(&emit, "done", format!("Fabric {loader} 安裝完成"), 1, 1);
     Ok(new_id)
 }
@@ -419,6 +480,7 @@ pub async fn install_forge(root: PathBuf, mc: String, emit: Emit) -> Result<Stri
 
     // vanilla base (client jar + assets + the rest of the libraries)
     install_version(root.clone(), mc.clone(), emit.clone()).await?;
+    mark_complete(&root, &id);
     tick(&emit, "done", format!("Forge {build} 安裝完成"), 1, 1);
     Ok(id)
 }
@@ -444,7 +506,7 @@ pub async fn ensure_java(root: PathBuf, id: String, emit: Emit) -> Result<()> {
     }
     // pre-1.7 versions omit javaVersion → Mojang pairs them with jre-legacy (Java 8)
     let jv = jv.unwrap_or(JavaVersion { component: "jre-legacy".into(), major_version: 8 });
-    if runtime_dir(&root, &jv.component).join("bin").join("javaw.exe").exists() {
+    if java_ready(&runtime_dir(&root, &jv.component)) {
         return Ok(());
     }
     let cl = client();

@@ -301,45 +301,115 @@ fn pick_glass_jar(root: &PathBuf, mc: &str) -> Option<PathBuf> {
     if exact.exists() { Some(exact) } else { None }
 }
 
-/// Every `.jar` under `.minecraft/s1mp1e-mods/` MINUS the glass-*.jar files
-/// (those are picked separately, per-MC). Also picks jars from the version-
-/// scoped subfolder `s1mp1e-mods/<mc>/`, which is where "下載到所有版本" writes
-/// — Fabric would reject two versions of the same mod on the classpath, so
-/// per-MC subfolders keep the copies apart and only the current MC's copy is
-/// loaded at launch time.
+/// The player's enabled mods for this version: every `*.jar` (any case) in `s1mp1e-mods/<mc>/`, the one folder the
+/// launcher installs into, updates, disables and shows. The shared root `s1mp1e-mods/` holds only the launcher's glass
+/// jars; it is never loaded as a mod folder (it used to be a fallback when the version folder was empty, which made a
+/// stale set from another version load the moment the version folder was emptied or first used).
 fn pick_user_mods(root: &PathBuf, mc: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let mut collect = |dir: PathBuf| {
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if name.ends_with(".jar") && !name.starts_with("glass-") {
-                    out.push(p);
-                }
+    if let Ok(rd) = std::fs::read_dir(root.join("s1mp1e-mods").join(mc)) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let lower = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
+            if lower.ends_with(".jar") && p.is_file() {
+                out.push(p);
             }
         }
-    };
-    // Prefer the per-MC subfolder. If it exists AND has jars, use ONLY those —
-    // the root folder is stale test files or 1.21.1 downloads that would break
-    // a 1.20.1 launch with version-mismatched fabric-api etc. Falling back to
-    // root only when the per-MC folder is empty keeps single-version installs
-    // working without the user reorganising anything.
-    let per_mc = root.join("s1mp1e-mods").join(mc);
-    let per_mc_has_jars = std::fs::read_dir(&per_mc)
-        .map(|rd| rd.flatten().any(|e| {
-            let name = e.file_name();
-            let s = name.to_string_lossy();
-            s.ends_with(".jar") && !s.starts_with("glass-")
-        }))
-        .unwrap_or(false);
-    if per_mc_has_jars {
-        collect(per_mc);
-    } else {
-        collect(root.join("s1mp1e-mods"));
     }
     out.sort();
     out
+}
+
+/// Keep one jar per Fabric mod id — the highest `version`, or the newer file when versions tie or are unreadable.
+/// Fabric aborts on a duplicate id, so two copies (an update that could not move the old jar aside, a hand-copied
+/// second version) must not both reach the loader. Jars without a `fabric.mod.json` pass through unchanged. Each
+/// skipped copy is reported on stdout as `MOD_DUPLICATE\t<id>\t<kept file>\t<skipped file>` for the launcher UI.
+fn dedupe_by_mod_id(jars: Vec<PathBuf>) -> Vec<PathBuf> {
+    use std::cmp::Ordering;
+    let mtime = |p: &PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut by_id: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for j in jars {
+        let Some(id) = crate::default_mods::fabric_mod_id(&j) else { out.push(j); continue };
+        match by_id.get(&id) {
+            None => { by_id.insert(id, j); }
+            Some(cur) => {
+                let (va, vb) = (crate::default_mods::fabric_mod_version(&j), crate::default_mods::fabric_mod_version(cur));
+                let newer = match (va.as_deref(), vb.as_deref()) {
+                    (Some(a), Some(b)) => match crate::default_mods::compare_versions(a, b) {
+                        Ordering::Equal => mtime(&j) > mtime(cur),
+                        o => o == Ordering::Greater,
+                    },
+                    _ => mtime(&j) > mtime(cur),
+                };
+                let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let (kept, skipped) = if newer { (j.clone(), cur.clone()) } else { (cur.clone(), j.clone()) };
+                println!("MOD_DUPLICATE\t{id}\t{}\t{}", name(&kept), name(&skipped));
+                by_id.insert(id, kept);
+            }
+        }
+    }
+    out.extend(by_id.into_values());
+    out.sort();
+    out
+}
+
+/// Make `mods_dir` hold exactly `wanted` (file name in the folder → source jar). The folder is derived and owned by the
+/// launcher, so anything else is removed. Sources are COPIED, never referenced in place: the running game keeps every
+/// loaded jar open, and if those were the player's files in `s1mp1e-mods/<mc>/`, updating, disabling or deleting a mod
+/// in the launcher would fail until the game closed. A copy whose size and modification time already match its source
+/// is kept, so an unchanged mod set costs no copying. Any file that cannot be removed or replaced (a game of this
+/// version is still running from this folder) fails the launch with a message naming it, instead of starting with a
+/// half-updated or doubled mod set.
+fn sync_mods_dir(mods_dir: &std::path::Path, wanted: &BTreeMap<String, PathBuf>) -> Result<()> {
+    std::fs::create_dir_all(mods_dir).with_context(|| format!("建立 {}", mods_dir.display()))?;
+    let mut blocked: Vec<String> = Vec::new();
+    let lower_wanted: std::collections::BTreeSet<String> = wanted.keys().map(|k| k.to_ascii_lowercase()).collect();
+    if let Ok(rd) = std::fs::read_dir(mods_dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+            let lower = name.to_ascii_lowercase();
+            if !(lower.ends_with(".jar") || lower.ends_with(".s1copy")) || lower_wanted.contains(&lower) {
+                continue;
+            }
+            if std::fs::remove_file(&p).is_err() {
+                blocked.push(name);
+            }
+        }
+    }
+    let same = |a: &std::path::Path, b: &std::path::Path| -> bool {
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.len() == y.len() && x.modified().ok() == y.modified().ok(),
+            _ => false,
+        }
+    };
+    for (name, src) in wanted {
+        let dest = mods_dir.join(name);
+        if same(src, &dest) {
+            continue;
+        }
+        let tmp = mods_dir.join(format!("{name}.s1copy"));
+        let copied = std::fs::copy(src, &tmp).and_then(|_| {
+            // carry the source's modification time so the next launch recognises the copy as unchanged
+            let modified = std::fs::metadata(src)?.modified()?;
+            std::fs::OpenOptions::new().write(true).open(&tmp)?.set_modified(modified)?;
+            std::fs::rename(&tmp, &dest)
+        });
+        if copied.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            blocked.push(name.clone());
+        }
+    }
+    if blocked.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "無法更新 {} 裡的 {}：檔案正在使用中（同一個版本的遊戲是否還開著？）請關閉後再啟動",
+            mods_dir.display(),
+            blocked.join("、")
+        ))
+    }
 }
 
 /// Peek a mod jar's zip directory to tell which loader it targets, so a jar that
@@ -487,6 +557,101 @@ mod opengl_backend_tests {
     }
 }
 
+/// Major version of a Java install, from the `release` file next to its `bin/` (`JAVA_VERSION="1.8.0_51"` → 8,
+/// `"21.0.7"` → 21). None when it cannot be read.
+fn java_major_of(java_exe: &std::path::Path) -> Option<u32> {
+    let home = java_exe.parent()?.parent()?;
+    let text = std::fs::read_to_string(home.join("release")).ok()?;
+    let line = text.lines().find(|l| l.starts_with("JAVA_VERSION="))?;
+    let v = line.trim_start_matches("JAVA_VERSION=").trim_matches('"');
+    let mut parts = v.split(['.', '_', '-', '+']);
+    let first: u32 = parts.next()?.parse().ok()?;
+    if first == 1 { parts.next()?.parse().ok() } else { Some(first) }
+}
+
+/// Whether the player's custom Java can run a version that needs Java `required`. Prints `JAVA_OVERRIDE_SKIPPED\t…`
+/// for the launcher UI when it is not used.
+fn custom_java_fits(java_exe: &std::path::Path, required: u32) -> bool {
+    if !java_exe.exists() {
+        println!("JAVA_OVERRIDE_SKIPPED\t{}\tmissing\t{required}", java_exe.display());
+        return false;
+    }
+    match java_major_of(java_exe) {
+        Some(m) if m >= required => true,
+        Some(m) => {
+            println!("JAVA_OVERRIDE_SKIPPED\t{}\t{m}\t{required}", java_exe.display());
+            false
+        }
+        None => true, // a custom JDK without a release file: trust the player's choice
+    }
+}
+
+/// Split a JVM-arguments string like a shell would for plain tokens, but keep "quoted parts" together, so
+/// `-Dpath="C:\My Folder\x"` stays one argument instead of breaking at the space.
+pub(crate) fn split_jvm_args(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let (mut in_quotes, mut has) = (false, false);
+    for ch in s.chars() {
+        match ch {
+            '"' => { in_quotes = !in_quotes; has = true; }
+            c if c.is_whitespace() && !in_quotes => {
+                if has { out.push(std::mem::take(&mut cur)); has = false; }
+            }
+            c => { cur.push(c); has = true; }
+        }
+    }
+    if has { out.push(cur); }
+    out
+}
+
+/// The heap to give the game: the saved setting, kept within [1 GB, physical RAM − 1 GB]. A config written on a
+/// bigger PC (or edited by hand) asking for more than this machine has makes the JVM refuse to start or the system
+/// swap to a crawl; 0 or a tiny value cannot run the game at all.
+pub(crate) fn effective_ram_mb(saved: u32, physical_mb: Option<u64>) -> u32 {
+    let mut ram = saved.max(1024);
+    if let Some(phys) = physical_mb {
+        let ceiling = phys.saturating_sub(1024).max(1024).min(u32::MAX as u64) as u32;
+        ram = ram.min(ceiling);
+    }
+    ram
+}
+
+/// Total physical memory in MB (None when it cannot be read).
+fn physical_ram_mb() -> Option<u64> {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct MemoryStatusEx {
+            length: u32,
+            memory_load: u32,
+            total_phys: u64,
+            avail_phys: u64,
+            total_page_file: u64,
+            avail_page_file: u64,
+            total_virtual: u64,
+            avail_virtual: u64,
+            avail_extended_virtual: u64,
+        }
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GlobalMemoryStatusEx(buffer: *mut MemoryStatusEx) -> i32;
+        }
+        let mut m = MemoryStatusEx {
+            length: std::mem::size_of::<MemoryStatusEx>() as u32,
+            memory_load: 0, total_phys: 0, avail_phys: 0, total_page_file: 0, avail_page_file: 0,
+            total_virtual: 0, avail_virtual: 0, avail_extended_virtual: 0,
+        };
+        // SAFETY: `m` is a correctly sized, initialised MEMORYSTATUSEX with its length field set, as the API requires.
+        let ok = unsafe { GlobalMemoryStatusEx(&mut m) } != 0;
+        if ok && m.total_phys > 0 { Some(m.total_phys / (1024 * 1024)) } else { None }
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::config::Settings) -> Result<LaunchPlan> {
     let ram_mb = settings.ram_mb;
     let glass = settings.glass;
@@ -523,8 +688,12 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     // java-runtime-epsilon，不套自訂 Java 路徑（玩家可能為了舊 Forge 1.8.9 設成 Java 8）。
     let java_exe = if crate::ornithe::is_ornithe_id(&merged.id) {
         runtime_dir(root, merged.java_component.as_deref().unwrap_or("java-runtime-epsilon")).join("bin").join("javaw.exe")
-    } else if !settings.java_path.trim().is_empty() {
-        // User-picked Java (Settings → 自訂 Java 路徑). Overrides the auto-selected runtime.
+    } else if !settings.java_path.trim().is_empty()
+        && custom_java_fits(std::path::Path::new(settings.java_path.trim()), merged.java_major)
+    {
+        // User-picked Java (Settings → 自訂 Java 路徑). Overrides the auto-selected runtime — but only when it is new
+        // enough for this version: one custom Java 8 picked for Forge 1.12.2 must not make 26.x die with
+        // UnsupportedClassVersionError. Too old (or unreadable) → the managed runtime, with a note for the UI.
         PathBuf::from(settings.java_path.trim())
     } else if let Ok(p) = std::env::var("S1MP1E_JAVA") {
         PathBuf::from(p)
@@ -567,13 +736,21 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     };
 
     let mut args: Vec<String> = Vec::new();
-    args.push(format!("-Xmx{ram_mb}M"));
-    args.push(format!("-Xms{}M", (ram_mb / 2).max(512)));
+    let user_jvm = split_jvm_args(&settings.jvm_args);
+    let ram_mb = effective_ram_mb(ram_mb, physical_ram_mb());
+    // The player's own -Xmx / -Xms (JVM 參數) replace ours instead of fighting them: two -Xmx is confusing, and our
+    // -Xms above their smaller -Xmx stops the JVM with "initial heap size larger than maximum".
+    let user_xmx = user_jvm.iter().any(|a| a.starts_with("-Xmx"));
+    let user_xms = user_jvm.iter().any(|a| a.starts_with("-Xms"));
+    if !user_xmx {
+        args.push(format!("-Xmx{ram_mb}M"));
+    }
+    if !user_xms && !user_xmx {
+        args.push(format!("-Xms{}M", (ram_mb / 2).max(512)));
+    }
     // User-supplied JVM args (Settings → JVM 參數): GC flags, -Dprops, etc. Whitespace
     // split, injected before the version's own jvm args and the main class.
-    for tok in settings.jvm_args.split_whitespace() {
-        args.push(tok.to_string());
-    }
+    args.extend(user_jvm);
     // Performance pack JVM flags (perf.rs): only measured ones, and never on top of a collector
     // the player picked themselves. A custom Java path keeps its own defaults too.
     if settings.perf_pack && settings.java_path.trim().is_empty() && !crate::perf::user_sets_gc(&settings.jvm_args)
@@ -623,19 +800,8 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     //   (b) Forge user mods deleted/updated in s1mp1e-mods/ lingered here as stale
     //       duplicates that double-loaded alongside the new version.
     let mods_dir = gamedir.join("mods");
-    let _ = std::fs::create_dir_all(&mods_dir);
-    if let Ok(rd) = std::fs::read_dir(&mods_dir) {
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.extension()
-                .and_then(|x| x.to_str())
-                .map(|x| x.eq_ignore_ascii_case("jar"))
-                .unwrap_or(false)
-            {
-                let _ = std::fs::remove_file(&p);
-            }
-        }
-    }
+    // The desired contents of the instance mods/ folder: file name there → source jar.
+    let mut wanted: BTreeMap<String, PathBuf> = BTreeMap::new();
 
     // Ornithe 1.8.9：玻璃用 Ornithe 版（glass-1.8.9-ornithe.jar），絕不能放 Forge 版的 glass-1.8.9.jar
     // （Forge 相容層會把它當 Forge coremod 載入）；另外放 Forge 相容層與 Pylon/OSL/Argentum。
@@ -643,53 +809,48 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
     if ornithe {
         if glass {
             if let Some(j) = pick_glass_jar(root, crate::ornithe::GLASS_KEY) {
-                let _ = std::fs::copy(&j, mods_dir.join("glass-1.8.9-ornithe.jar"));
+                wanted.insert("glass-1.8.9-ornithe.jar".into(), j);
             }
         }
         if let Some(j) = pick_glass_jar(root, crate::ornithe::FORGECOMPAT_KEY) {
-            let _ = std::fs::copy(&j, mods_dir.join("s1mp1e-forgecompat-1.8.9.jar"));
+            wanted.insert("s1mp1e-forgecompat-1.8.9.jar".into(), j);
         }
         for j in crate::ornithe::stack_jars(root) {
             if let Some(name) = j.file_name() {
-                let _ = std::fs::copy(&j, mods_dir.join(name));
+                wanted.insert(name.to_string_lossy().into_owned(), j.clone());
             }
         }
     } else if glass {
         if let Some(glass_jar) = pick_glass_jar(root, &merged.base_id) {
-            let _ = std::fs::copy(&glass_jar, mods_dir.join(format!("glass-{}.jar", merged.base_id)));
+            wanted.insert(format!("glass-{}.jar", merged.base_id), glass_jar);
         }
     }
     // User's downloaded mods (s1mp1e-mods/<mc>/), filtered to jars that actually target
     // the loader we're launching — see jar_matches_loader: a per-MC folder can mix
-    // loaders and feeding a Forge jar to Fabric addMods crashed the game.
+    // loaders and feeding a Forge jar to Fabric crashed the game.
     // Ornithe：Forge 模組由相容層載入，Ornithe 模組由 Fabric Loader 載入，兩種都放 mods/，不篩
     let mut user_mods: Vec<PathBuf> = pick_user_mods(root, &merged.base_id)
         .into_iter()
         .filter(|p| ornithe || jar_matches_loader(p, is_fabric))
         .collect();
     // Performance pack (perf.rs): launcher-owned optimisation mods chosen for this launch by
-    // `perf::ensure_pack` (already skips any mod the player installed themselves).
+    // `perf::ensure_pack` (already skips any mod the player installed or disabled themselves).
     if settings.perf_pack && is_fabric && !ornithe {
         user_mods.extend(crate::perf::active_jars(root, &merged.base_id));
     }
-    if is_fabric && !ornithe {
-        // Fabric: mods ride -Dfabric.addMods, kept out of the shared mods folder.
-        if !user_mods.is_empty() {
-            let joined = user_mods.iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join(";");
-            args.push(format!("-Dfabric.addMods={joined}"));
-        }
-    } else {
-        // Forge (1.8.9/1.12.2) and Ornithe 1.8.9: no addMods — copy the user's mods NATIVELY into the
-        // per-version instance mods/ folder (next to the glass jar) so they load.
-        for m in &user_mods {
-            if let Some(name) = m.file_name() {
-                let _ = std::fs::copy(m, mods_dir.join(name));
-            }
+    if is_fabric {
+        user_mods = dedupe_by_mod_id(user_mods);
+    }
+    for m in &user_mods {
+        if let Some(name) = m.file_name() {
+            // a launcher-owned jar (glass, Ornithe stack) keeps its slot if a user file has the same name
+            wanted.entry(name.to_string_lossy().into_owned()).or_insert_with(|| m.clone());
         }
     }
+    // Every loader reads the instance mods/ folder natively, so all of it — glass, the player's mods, the perf pack —
+    // is laid down there as copies (see sync_mods_dir). Fabric no longer gets -Dfabric.addMods pointing into the
+    // player's own folder, which made a running game lock those files.
+    sync_mods_dir(&mods_dir, &wanted)?;
 
     if !merged.modern_jvm.is_empty() {
         for a in &merged.modern_jvm { args.push(subst(a)); }
@@ -723,7 +884,10 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
 
 /// Spawn the JVM, streaming stdout+stderr lines via `on_line`, and return the
 /// exit code once the process ends (blocks — caller runs it off-thread).
-pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String) + Send + Sync + 'static) -> Result<i32> {
+/// Run the game and wait for it. `on_line(line, is_stderr)` receives every output line, tagged by stream, so the caller
+/// can keep the JVM's error stream separate (that is where "Unrecognized VM option", UnsupportedClassVersionError and
+/// other start-up failures appear).
+pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String, bool) + Send + Sync + 'static) -> Result<i32> {
     if !plan.java_exe.exists() {
         return Err(anyhow!("java not installed: {}", plan.java_exe.display()));
     }
@@ -744,7 +908,7 @@ pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String) + Send + Sync + '
                 }
             }
         }
-        on_line(format!("$ {} {}", plan.java_exe.display(), shown.join(" ")));
+        on_line(format!("$ {} {}", plan.java_exe.display(), shown.join(" ")), false);
     }
     let mut cmd = Command::new(&plan.java_exe);
     cmd.args(&plan.args)
@@ -770,10 +934,10 @@ pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String) + Send + Sync + '
     let on1 = std::sync::Arc::new(on_line);
     let on2 = on1.clone();
     let t1 = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) { on1(line); }
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) { on1(line, false); }
     });
     let t2 = std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) { on2(line); }
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) { on2(line, true); }
     });
     let status = child.wait()?;
     let _ = t1.join();
@@ -824,5 +988,141 @@ mod resolve_diff_tests {
             println!("{id}: {} → {} libs{}", old.len(), new.libraries.len(),
                 if dropped.is_empty() { String::new() } else { format!("; dropped {dropped:?}") });
         }
+    }
+}
+
+#[cfg(test)]
+mod mods_dir_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("s1mp1e-modsdir-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A minimal Fabric mod jar with the given id and version.
+    fn fabric_jar(path: &std::path::Path, id: &str, version: &str) {
+        let f = std::fs::File::create(path).unwrap();
+        let mut z = zip::ZipWriter::new(f);
+        z.start_file("fabric.mod.json", zip::write::SimpleFileOptions::default()).unwrap();
+        write!(z, r#"{{"schemaVersion":1,"id":"{id}","version":"{version}"}}"#).unwrap();
+        z.finish().unwrap();
+    }
+
+    #[test]
+    fn version_order_reads_like_people_do() {
+        use crate::default_mods::compare_versions as c;
+        use std::cmp::Ordering::*;
+        assert_eq!(c("0.16.10", "0.16.9"), Greater);
+        assert_eq!(c("1.0.0-beta.10", "1.0.0-beta.9"), Greater);
+        assert_eq!(c("1.0.0", "1.0.0-beta.1"), Greater);
+        assert_eq!(c("0.165.0+26.3", "0.164.0+26.3"), Greater);
+        assert_eq!(c("1.0", "1.0.0"), Equal);
+        assert_eq!(c("mc26.3-0.9.2", "mc26.3-0.9.2"), Equal);
+    }
+
+    #[test]
+    fn duplicate_ids_keep_the_newest_version() {
+        let d = tmp("dedupe");
+        let (old, new, other) = (d.join("fabric-api-0.164.jar"), d.join("fabric-api-0.165.jar"), d.join("sodium.jar"));
+        fabric_jar(&old, "fabric-api", "0.164.0+26.3");
+        fabric_jar(&new, "fabric-api", "0.165.0+26.3");
+        fabric_jar(&other, "sodium", "0.9.2");
+        let kept = dedupe_by_mod_id(vec![new.clone(), old.clone(), other.clone()]);
+        assert!(kept.contains(&new) && kept.contains(&other) && !kept.contains(&old), "{kept:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn sync_copies_only_changes_and_removes_extras() {
+        let d = tmp("sync");
+        let (src, inst) = (d.join("src"), d.join("instance-mods"));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&inst).unwrap();
+        let a = src.join("a.jar");
+        std::fs::write(&a, b"aaaa").unwrap();
+        std::fs::write(inst.join("stale.jar"), b"old").unwrap();
+        std::fs::write(inst.join("notes.txt"), b"keep me").unwrap();
+        let mut wanted = BTreeMap::new();
+        wanted.insert("a.jar".to_string(), a.clone());
+
+        sync_mods_dir(&inst, &wanted).unwrap();
+        assert_eq!(std::fs::read(inst.join("a.jar")).unwrap(), b"aaaa");
+        assert!(!inst.join("stale.jar").exists(), "a jar that is no longer wanted is removed");
+        assert!(inst.join("notes.txt").exists(), "non-jar files are left alone");
+        let m1 = std::fs::metadata(inst.join("a.jar")).unwrap().modified().unwrap();
+        assert_eq!(m1, std::fs::metadata(&a).unwrap().modified().unwrap(), "copy carries the source mtime");
+
+        // unchanged source: the copy is not rewritten (its mtime stays the source's)
+        sync_mods_dir(&inst, &wanted).unwrap();
+        assert_eq!(std::fs::metadata(inst.join("a.jar")).unwrap().modified().unwrap(), m1);
+
+        // changed source: replaced
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&a, b"bbbbbb").unwrap();
+        sync_mods_dir(&inst, &wanted).unwrap();
+        assert_eq!(std::fs::read(inst.join("a.jar")).unwrap(), b"bbbbbb");
+        assert!(std::fs::read_dir(&inst).unwrap().flatten()
+            .all(|e| !e.file_name().to_string_lossy().ends_with(".s1copy")), "no temp copies left");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn per_version_folder_only_and_any_case() {
+        let root = tmp("pick");
+        let mods = root.join("s1mp1e-mods");
+        std::fs::create_dir_all(mods.join("26.3")).unwrap();
+        std::fs::write(mods.join("stale-root.jar"), b"x").unwrap();          // root: never a mod folder
+        std::fs::write(mods.join("26.3").join("Upper.JAR"), b"x").unwrap();
+        std::fs::write(mods.join("26.3").join("off.jar.disabled"), b"x").unwrap();
+        std::fs::write(mods.join("26.3").join("dl.jar.part"), b"x").unwrap();
+        let picked = pick_user_mods(&root, "26.3");
+        let names: Vec<String> = picked.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, vec!["Upper.JAR".to_string()]);
+        assert!(pick_user_mods(&root, "1.20.1").is_empty(), "an empty version folder does not fall back to the root");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod launch_arg_tests {
+    use super::*;
+
+    #[test]
+    fn jvm_args_keep_quoted_parts_together() {
+        assert_eq!(split_jvm_args(r#"-Xss2m  -Dpath="C:\My Folder\x" -XX:+UseG1GC"#),
+                   vec!["-Xss2m", r"-Dpath=C:\My Folder\x", "-XX:+UseG1GC"]);
+        assert!(split_jvm_args("   ").is_empty());
+    }
+
+    #[test]
+    fn ram_is_clamped_to_this_machine() {
+        // more than the PC has → physical − 1 GB
+        assert_eq!(effective_ram_mb(65536, Some(16384)), 15360);
+        // 0 / tiny → 1 GB floor
+        assert_eq!(effective_ram_mb(0, Some(16384)), 1024);
+        // a sane value passes through
+        assert_eq!(effective_ram_mb(4096, Some(16384)), 4096);
+        // tiny machine: never below the 1 GB floor
+        assert_eq!(effective_ram_mb(4096, Some(1536)), 1024);
+        // unknown physical memory: only the floor applies
+        assert_eq!(effective_ram_mb(8192, None), 8192);
+    }
+
+    #[test]
+    fn java_major_from_release_file() {
+        let d = std::env::temp_dir().join(format!("s1mp1e-java-{}", std::process::id()));
+        for (ver, want) in [("1.8.0_51", 8u32), ("21.0.7", 21), ("25", 25)] {
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(d.join("bin")).unwrap();
+            std::fs::write(d.join("bin").join("javaw.exe"), b"").unwrap();
+            std::fs::write(d.join("release"), format!("IMPLEMENTOR=\"x\"\nJAVA_VERSION=\"{ver}\"\n")).unwrap();
+            assert_eq!(java_major_of(&d.join("bin").join("javaw.exe")), Some(want), "{ver}");
+        }
+        assert!(!custom_java_fits(&d.join("bin").join("javaw.exe"), 26), "Java 25 cannot run a version needing 26");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

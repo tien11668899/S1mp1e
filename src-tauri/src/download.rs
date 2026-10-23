@@ -8,6 +8,11 @@ use tokio::io::AsyncWriteExt;
 pub fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent("S1mp1e/0.1 (Minecraft launcher)")
+        // A stalled connection must fail instead of hanging the launch forever ("啟動中…" with no way out): give up
+        // connecting after 15 s and on any read that sends nothing for 60 s. Large files still download — the read
+        // timeout restarts with every chunk.
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(60))
         .build()
         .expect("http client")
 }
@@ -79,26 +84,38 @@ pub async fn download_file(
     };
 
     let resp = cl.get(url).send().await?.error_for_status()?;
-    let tmp = dest.with_extension("s1part");
-    let mut file = tokio::fs::File::create(&tmp).await?;
-    let mut hasher = sha1_smol::Sha1::new();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        hasher.update(&chunk);
-        file.write_all(&chunk).await?;
-        on_bytes(chunk.len() as u64);
-    }
-    file.flush().await?;
-    drop(file);
-
-    if let Some(want) = sha1 {
-        let got = hasher.digest().to_string();
-        if !got.eq_ignore_ascii_case(want) {
-            let _ = tokio::fs::remove_file(&tmp).await;
-            return Err(anyhow!("sha1 mismatch for {url}: want {want}, got {got}"));
+    // Per-process temp name: two launcher processes fetching the same file never write into one temp file.
+    let tmp = dest.with_file_name(format!(
+        "{}.{}.s1part",
+        dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        std::process::id()
+    ));
+    // Every failure after the temp file exists (dropped connection, disk full, hash mismatch, a destination locked by a
+    // running game) removes it again, so no `.s1part` leftovers pile up next to the player's files.
+    let result: Result<()> = async {
+        let mut file = tokio::fs::File::create(&tmp).await?;
+        let mut hasher = sha1_smol::Sha1::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            hasher.update(&chunk);
+            file.write_all(&chunk).await?;
+            on_bytes(chunk.len() as u64);
         }
+        file.flush().await?;
+        drop(file);
+        if let Some(want) = sha1 {
+            let got = hasher.digest().to_string();
+            if !got.eq_ignore_ascii_case(want) {
+                return Err(anyhow!("sha1 mismatch for {url}: want {want}, got {got}"));
+            }
+        }
+        tokio::fs::rename(&tmp, dest).await?;
+        Ok(())
     }
-    tokio::fs::rename(&tmp, dest).await?;
-    Ok(())
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&tmp).await;
+    }
+    result
 }

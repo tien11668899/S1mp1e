@@ -5,42 +5,29 @@ using System.Linq;
 
 namespace S1mp1e.Services;
 
-/// <summary>Outcome of a conflict scan: how many jars were auto-disabled, a
-/// human line per auto-fix, and a warning per conflict we would not touch.</summary>
-public sealed record ConflictResult(int AutoDisabled, IReadOnlyList<string> Fixed, IReadOnlyList<string> Warnings);
+/// <summary>
+/// Outcome of a conflict scan. <see cref="Resolved"/>: duplicate mod ids where the launcher already knows which copy it
+/// loads (one clearly newest version) — informational. <see cref="Warnings"/>: duplicates it cannot rank, which the
+/// player should sort out with 整理重複.
+/// </summary>
+public sealed record ConflictResult(IReadOnlyList<string> Resolved, IReadOnlyList<string> Warnings);
 
 /// <summary>
-/// Static mod-conflict self-correction (v1). Detects the classic hard-crash where two
-/// jars in the SAME launched folder declare the SAME mod id — Fabric/Forge refuse to
-/// load and the game dies with "Duplicate mod". We auto-disable the older copy ONLY
-/// when the versions are cleanly comparable (real semver, one unique maximum); anything
-/// ambiguous (unparseable versions, a tie, mixed loaders) is surfaced as a warning
-/// instead of guessing. Fixes are reversible — the loser is renamed to .jar.disabled,
-/// never deleted, and launch.rs's pick_user_mods globs *.jar so it's simply skipped.
+/// Detects the classic hard crash where two jars in the folder the game launches from declare the SAME mod id. It never
+/// renames or disables anything: the launch itself (launch.rs <c>dedupe_by_mod_id</c>) loads only the newest copy of
+/// each id, so the game cannot crash on it, and the player's files stay exactly as they left them. (Auto-renaming the
+/// older copy to <c>.jar.disabled</c> used to pile up disabled twins the player never asked for.)
 /// </summary>
 public static class ConflictScanner
 {
-    /// Mirror of Rust launch.rs `pick_user_mods`: the per-MC subfolder if it holds any
-    /// non-glass *.jar, else the flat s1mp1e-mods/. Duplicates only crash within the set
-    /// that actually co-loads, so detection is scoped to this one directory.
-    public static string LaunchModDir(string mcRoot, string mc)
-    {
-        var perMc = Path.Combine(mcRoot, "s1mp1e-mods", mc);
-        try
-        {
-            if (Directory.Exists(perMc) && Directory.EnumerateFiles(perMc, "*.jar")
-                    .Any(p => !Path.GetFileName(p).StartsWith("glass-", StringComparison.OrdinalIgnoreCase)))
-                return perMc;
-        }
-        catch { }
-        return Path.Combine(mcRoot, "s1mp1e-mods");
-    }
+    /// Mirror of Rust launch.rs <c>pick_user_mods</c>: a version's mods live in <c>s1mp1e-mods/&lt;mc&gt;/</c> and only
+    /// there. (The flat <c>s1mp1e-mods/</c> fallback was removed — it loaded one version's mods into another.)
+    public static string LaunchModDir(string mcRoot, string mc) => Path.Combine(mcRoot, "s1mp1e-mods", mc);
 
-    public static ConflictResult DetectAndFix(IEnumerable<LocalMod> mods, string launchDir)
+    public static ConflictResult Detect(IEnumerable<LocalMod> mods, string launchDir)
     {
-        var fixedMsgs = new List<string>();
+        var resolved = new List<string>();
         var warnings = new List<string>();
-        int disabled = 0;
 
         var inDir = mods.Where(m => m.Enabled
                                  && !string.IsNullOrEmpty(m.Id)
@@ -55,31 +42,22 @@ public static class ConflictScanner
             var id = members[0].Id;
 
             var ranked = new List<(LocalMod mod, SemVer ver)>();
-            bool allParse = true;
             foreach (var m in members)
-            {
                 if (TryParseSemver(m.Version, out var v)) ranked.Add((m, v));
-                else { allParse = false; break; }
-            }
 
-            if (allParse && ranked.Count == members.Count)
+            if (ranked.Count == members.Count)
             {
                 ranked.Sort((x, y) => Compare(y.ver, x.ver));       // newest first
-                if (Compare(ranked[0].ver, ranked[1].ver) > 0)      // a UNIQUE maximum
+                if (Compare(ranked[0].ver, ranked[1].ver) > 0)      // a UNIQUE maximum: the launch loads that one
                 {
-                    foreach (var loser in ranked.Skip(1))
-                    {
-                        try { LocalModScanner.SetEnabled(loser.mod.JarPath, false); disabled++; }
-                        catch { }
-                    }
-                    fixedMsgs.Add($"{id}(留 {ranked[0].mod.Version})");
+                    resolved.Add($"{id} ×{members.Count}（只載入 {ranked[0].mod.Version}）");
                     continue;
                 }
             }
-            // Unparseable / tie / mixed → don't guess; ask the user to pick.
+            // Unparseable / tie: the launch falls back to the newest file, which may not be what the player wants.
             warnings.Add($"{id} ×{members.Count}");
         }
-        return new ConflictResult(disabled, fixedMsgs, warnings);
+        return new ConflictResult(resolved, warnings);
     }
 
     private static bool PathEq(string? a, string? b)

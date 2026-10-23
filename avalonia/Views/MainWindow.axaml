@@ -173,6 +173,9 @@
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <!-- The theme's Button clips to its bounds, which cut the drop shadow off at the button's rectangle and shaved
+                 the capsule's lower edge (54.4 px tall at 125 %). The shadow needs to spill outside. -->
+            <Setter Property="ClipToBounds" Value="False"/>
         </Style>
         <Style Selector="Button.play /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource Accent}"/>
@@ -508,9 +511,20 @@
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
-                            <!-- 帳號 -->
+                            <!-- 遊戲（世界 / 截圖 / 伺服器） -->
                             <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
                                     PointerPressed="OnNavRowPressed" Tag="2">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
+                                    <Border Width="26" Height="26" CornerRadius="7" Background="#34C759">
+                                        <Image Source="avares://S1mp1e/Assets/Icons/gamecontroller.fill.png" Width="16" Height="16"/>
+                                    </Border>
+                                    <TextBlock Text="遊戲" FontSize="13" Foreground="{DynamicResource TextMain}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <!-- 帳號 -->
+                            <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
+                                    PointerPressed="OnNavRowPressed" Tag="3">
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                                     <Border Width="26" Height="26" CornerRadius="7" Background="#8E8E93">
                                         <Image Source="avares://S1mp1e/Assets/Icons/person.crop.circle.fill.png" Width="16" Height="16"/>
@@ -523,7 +537,7 @@
                             </Border>
                             <!-- 設定 -->
                             <Border Classes="navrow" Height="40" CornerRadius="10" Background="Transparent"
-                                    PointerPressed="OnNavRowPressed" Tag="3">
+                                    PointerPressed="OnNavRowPressed" Tag="4">
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                                     <Border Width="26" Height="26" CornerRadius="7" Background="#8E8E93">
                                         <Image Source="avares://S1mp1e/Assets/Icons/gear.png" Width="16" Height="16"/>
@@ -636,7 +650,7 @@
                                         <TextBlock Text="選擇要遊玩的 Minecraft 版本" FontSize="11"
                                                    Foreground="{DynamicResource TextSub}"/>
                                     </StackPanel>
-                                    <ctl:GlassSelect x:Name="VersionBox" Grid.Column="2" SelectedIndex="0"
+                                    <ctl:GlassSelect x:Name="VersionBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0"
                                                      VerticalAlignment="Center" FontSize="13"
                                                      Options="26.2|1.21.1|1.20.1|1.16.5|1.8.9"
                                                      SelectionChanged="OnVersionChanged"/>
@@ -650,7 +664,7 @@
                                     </Border>
                                     <TextBlock Grid.Column="1" Text="載入器" FontSize="13"
                                                Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
-                                    <ctl:GlassSelect x:Name="LoaderBox" Grid.Column="2" SelectedIndex="0"
+                                    <ctl:GlassSelect x:Name="LoaderBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0"
                                                      VerticalAlignment="Center" FontSize="13"
                                                      Options="Fabric|Forge"
                                                      SelectionChanged="OnLoaderChanged"/>
@@ -672,6 +686,20 @@
                                     <Button Grid.Column="2" x:Name="InstallBtn" Classes="mini" Content="下載此版本"
                                             VerticalAlignment="Center" IsVisible="False"
                                             Click="OnInstallSelectedVersion"/>
+                                </Grid>
+
+                                <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+
+                                <!-- per-version play time (PlayStats) -->
+                                <Grid Margin="16,12" ColumnDefinitions="Auto,*">
+                                    <Border Grid.Column="0" Classes="tile" Background="#5E5CE6">
+                                        <Image Source="avares://S1mp1e/Assets/Icons/clock.fill.png" Width="18" Height="18"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="遊玩時間" FontSize="13" Foreground="{DynamicResource TextMain}"/>
+                                        <TextBlock x:Name="PlayTimeText" Text="" FontSize="11"
+                                                   Foreground="{DynamicResource TextSub}"/>
+                                    </StackPanel>
                                 </Grid>
 
                                 <!-- CS2 knife pack (設定 › CS2 刀皮): download icon until the shared pack is on disk,
@@ -698,7 +726,7 @@
                                                 <TextBlock x:Name="KnifeDlLabel" Text="下載" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Button>
-                                        <ctl:LiquidToggle x:Name="KnifeToggle" IsVisible="False" Margin="0,-6"
+                                        <ctl:LiquidToggle x:Name="KnifeToggle" IsVisible="False" Margin="0,-6,-12,-6"
                                                           IsCheckedChanged="OnKnifeToggleChanged"/>
                                     </Panel>
                                 </Grid>
@@ -772,7 +800,7 @@
                                                  Options="模組|資源包|光影" SelectedIndex="0"
                                                  VerticalAlignment="Center" FontSize="13" Margin="0,0,8,0"
                                                  SelectionChanged="OnModTypeChanged"/>
-                                <ctl:GlassSelect Grid.Column="2" x:Name="ModSortBox"
+                                <ctl:GlassSelect Grid.Column="2" x:Name="ModSortBox" Margin="0,0,-8,0"
                                                  Options="熱度|日期|相關性" SelectedIndex="0"
                                                  VerticalAlignment="Center" FontSize="13"
                                                  SelectionChanged="OnModSortChanged"/>
@@ -809,6 +837,26 @@
                                 </StackPanel>
                             </Panel>
                         </StackPanel>
+                        <!-- ===== page: 遊戲 — worlds / screenshots / servers (built in MainWindow.Game.cs) ===== -->
+                        <StackPanel x:Name="PageGame" Spacing="16" IsVisible="False">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel x:Name="GameTabs" Orientation="Horizontal" Spacing="8"/>
+                                <StackPanel x:Name="GameToolbar" Grid.Column="1" Orientation="Horizontal" Spacing="8"/>
+                            </Grid>
+                            <TextBlock x:Name="GameStatus" FontSize="12" Foreground="{DynamicResource TextSub}" IsVisible="False"/>
+                            <Panel x:Name="GameContentHost">
+                                <StackPanel x:Name="WorldsPane" Spacing="16">
+                                    <Border Classes="card"><StackPanel x:Name="WorldList"/></Border>
+                                    <TextBlock x:Name="BackupCaption" Classes="caption" Text="備份" IsVisible="False"/>
+                                    <Border x:Name="BackupCard" Classes="card" IsVisible="False"><StackPanel x:Name="BackupList"/></Border>
+                                </StackPanel>
+                                <WrapPanel x:Name="ShotsGrid" IsVisible="False" Opacity="0"/>
+                                <StackPanel x:Name="ServersPane" IsVisible="False" Opacity="0">
+                                    <Border Classes="card"><StackPanel x:Name="ServerList"/></Border>
+                                </StackPanel>
+                            </Panel>
+                        </StackPanel>
+
                         <!-- ===== page: 帳號 ===== -->
                         <StackPanel x:Name="PageAccount" Spacing="20" IsVisible="False">
                             <!-- Shown when signed in: skin head + name only + switch/登出 -->
@@ -846,13 +894,35 @@
                                             Click="OnSkinChangeClick"/>
                                 </Grid>
                             </Border>
+
+                            <!-- 披風 card (signed-in only) — front of the shown cape + pick another / hide -->
+                            <Border x:Name="CapeCard" Classes="card" IsVisible="False">
+                                <Grid Margin="16,16" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                                    <Border Grid.Column="0" Width="52" Height="90" CornerRadius="10"
+                                            ClipToBounds="True" Background="#22000000">
+                                        <Image x:Name="CapeImage" Width="40" Height="64" Stretch="Fill"
+                                               RenderOptions.BitmapInterpolationMode="None"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                                        <TextBlock Text="披風" FontSize="13" Foreground="{DynamicResource TextMain}"/>
+                                        <TextBlock x:Name="CapeSub" Text="載入中…" FontSize="11"
+                                                   Foreground="{DynamicResource TextSub}"/>
+                                    </StackPanel>
+                                    <Button x:Name="CapeChangeBtn" Grid.Column="2" Classes="mini"
+                                            Content="切換" VerticalAlignment="Center" IsEnabled="False"
+                                            Click="OnCapeChangeClick"/>
+                                </Grid>
+                            </Border>
                             <!-- Login prompt: hidden once signed in -->
                             <Border x:Name="LoginPromptCard" Classes="card">
                                 <StackPanel>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#007AFF"><Image Source="avares://S1mp1e/Assets/Icons/person.crop.circle.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="登入 Microsoft 帳號" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="取得正版存檔、外觀與多人伺服器連線" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <Button x:Name="LoginBtn" Grid.Column="2" Classes="accent" Content="登入" VerticalAlignment="Center" Click="OnLogin"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Button x:Name="SavedAccountsBtn" Classes="mini" Content="已儲存的帳號" IsVisible="False" VerticalAlignment="Center" Click="OnSavedAccountsClick"/>
+                                            <Button x:Name="LoginBtn" Classes="accent" Content="登入" VerticalAlignment="Center" Click="OnLogin"/>
+                                        </StackPanel>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
@@ -894,26 +964,32 @@
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#FF9F0A"><Image Source="avares://S1mp1e/Assets/Icons/macwindow.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="啟動遊戲後" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
-                                        <ctl:GlassSelect x:Name="AfterLaunchBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
+                                        <ctl:GlassSelect x:Name="AfterLaunchBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="隱藏啟動器|保持開啟|關閉啟動器" SelectionChanged="OnAfterLaunchChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/sparkles.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="效能優化" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="自動載入經實測的優化模組與 Java 設定，不改畫質" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
-                                        <ctl:LiquidToggle x:Name="PerfToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnPerfToggleChanged"/>
+                                        <ctl:LiquidToggle x:Name="PerfToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnPerfToggleChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/circle.righthalf.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="模組更新含測試版" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="檢查模組更新時也納入 beta / alpha，而不只是正式版" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
-                                        <ctl:LiquidToggle x:Name="PrereleaseToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnPrereleaseToggleChanged"/>
+                                        <ctl:LiquidToggle x:Name="PrereleaseToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnPrereleaseToggleChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#FF375F"><Image Source="avares://S1mp1e/Assets/Icons/scissors.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="CS2 刀皮" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="拿劍時改用 CS2 刀與動畫（26.2 / 26.3 / 1.8.9）；開啟後可在「開始遊戲」下載刀包" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
-                                        <ctl:LiquidToggle x:Name="KnivesSettingToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnKnivesSettingToggleChanged"/>
+                                        <ctl:LiquidToggle x:Name="KnivesSettingToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnKnivesSettingToggleChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#5865F2"><Image Source="avares://S1mp1e/Assets/Icons/person.2.fill.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="Discord 狀態" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="遊戲時在 Discord 個人檔案顯示版本、單人或多人與遊玩時間；伺服器只顯示你在清單裡取的名稱" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:LiquidToggle x:Name="DiscordToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnDiscordToggleChanged"/>
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -922,35 +998,27 @@
                             <Border Classes="card">
                                 <StackPanel>
                                     <!-- JVM 參數 -->
-                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*">
-                                        <Border Grid.Column="0" Classes="tile">
-                                            <TextBlock Text="⚙" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock Text="JVM 參數" FontSize="13" Foreground="{DynamicResource TextMain}"/>
-                                            <TextBox x:Name="JvmArgsBox" Classes="field" Margin="0,4,16,0"
-                                                     Watermark="例：-XX:+UseG1GC -Dfile.encoding=UTF-8" LostFocus="OnJvmArgsChanged"/>
-                                        </StackPanel>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#8E8E93"><Image Source="avares://S1mp1e/Assets/Icons/gear.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="JVM 參數" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="傳給 Java 的額外參數（進階）" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
+                                        <TextBox Grid.Column="2" x:Name="JvmArgsBox" Classes="field" Width="240" VerticalAlignment="Center"
+                                                 PlaceholderText="例：-XX:+UseG1GC" LostFocus="OnJvmArgsChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <!-- 遊戲解析度 -->
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
-                                        <Border Grid.Column="0" Classes="tile" Background="#30B0C7">
-                                            <TextBlock Text="◱" FontSize="15" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲解析度" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="留空或 0 = 使用遊戲預設" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
+                                        <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/desktopcomputer.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲解析度" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="留空 = 使用遊戲預設" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <TextBox x:Name="ResWidthBox" Classes="field" Width="66" Watermark="寬" LostFocus="OnResChanged"/>
+                                            <TextBox x:Name="ResWidthBox" Classes="field" Width="56" MinWidth="0" TextAlignment="Center" PlaceholderText="寬" LostFocus="OnResChanged"/>
                                             <TextBlock Text="×" VerticalAlignment="Center" Foreground="{DynamicResource TextSub}"/>
-                                            <TextBox x:Name="ResHeightBox" Classes="field" Width="66" Watermark="高" LostFocus="OnResChanged"/>
+                                            <TextBox x:Name="ResHeightBox" Classes="field" Width="56" MinWidth="0" TextAlignment="Center" PlaceholderText="高" LostFocus="OnResChanged"/>
                                         </StackPanel>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <!-- 自訂 Java 路徑 -->
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
-                                        <Border Grid.Column="0" Classes="tile" Background="#FF9500">
-                                            <TextBlock Text="☕" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
+                                        <Border Grid.Column="0" Classes="tile" Background="#FF9500"><Image Source="avares://S1mp1e/Assets/Icons/square.stack.3d.up.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="自訂 Java" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock x:Name="JavaPathLabel" Text="自動（依版本選擇）" FontSize="11" Foreground="{DynamicResource TextSub}" TextTrimming="CharacterEllipsis"/></StackPanel>
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <Button Classes="mini" Content="選擇…" Click="OnPickJava"/>
@@ -964,7 +1032,7 @@
                                             <TextBlock Text="⌨" FontSize="14" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲內選單鍵" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="1.8.9 遊戲中按此鍵開啟模組設定" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <ctl:GlassSelect x:Name="MenuKeyBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
+                                        <ctl:GlassSelect x:Name="MenuKeyBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="Right Shift|Right Ctrl|Right Alt|Insert|Home|End|Page Up|`  (grave)|\  |F6|F10"
                                                          SelectionChanged="OnMenuKeyChanged"/>
                                     </Grid>
@@ -977,27 +1045,27 @@
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#5E5CE6"><Image Source="avares://S1mp1e/Assets/Icons/circle.righthalf.fill.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="外觀" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
-                                        <ctl:GlassSelect x:Name="ThemeBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
+                                        <ctl:GlassSelect x:Name="ThemeBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="自動|淺色|深色" SelectionChanged="OnThemeChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#FF375F"><Image Source="avares://S1mp1e/Assets/Icons/paintbrush.fill.png" Width="18" Height="18"/></Border>
                                         <TextBlock Grid.Column="1" Text="強調色" FontSize="13" Foreground="{DynamicResource TextMain}" VerticalAlignment="Center"/>
-                                        <ctl:GlassSelect x:Name="AccentBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
+                                        <ctl:GlassSelect x:Name="AccentBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
                                                          Options="藍色|紫色|粉紅色|橙色|綠色|石墨" SelectionChanged="OnAccentChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#BF5AF2"><Image Source="avares://S1mp1e/Assets/Icons/drop.triangle.fill.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="液態玻璃" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="在介面啟用即時折射玻璃效果" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <ctl:LiquidToggle x:Name="GlassToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnGlassToggleChanged"/>
+                                        <ctl:LiquidToggle x:Name="GlassToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnGlassToggleChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#8E8E93"><Image Source="avares://S1mp1e/Assets/Icons/square.on.square.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="減少透明度" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="降低模糊與透明度，提升清晰度與效能" FontSize="11" Foreground="{DynamicResource TextSub}"/></StackPanel>
-                                        <ctl:LiquidToggle x:Name="DemoToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6" IsCheckedChanged="OnReduceToggleChanged"/>
+                                        <ctl:LiquidToggle x:Name="DemoToggle" Grid.Column="2" IsChecked="False" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnReduceToggleChanged"/>
                                     </Grid>
                                 </StackPanel>
                             </Border>

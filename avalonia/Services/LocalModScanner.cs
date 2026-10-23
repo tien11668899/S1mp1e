@@ -209,8 +209,44 @@ public static class LocalModScanner
         var target = enable
             ? jarPath.Substring(0, jarPath.Length - ".disabled".Length)
             : jarPath + ".disabled";
-        if (File.Exists(target)) File.Delete(target);
+        if (FileLocks.IsLocked(jarPath)) throw new FileInUseException(jarPath);
+        if (File.Exists(target))
+        {
+            // A twin under the target name already exists (x.jar beside x.jar.disabled). Identical bytes: the twin is
+            // redundant and goes. Different bytes: never destroy it — the moved jar takes a free numbered name instead.
+            if (SameBytes(jarPath, target)) File.Delete(target);
+            else target = FreeName(target);
+        }
         File.Move(jarPath, target);
         return target;
+    }
+
+    private static bool SameBytes(string a, string b)
+    {
+        try
+        {
+            var fa = new FileInfo(a); var fb = new FileInfo(b);
+            if (fa.Length != fb.Length) return false;
+            using var sa = File.OpenRead(a); using var sb = File.OpenRead(b);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var ha = sha.ComputeHash(sa); var hb = sha.ComputeHash(sb);
+            return ha.AsSpan().SequenceEqual(hb);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>"x.jar" → "x (2).jar" (and "x.jar.disabled" → "x (2).jar.disabled"), the first name not taken.</summary>
+    private static string FreeName(string path)
+    {
+        var dir = Path.GetDirectoryName(path) ?? "";
+        var name = Path.GetFileName(path);
+        var suffix = name.EndsWith(".jar.disabled", StringComparison.OrdinalIgnoreCase) ? ".jar.disabled"
+                   : name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ? ".jar" : Path.GetExtension(name);
+        var stem = name[..^suffix.Length];
+        for (int i = 2; ; i++)
+        {
+            var cand = Path.Combine(dir, $"{stem} ({i}){suffix}");
+            if (!File.Exists(cand)) return cand;
+        }
     }
 }

@@ -1,4 +1,4 @@
-; S1mp1e installer (Inno Setup 6).
+﻿; S1mp1e installer (Inno Setup 6).
 ;
 ; Per-USER install (no admin / no UAC) so the launcher's own auto-update can run
 ; the new installer silently and upgrade in place. Build with:
@@ -44,10 +44,12 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"
+; The whole wizard (and the uninstaller) in Traditional Chinese — Inno ships no zh-TW file, so it is ours, translated
+; from this Inno version's Default.isl. Both .isl and .iss must stay UTF-8 WITH a BOM, or ISCC reads them as ANSI.
+Name: "zhtw"; MessagesFile: "ChineseTraditional.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "建立桌面捷徑"; GroupDescription: "捷徑:"
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
 ; The whole self-contained publish tree (app + runtime + itest.exe).
@@ -58,7 +60,11 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#ExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; Tasks: desktopicon
 
 [Run]
+; Both entries start the launcher THROUGH explorer.exe, never as Setup's own child: Setup runs with Redirection Guard
+; (it refuses to follow junctions made by non-admin users), a child inherits that, and so would the game the launcher
+; starts — Minecraft then cannot open the saves / resourcepacks junctions of its instance folder and crashes at start-up
+; ("FileAlreadyExistsException ...\instances\<ver>\saves"). Explorer starts it like the Start menu does.
 ; Interactive install: offer to launch when the wizard finishes.
-Filename: "{app}\{#ExeName}"; Description: "啟動 {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{win}\explorer.exe"; Parameters: """{app}\{#ExeName}"""; Description: "啟動 {#AppName}"; Flags: nowait postinstall skipifsilent
 ; Silent auto-update: relaunch the app after replacing it.
-Filename: "{app}\{#ExeName}"; Flags: nowait skipifnotsilent
+Filename: "{win}\explorer.exe"; Parameters: """{app}\{#ExeName}"""; Flags: nowait skipifnotsilent

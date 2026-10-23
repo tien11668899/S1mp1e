@@ -227,15 +227,16 @@ fn sha1_file(p: &Path) -> Option<String> {
     Some(h.digest().to_string())
 }
 
-/// `fabric.mod.json` ids of the player's own enabled mods in `s1mp1e-mods/<mc>/`.
+/// `fabric.mod.json` ids of the player's own mods in `s1mp1e-mods/<mc>/` — enabled AND disabled: a mod the player
+/// switched off is their decision, so the pack must not load its own copy of it behind their back.
 fn user_mod_ids(root: &Path, mc: &str) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     let dir = root.join("s1mp1e-mods").join(mc);
     let Ok(rd) = std::fs::read_dir(&dir) else { return ids };
     for e in rd.flatten() {
         let p = e.path();
-        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-        if !name.ends_with(".jar") || name.starts_with("glass-") {
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
+        if !(name.ends_with(".jar") || name.ends_with(".jar.disabled")) {
             continue;
         }
         if let Some(id) = crate::default_mods::fabric_mod_id(&p) {
@@ -288,7 +289,10 @@ async fn fetch(dir: &Path, m: &PerfMod) -> Result<()> {
     download_file(&cl, &f.url, &tmp, Some(m.sha1), |_| {}).await?;
     match sha1_file(&tmp) {
         Some(h) if h.eq_ignore_ascii_case(m.sha1) => {
-            std::fs::rename(&tmp, dir.join(m.file))?;
+            if let Err(e) = std::fs::rename(&tmp, dir.join(m.file)) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e.into());
+            }
             Ok(())
         }
         _ => {
@@ -363,9 +367,16 @@ fn write_active(dir: &Path, active: &[PathBuf]) {
 
 /// The jars `ensure_pack` chose for this launch.
 pub fn active_jars(root: &Path, mc: &str) -> Vec<PathBuf> {
-    std::fs::read_to_string(perf_dir(root, mc).join("active.txt"))
+    let list: Vec<PathBuf> = std::fs::read_to_string(perf_dir(root, mc).join("active.txt"))
         .map(|s| s.lines().filter(|l| !l.trim().is_empty()).map(PathBuf::from).filter(|p| p.exists()).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // `active.txt` is written by `ensure_pack`; paths that run without it (`itest plan`, pack setting off) may see a
+    // list older than the player's folder. Re-check here so a mod the player installed or disabled since is never
+    // loaded twice (or re-enabled) by the pack.
+    let mine = user_mod_ids(root, mc);
+    list.into_iter()
+        .filter(|p| crate::default_mods::fabric_mod_id(p).map_or(true, |id| !mine.contains(&id)))
+        .collect()
 }
 
 /// Call right before starting the game with the pack loaded.

@@ -15,7 +15,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, media, meta, ornithe, paths, perf};
+use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, media, meta, ornithe, paths, perf, playtime};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -33,6 +33,7 @@ async fn main() {
         "plan" => cmd_plan(rest),
         "forge-deps" => cmd_forge_deps(rest).await,
         "list-versions" => cmd_list_versions().await,
+        "refresh" => cmd_refresh().await,
         "media-serve" => cmd_media_serve(),
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
@@ -41,7 +42,7 @@ async fn main() {
             if ai.user_type == "msa" { 0 } else { 1 }
         }
         _ => {
-            eprintln!("usage: itest <login|play|install|default-mods|list-versions|whoami> ...");
+            eprintln!("usage: itest <login|refresh|play|install|default-mods|list-versions|whoami> ...");
             2
         }
     };
@@ -68,12 +69,23 @@ async fn cmd_login(client_id: String) -> i32 {
             // freshly signed-in account is dropped (the launcher then shows
             // "登入失敗" even though auth fully succeeded). Saving first closes
             // the race: the UI only ever reads a file we have finished writing.
-            let mut c = config::load();
+            // Read-modify-write: a config that exists but cannot be read right now must not be replaced by defaults
+            // (that would delete every other account and all settings).
+            let mut c = match config::load_for_update() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("讀取設定失敗，帳號沒有儲存：{e}");
+                    return 1;
+                }
+            };
             // Keep accounts[] in step with the active account. The UI's switcher lists
             // this array, and its logout path falls back to accounts[0] — with the array
             // never populated, signing in then logging out cleared the account outright.
-            c.accounts.retain(|a| a.uuid != account.uuid);
-            c.accounts.push(account.clone());
+            // Signing in again with a saved account refreshes it where it is in the list instead of moving it last.
+            match c.accounts.iter().position(|a| a.uuid == account.uuid) {
+                Some(i) => c.accounts[i] = account.clone(),
+                None => c.accounts.push(account.clone()),
+            }
             c.account = Some(account.clone());
             if let Err(e) = config::save(&c) {
                 eprintln!("儲存帳號失敗：{e}");
@@ -93,6 +105,63 @@ async fn cmd_login(client_id: String) -> i32 {
 
 /// Resolve the identity for launch: reuse/refresh the signed-in MSA account, else
 /// offline. Mirrors the Tauri app's resolve_auth so CLI + GUI behave identically.
+/// True when a refresh failed because the network did (no connection, timeout, a Microsoft/Xbox server error), as
+/// opposed to the account's session being rejected.
+fn is_network_error(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<reqwest::Error>().map_or(false, |r| {
+            r.is_connect() || r.is_timeout() || r.is_request() || r.status().map_or(false, |s| s.is_server_error())
+        }) || c.downcast_ref::<std::io::Error>().is_some()
+    })
+}
+
+/// Store a refreshed session: the active account and its accounts[] entry (in place — the switcher lists accounts in
+/// saved order, and a refresh must not reorder it). An unreadable config is not overwritten; the caller still has the
+/// fresh token for what it is doing.
+fn persist_refreshed(fresh: config::Account) {
+    if let Ok(mut c) = config::load_for_update() {
+        // Only if this account is still the active one: the player may have switched while the refresh ran.
+        let still_active = c.account.as_ref().map(|a| a.uuid == fresh.uuid).unwrap_or(false);
+        match c.accounts.iter().position(|a| a.uuid == fresh.uuid) {
+            Some(i) => c.accounts[i] = fresh.clone(),
+            None => c.accounts.push(fresh.clone()),
+        }
+        if still_active {
+            c.account = Some(fresh);
+        }
+        if let Err(e) = config::save(&c) {
+            eprintln!("儲存刷新後的登入失敗：{e}");
+        }
+    }
+}
+
+/// itest refresh — make sure the active account's Minecraft token is valid for at least five more minutes (the
+/// launcher calls this before skin / cape changes, which use the token directly). Prints OK, NO_ACCOUNT,
+/// AUTH_OFFLINE (network) or AUTH_EXPIRED (sign in again).
+async fn cmd_refresh() -> i32 {
+    let cfg = config::load();
+    let Some(acc) = cfg.account else {
+        println!("NO_ACCOUNT");
+        return 1;
+    };
+    if acc.mc_expires_at > config::now_secs() + 300 {
+        println!("OK");
+        return 0;
+    }
+    match auth::refresh(&cfg.client_id, &acc.msa_refresh).await {
+        Ok(fresh) => {
+            persist_refreshed(fresh);
+            println!("OK");
+            0
+        }
+        Err(e) => {
+            println!("{}", if is_network_error(&e) { "AUTH_OFFLINE" } else { "AUTH_EXPIRED" });
+            eprintln!("MSA session refresh failed for {}: {e:#}", acc.name);
+            1
+        }
+    }
+}
+
 async fn resolve_auth(offline_name: &str) -> launch::AuthInfo {
     let cfg = config::load();
     if let Some(acc) = cfg.account {
@@ -112,22 +181,19 @@ async fn resolve_auth(offline_name: &str) -> launch::AuthInfo {
                     token: fresh.mc_token.clone(),
                     user_type: "msa".into(),
                 };
-                let mut c = config::load();
-                // Mirror the refreshed token into accounts[] too, or a later switch
-                // would hand back the stale entry we just replaced.
-                c.accounts.retain(|a| a.uuid != fresh.uuid);
-                c.accounts.push(fresh.clone());
-                c.account = Some(fresh);
-                let _ = config::save(&c);
+                persist_refreshed(fresh);
                 return ai;
             }
             Err(e) => {
-                // The saved MSA session is dead (refresh token expired/revoked, or a
-                // transient network failure). DON'T silently launch offline while the
-                // UI still shows "signed in" — emit a marker the launcher parses so it
-                // can prompt a re-login, then fall back to offline so the game can still
-                // open (single-player / cracked servers) instead of hard-failing.
-                println!("AUTH_EXPIRED\t{}", acc.name);
+                // DON'T silently launch offline while the UI still shows "signed in": tell the launcher why, then fall
+                // back to offline so the game still opens (single-player / offline servers). A network problem is
+                // temporary and the session is fine (AUTH_OFFLINE); only a rejected refresh means "sign in again"
+                // (AUTH_EXPIRED) — reporting every failure as expired sent offline players to re-login for nothing.
+                if is_network_error(&e) {
+                    println!("AUTH_OFFLINE\t{}", acc.name);
+                } else {
+                    println!("AUTH_EXPIRED\t{}", acc.name);
+                }
                 eprintln!("MSA session refresh failed for {}: {e:#}", acc.name);
             }
         }
@@ -158,20 +224,19 @@ fn resolve_version_id(root: &std::path::PathBuf, mc: &str, loader: &str) -> Opti
             }
         }
     }
-    fabric.sort();
-    forge.sort();
-    let pick = match loader.to_lowercase().as_str() {
-        "forge" => forge.pop(),
-        _ => fabric.pop(),
+    // Newest loader by version, not by text (text order put 0.16.9 after 0.16.10).
+    let fabric_ver = |id: &str| -> String {
+        id.strip_prefix("fabric-loader-").unwrap_or(id).strip_suffix(suffix.as_str()).unwrap_or(id).to_string()
     };
-    if let Some(f) = pick {
-        return Some(f);
-    }
-    // Fall back to a vanilla profile of that id if it exists.
-    if paths::version_json(root, mc).exists() {
-        Some(mc.to_string())
-    } else {
-        None
+    fabric.sort_by(|a, b| default_mods::compare_versions(&fabric_ver(a), &fabric_ver(b)));
+    forge.sort_by(|a, b| default_mods::compare_versions(a.trim_start_matches(&forge_prefix), b.trim_start_matches(&forge_prefix)));
+    match loader.to_lowercase().as_str() {
+        "forge" => forge.pop(),
+        // Only an explicit vanilla request launches the bare profile. Fabric/Forge never fall back to vanilla: that
+        // silently started a game without the chosen loader, glass or mods (e.g. Forge picked while only vanilla /
+        // Ornithe 1.8.9 was installed); the caller installs the requested loader instead.
+        "vanilla" => paths::version_json(root, mc).exists().then(|| mc.to_string()),
+        _ => fabric.pop(),
     }
 }
 
@@ -314,6 +379,53 @@ async fn cmd_default_mods(a: &[String]) -> i32 {
 }
 
 /// itest play <mc> <loader> <mcPath> <name>
+/// Game args that connect straight to a server: 1.20+ (and 26.x) take `--quickPlayMultiplayer host:port`;
+/// older versions take `--server host --port port`.
+fn join_args(mc: &str, addr: &str) -> Vec<String> {
+    let mut nums = mc.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let (major, minor) = (nums.next().unwrap_or(0), nums.next().unwrap_or(0));
+    if major > 1 || minor >= 20 {
+        return vec!["--quickPlayMultiplayer".into(), addr.to_string()];
+    }
+    let (host, port) = match addr.rsplit_once(':') {
+        Some((h, p)) if !h.contains(':') && p.parse::<u16>().is_ok() => (h.to_string(), p.to_string()),
+        _ => (addr.to_string(), "25565".to_string()),
+    };
+    vec!["--server".into(), host, "--port".into(), port]
+}
+
+#[cfg(test)]
+mod join_tests {
+    use super::join_args;
+    #[test]
+    fn quick_play_on_modern_versions() {
+        assert_eq!(join_args("26.2", "mc.example.com"), vec!["--quickPlayMultiplayer", "mc.example.com"]);
+        assert_eq!(join_args("1.20.1", "a.b:25570"), vec!["--quickPlayMultiplayer", "a.b:25570"]);
+    }
+    #[test]
+    fn server_port_on_old_versions() {
+        assert_eq!(join_args("1.8.9", "a.b:25570"), vec!["--server", "a.b", "--port", "25570"]);
+        assert_eq!(join_args("1.12.2", "hypixel.net"), vec!["--server", "hypixel.net", "--port", "25565"]);
+    }
+}
+
+/// An exclusive lock on one version's files for as long as the returned handle lives (the OS releases it if this
+/// process dies). Taken by `play` and `install`, so an install and a launch of the same version — or two launches —
+/// never write the same libraries, natives or instance mods folder at once.
+fn version_lock(root: &std::path::Path, mc: &str) -> Result<std::fs::File, String> {
+    let dir = root.join("instances").join(mc);
+    let _ = std::fs::create_dir_all(&dir);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).write(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.share_mode(0);
+    }
+    opts.open(dir.join(".s1mp1e.lock"))
+        .map_err(|_| format!("{mc} 正在安裝或執行中（另一個啟動或安裝還沒結束），請等它完成再試"))
+}
+
 async fn cmd_play(a: &[String]) -> i32 {
     let mc = a.first().cloned().unwrap_or_default();
     let loader = a.get(1).cloned().unwrap_or_else(|| "fabric".into());
@@ -324,6 +436,13 @@ async fn cmd_play(a: &[String]) -> i32 {
         return 2;
     }
     let root = paths::mc_root(mc_path.as_deref());
+    let _lock = match version_lock(&root, &mc) {
+        Ok(l) => l,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
 
     // Find the installed Fabric/Forge profile; if fabric is wanted but missing,
     // install it on demand so PLAY always launches a modded (glass) profile.
@@ -347,6 +466,14 @@ async fn cmd_play(a: &[String]) -> i32 {
         }
     };
 
+    // An install that never finished (network drop, launcher closed) is repaired here instead of failing on every
+    // Play: missing client jar / assets / libraries / Java are fetched, present ones only re-verified once.
+    if !install::is_complete(&root, &id) {
+        if let Err(e) = install::repair_version(root.clone(), id.clone(), silent_emit()).await {
+            eprintln!("版本檔案不完整，修復失敗：{e:#}");
+            return 1;
+        }
+    }
     if let Err(e) = install::ensure_java(root.clone(), id.clone(), silent_emit()).await {
         eprintln!("Java 準備失敗：{e:#}");
         return 1;
@@ -411,6 +538,10 @@ async fn cmd_play(a: &[String]) -> i32 {
             return 1;
         }
     };
+    // 啟動器「伺服器」頁的「加入」：開遊戲後直接連進伺服器
+    if let Some(addr) = a.iter().position(|s| s == "--join").and_then(|i| a.get(i + 1)) {
+        plan.args.extend(join_args(&mc, addr));
+    }
     // 遊戲內靈動島的「正在播放」服務（Windows 系統媒體控制）：只在遊戲執行期間、只綁 127.0.0.1
     if let Some(ms) = media::start() {
         insert_jvm_arg(&mut plan, ms.jvm_arg());
@@ -419,15 +550,39 @@ async fn cmd_play(a: &[String]) -> i32 {
     if pack_on {
         perf::mark_launch(&root, &mc);
     }
-    let code = launch::run_blocking(plan, |line| {
-        let mut o = std::io::stdout();
-        let _ = writeln!(o, "{line}");
-        let _ = o.flush();
-    })
-    .unwrap_or(-1);
+    // The game's own error stream goes to ours, so the launcher sees JVM start-up errors as errors; a failure to start
+    // the game at all is printed with its reason instead of a bare -1 the UI can only call "no error output".
+    // Play time counts from the moment the game window comes up (the same log markers the launcher UI watches), not
+    // from the JVM start, and is recorded here so it survives the launcher window being closed during play.
+    let running_since: Arc<std::sync::OnceLock<std::time::Instant>> = Arc::new(std::sync::OnceLock::new());
+    let rs = running_since.clone();
+    let code = match launch::run_blocking(plan, move |line, is_err| {
+        if rs.get().is_none() && (line.contains("LWJGL") || line.contains("Setting user")) {
+            let _ = rs.set(std::time::Instant::now());
+        }
+        // The launcher may be gone by now (after-launch "close"): writing to a closed pipe must not stop us.
+        if is_err {
+            let mut e = std::io::stderr();
+            let _ = writeln!(e, "{line}");
+            let _ = e.flush();
+        } else {
+            let mut o = std::io::stdout();
+            let _ = writeln!(o, "{line}");
+            let _ = o.flush();
+        }
+    }) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "無法啟動遊戲：{e:#}");
+            -1
+        }
+    };
+    if let Some(t) = running_since.get() {
+        playtime::record(&mc, t.elapsed().as_secs());
+    }
     if pack_on {
         if let Some(why) = perf::judge_exit(&root, &mc, &gamedir, code) {
-            eprintln!("效能套件已暫停（下次啟動不載入）：{why}");
+            let _ = writeln!(std::io::stderr(), "效能套件已暫停（下次啟動不載入）：{why}");
         }
     }
     code
@@ -488,6 +643,13 @@ async fn cmd_install(a: &[String]) -> i32 {
         return 2;
     }
     let root = paths::mc_root(mc_path.as_deref());
+    let _lock = match version_lock(&root, &mc) {
+        Ok(l) => l,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
     let res = match kind {
         "fabric" => {
             let res = install::install_fabric(root.clone(), mc.clone(), silent_emit()).await;

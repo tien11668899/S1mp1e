@@ -19,6 +19,12 @@ public sealed class ModHitVm : INotifyPropertyChanged
     // Modrinth loader tags this mod supports (fabric/forge/neoforge/quilt/…).
     // Empty = unknown; treat as "everything" and let the resolve step filter.
     public string[] Loaders { get; init; } = System.Array.Empty<string>();
+    // What the search that produced this row was for (mod | resourcepack | shader), so a row clicked right after the
+    // type was switched still installs into the right folder.
+    public string ProjectType { get; init; } = "mod";
+    // The Minecraft version / loader the search ran for; installing uses these, not whatever the boxes say later.
+    public string Mc { get; init; } = "";
+    public string Loader { get; init; } = "";
 
     private Bitmap? _icon;
     public Bitmap? Icon

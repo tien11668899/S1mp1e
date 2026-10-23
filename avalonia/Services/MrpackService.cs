@@ -40,43 +40,56 @@ public static class MrpackService
         && AllowedHosts.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase)
                               || u.Host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase));
 
-    public sealed record ExportResult(int Indexed, int Bundled, string OutPath);
+    public sealed record ExportResult(int Indexed, int Bundled, string OutPath, int Packs = 0);
     public sealed record ImportResult(int Downloaded, int Extracted, int Skipped, string? DeclaredMc,
-        string? DeclaredLoader, IReadOnlyList<string> Failures);
+        string? DeclaredLoader, IReadOnlyList<string> Failures, int Packs = 0, string? SettingsPath = null, IReadOnlyList<string>? ImportedMods = null);
 
-    /// <summary>Write <paramref name="outPath"/> (.mrpack) from <paramref name="jarPaths"/>.</summary>
+    /// The S1mp1e in-game settings travel inside the pack at this path (other launchers just copy it along, harmlessly).
+    private const string SettingsEntry = "overrides/s1mp1e/modules.json";
+
+    /// <summary>Write <paramref name="outPath"/> (.mrpack) from <paramref name="jarPaths"/>, optionally with resource
+    /// packs and the S1mp1e in-game settings file (the "share everything with a friend" pack).</summary>
     public static async Task<ExportResult> ExportAsync(
         string outPath, string packName, string mc, string loaderKey, string? loaderVersion,
-        IReadOnlyList<string> jarPaths, CancellationToken ct = default)
+        IReadOnlyList<string> jarPaths, CancellationToken ct = default,
+        IReadOnlyList<string>? resourcePacks = null, string? s1mp1eSettings = null)
     {
-        // Hash every jar (sha512 for the Modrinth lookup + index, sha1 also required by the spec).
-        var info = new List<(string path, string sha512, string sha1, long size)>();
-        foreach (var p in jarPaths.Distinct(StringComparer.OrdinalIgnoreCase))
+        // Hash every file (sha512 for the Modrinth lookup + index, sha1 also required by the spec).
+        var info = new List<(string path, string folder, string sha512, string sha1, long size)>();
+        async Task Add(IEnumerable<string> paths, string folder)
         {
-            ct.ThrowIfCancellationRequested();
-            if (!File.Exists(p)) continue;
-            var bytes = await File.ReadAllBytesAsync(p, ct).ConfigureAwait(false);
-            info.Add((p, Convert.ToHexString(SHA512.HashData(bytes)).ToLowerInvariant(),
-                         Convert.ToHexString(SHA1.HashData(bytes)).ToLowerInvariant(), bytes.LongLength));
+            foreach (var p in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!File.Exists(p)) continue;
+                var bytes = await File.ReadAllBytesAsync(p, ct).ConfigureAwait(false);
+                info.Add((p, folder, Convert.ToHexString(SHA512.HashData(bytes)).ToLowerInvariant(),
+                             Convert.ToHexString(SHA1.HashData(bytes)).ToLowerInvariant(), bytes.LongLength));
+            }
         }
+        await Add(jarPaths, "mods").ConfigureAwait(false);
+        if (resourcePacks is not null) await Add(resourcePacks, "resourcepacks").ConfigureAwait(false);
         var hits = await ModrinthClient.LookupByHashesAsync(info.Select(i => i.sha512).ToList(), ct).ConfigureAwait(false);
 
         var files = new JsonArray();
-        var bundle = new List<string>();
-        foreach (var (path, sha512, sha1, size) in info)
+        var bundle = new List<(string path, string folder)>();
+        int modsIndexed = 0, packs = 0;
+        foreach (var (path, folder, sha512, sha1, size) in info)
         {
+            if (folder == "resourcepacks") packs++;
             var name = EnabledName(Path.GetFileName(path));
             if (hits.TryGetValue(sha512, out var hit) && !string.IsNullOrEmpty(hit.FileUrl) && IsAllowed(hit.FileUrl!))
             {
                 files.Add(new JsonObject
                 {
-                    ["path"] = "mods/" + name,
+                    ["path"] = folder + "/" + name,
                     ["hashes"] = new JsonObject { ["sha1"] = sha1, ["sha512"] = sha512 },
                     ["downloads"] = new JsonArray { hit.FileUrl! },
                     ["fileSize"] = size,
                 });
+                if (folder == "mods") modsIndexed++;
             }
-            else bundle.Add(path);   // manual / not on Modrinth → ship the jar itself
+            else bundle.Add((path, folder));   // manual / not on Modrinth → ship the file itself
         }
 
         var deps = new JsonObject { ["minecraft"] = mc };
@@ -98,39 +111,60 @@ public static class MrpackService
 
         var tmp = outPath + ".part";
         if (File.Exists(tmp)) File.Delete(tmp);
-        await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+        try
         {
-            var ie = zip.CreateEntry("modrinth.index.json", CompressionLevel.Optimal);
-            await using (var es = ie.Open())
-                await JsonSerializer.SerializeAsync(es, index, Pretty, ct).ConfigureAwait(false);
-
-            foreach (var p in bundle)
+            await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
             {
-                ct.ThrowIfCancellationRequested();
-                var name = EnabledName(Path.GetFileName(p));
-                var be = zip.CreateEntry("overrides/mods/" + name, CompressionLevel.Optimal);
-                await using var src = File.OpenRead(p);
-                await using var dst = be.Open();
-                await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+                var ie = zip.CreateEntry("modrinth.index.json", CompressionLevel.Optimal);
+                await using (var es = ie.Open())
+                    await JsonSerializer.SerializeAsync(es, index, Pretty, ct).ConfigureAwait(false);
+    
+                foreach (var (p, folder) in bundle)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var name = EnabledName(Path.GetFileName(p));
+                    var be = zip.CreateEntry($"overrides/{folder}/{name}", CompressionLevel.Optimal);
+                    await using var src = File.OpenRead(p);
+                    await using var dst = be.Open();
+                    await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+                }
+                if (s1mp1eSettings is not null && File.Exists(s1mp1eSettings))
+                {
+                    var se = zip.CreateEntry(SettingsEntry, CompressionLevel.Optimal);
+                    await using var src = new FileStream(s1mp1eSettings, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    await using var dst = se.Open();
+                    await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+                }
             }
+            File.Move(tmp, outPath, overwrite: true);
         }
-        if (File.Exists(outPath)) File.Delete(outPath);
-        File.Move(tmp, outPath);
-        return new ExportResult(files.Count, bundle.Count, outPath);
+        catch
+        {
+            // A failed or cancelled export leaves no half-written pack behind.
+            try { File.Delete(tmp); } catch { }
+            throw;
+        }
+        return new ExportResult(modsIndexed, bundle.Count(b => b.folder == "mods"), outPath, packs);
     }
 
     /// <summary>
     /// Import a .mrpack into <paramref name="destModsDir"/>: download every index file (verified against its sha512) and
     /// extract <c>overrides/mods/</c>. Reports the pack's declared MC/loader so the caller can warn on a mismatch.
     /// </summary>
+    /// <param name="contentRoot">The .minecraft folder: when given, resource packs go to its resourcepacks/ and the
+    /// S1mp1e settings file is extracted to a temp path (<see cref="ImportResult.SettingsPath"/>) for the caller to offer.</param>
     public static async Task<ImportResult> ImportAsync(
-        string mrpackPath, string destModsDir, IProgress<(int done, int total)>? progress = null, CancellationToken ct = default)
+        string mrpackPath, string destModsDir, IProgress<(int done, int total)>? progress = null, CancellationToken ct = default,
+        string? contentRoot = null)
     {
         Directory.CreateDirectory(destModsDir);
-        int downloaded = 0, extracted = 0, skipped = 0;
+        var packDir = contentRoot is null ? null : Path.Combine(contentRoot, "resourcepacks");
+        int downloaded = 0, extracted = 0, skipped = 0, packs = 0;
+        string? settingsPath = null;
         string? declMc = null, declLoader = null;
         var failures = new List<string>();
+        var imported = new List<string>();
 
         using var zip = ZipFile.OpenRead(mrpackPath);
         var indexEntry = zip.GetEntry("modrinth.index.json")
@@ -156,58 +190,78 @@ public static class MrpackService
             done++; progress?.Report((done, total));
             if (fnode is not JsonObject fo) { skipped++; continue; }
             var path = fo["path"]?.GetValue<string>() ?? "";
-            // Only mods are in scope (resourcepacks/shaders/config are out of this launcher's mod folder).
-            if (!path.StartsWith("mods/", StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
-            var name = Path.GetFileName(path);
-            if (string.IsNullOrEmpty(name) || name.Contains("..")) { skipped++; continue; }
+            bool isPack = packDir is not null && path.StartsWith("resourcepacks/", StringComparison.OrdinalIgnoreCase);
+            if (!isPack && !path.StartsWith("mods/", StringComparison.OrdinalIgnoreCase)) { skipped++; continue; }
+            string name;
+            try { name = ModrinthClient.SafeFileName(Path.GetFileName(path)); }
+            catch (ArgumentException) { skipped++; continue; }
 
             var urls = (fo["downloads"] as JsonArray)?.Select(x => x?.GetValue<string>() ?? "").Where(IsAllowed).ToList()
                        ?? new List<string>();
             var wantSha = (fo["hashes"] as JsonObject)?["sha512"]?.GetValue<string>();
             if (urls.Count == 0) { failures.Add(name + "（下載來源不被允許）"); continue; }
 
-            var dst = Path.Combine(destModsDir, name);
+            if (isPack) Directory.CreateDirectory(packDir!);
+            var dst = Path.Combine(isPack ? packDir! : destModsDir, name);
             bool ok = false;
+            string? lastError = null;
             foreach (var url in urls)
             {
                 try
                 {
-                    await ModrinthClient.DownloadFileAsync(url, dst, null, ct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(wantSha))
-                    {
-                        await using var hs = File.OpenRead(dst);
-                        var got = Convert.ToHexString(await SHA512.HashDataAsync(hs, ct).ConfigureAwait(false)).ToLowerInvariant();
-                        if (!string.Equals(got, wantSha, StringComparison.OrdinalIgnoreCase))
-                        { try { File.Delete(dst); } catch { } continue; }   // corrupt / wrong file → try next url
-                    }
+                    // The download verifies the sha512 itself before the file takes its final name, and keeps an
+                    // identical file already there without downloading it again.
+                    await ModrinthClient.DownloadFileAsync(url, dst, null, ct, wantSha).ConfigureAwait(false);
                     ok = true; break;
                 }
-                catch { /* try next url */ }
+                catch (OperationCanceledException) { throw; }
+                catch (FileInUseException) { lastError = "檔案正被遊戲使用"; break; }
+                catch (Exception ex) { lastError = ex is System.Net.Http.HttpRequestException ? "下載失敗" : ex.Message; }
             }
-            if (ok) downloaded++; else failures.Add(name + "（下載失敗）");
+            if (!ok) failures.Add($"{name}（{lastError ?? "下載失敗"}）");
+            else if (isPack) packs++;
+            else { downloaded++; imported.Add(dst); }
         }
 
-        // overrides/mods/* → the mod folder, with zip-slip protection.
-        var destFull = Path.GetFullPath(destModsDir);
+        // overrides/mods/* → the mod folder, overrides/resourcepacks/* → resourcepacks, with zip-slip protection.
         foreach (var e in zip.Entries)
         {
             ct.ThrowIfCancellationRequested();
             var p = e.FullName.Replace('\\', '/');
-            if (!p.StartsWith("overrides/mods/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (contentRoot is not null && p.Equals(SettingsEntry, StringComparison.OrdinalIgnoreCase))
+            {
+                settingsPath = Path.Combine(Path.GetTempPath(), $"s1mp1e-shared-modules-{Guid.NewGuid():N}.json");
+                e.ExtractToFile(settingsPath, true);
+                continue;
+            }
+            bool pack = packDir is not null && p.StartsWith("overrides/resourcepacks/", StringComparison.OrdinalIgnoreCase);
+            if (!pack && !p.StartsWith("overrides/mods/", StringComparison.OrdinalIgnoreCase)) continue;
             var name = Path.GetFileName(p);
             if (string.IsNullOrEmpty(name)) continue;   // directory entry
-            var outPath = Path.GetFullPath(Path.Combine(destModsDir, name));
-            if (!outPath.StartsWith(destFull, StringComparison.OrdinalIgnoreCase)) continue;   // zip-slip guard
+            var dir = pack ? packDir! : destModsDir;
+            Directory.CreateDirectory(dir);
+            var dirFull = Path.GetFullPath(dir).TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+            var outPath = Path.GetFullPath(Path.Combine(dir, name));
+            if (!outPath.StartsWith(dirFull, StringComparison.OrdinalIgnoreCase)) continue;   // zip-slip guard
+            // Extract under a temp name and rename: an interrupted import never leaves a truncated jar that would load.
+            var tmp = outPath + ".s1part";
             try
             {
-                await using var src = e.Open();
-                await using var dst = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                await src.CopyToAsync(dst, ct).ConfigureAwait(false);
-                extracted++;
+                await using (var src = e.Open())
+                await using (var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                    await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+                if (FileLocks.IsLocked(outPath)) throw new FileInUseException(outPath);
+                File.Move(tmp, outPath, overwrite: true);
+                if (pack) packs++; else { extracted++; imported.Add(outPath); }
             }
-            catch (Exception ex) { failures.Add(name + "（解壓失敗：" + ex.Message + "）"); }
+            catch (OperationCanceledException) { try { File.Delete(tmp); } catch { } throw; }
+            catch (Exception ex)
+            {
+                try { File.Delete(tmp); } catch { }
+                failures.Add(name + (ex is FileInUseException ? "（檔案正被遊戲使用）" : "（解壓失敗：" + ex.Message + "）"));
+            }
         }
 
-        return new ImportResult(downloaded, extracted, skipped, declMc, declLoader, failures);
+        return new ImportResult(downloaded, extracted, skipped, declMc, declLoader, failures, packs, settingsPath, imported);
     }
 }

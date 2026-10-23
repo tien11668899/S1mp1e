@@ -115,6 +115,7 @@ pub async fn install_ornithe(root: PathBuf, emit: Emit) -> Result<String> {
     ensure_stack(&root, &emit).await?;
     // Java 25（Mojang 的 java-runtime-epsilon），安裝時就備好
     crate::install::ensure_java(root.clone(), id.clone(), emit.clone()).await?;
+    crate::install::mark_complete(&root, &id);
     tick(&emit, "done", format!("Ornithe {LOADER}（1.8.9）安裝完成"), 1, 1);
     Ok(id)
 }

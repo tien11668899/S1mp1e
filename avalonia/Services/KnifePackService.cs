@@ -38,6 +38,13 @@ public static class KnifePackService
 
     public static bool Installed(string mcDir) => File.Exists(Path.Combine(PackDir(mcDir), "pack.json"));
 
+    /// <summary>The manifest version the installed pack came from (0 = unknown / installed before versions were recorded).</summary>
+    public static int InstalledVersion(string mcDir)
+    {
+        try { return int.TryParse(File.ReadAllText(Path.Combine(PackDir(mcDir), ".pack-version")).Trim(), out var v) ? v : 0; }
+        catch { return 0; }
+    }
+
     public sealed class Manifest
     {
         public int Version { get; set; }
@@ -151,10 +158,20 @@ public static class KnifePackService
             if (!File.Exists(Path.Combine(stage, "pack.json"))) throw new InvalidDataException("刀包內容不完整");
             File.WriteAllText(Path.Combine(stage, ".pack-version"), m.Version.ToString());
 
-            // 3) swap in
-            if (Directory.Exists(old)) Directory.Delete(old, true);
+            // 3) swap in. The installed pack is parked, not deleted, until the new one has its name; if the final move
+            //    fails (a running game holding a texture) the parked pack goes straight back.
+            if (Directory.Exists(old))
+            {
+                if (Directory.Exists(dest)) Directory.Delete(old, true);
+                else Directory.Move(old, dest);   // an earlier swap was interrupted: that parked pack is the real one
+            }
             if (Directory.Exists(dest)) Directory.Move(dest, old);
-            Directory.Move(stage, dest);
+            try { Directory.Move(stage, dest); }
+            catch
+            {
+                if (Directory.Exists(old) && !Directory.Exists(dest)) try { Directory.Move(old, dest); } catch { }
+                throw;
+            }
             try { if (Directory.Exists(old)) Directory.Delete(old, true); } catch { }
             progress.Report(("extract", 1));
         }
@@ -282,29 +299,12 @@ public static class KnifePackService
         catch { return null; }
     }
 
-    public static void WriteEnabled(string mcDir, bool on)
-    {
-        try
+    /// <summary>Set the module flag. False when modules.json could not be safely updated (nothing was written).</summary>
+    public static bool WriteEnabled(string mcDir, bool on) =>
+        S1mp1eModConfig.UpdateSharedModulesJson(mcDir, root =>
         {
-            var path = S1mp1eModConfig.SharedModulesJsonPath(mcDir);
-            JsonObject root;
-            try
-            {
-                root = File.Exists(path)
-                    ? (JsonNode.Parse(File.ReadAllText(path)) as JsonObject) ?? new JsonObject()
-                    : new JsonObject();
-            }
-            catch { root = new JsonObject(); }
-            root["version"] ??= 1;
             if (root["modules"] is not JsonObject mods) { mods = new JsonObject(); root["modules"] = mods; }
             if (mods[Module] is not JsonObject mod) { mod = new JsonObject(); mods[Module] = mod; }
             mod["enabled"] = on;   // its settings (knife / skin / boxing...) stay exactly as the mod wrote them
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var tmp = path + ".tmp";
-            File.WriteAllText(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmp, path, overwrite: true);
-        }
-        catch { /* best effort — the in-game module toggle is the reliable path */ }
-    }
+        });
 }

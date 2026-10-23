@@ -82,6 +82,25 @@ public sealed class LocalModVm : INotifyPropertyChanged
     public string? UpdateVersionId { get; set; }
     public string? InstalledVersionId { get; set; }   // Modrinth version id currently on disk, if known
 
+    /// The replaced version kept for 退回上一版: null = nothing kept, "" = kept but its version is unknown.
+    private string? _rollbackVersion;
+    public string? RollbackVersion
+    {
+        get => _rollbackVersion;
+        set { if (_rollbackVersion != value) { _rollbackVersion = value; OnChanged(); OnChanged(nameof(HasRollback)); OnChanged(nameof(RollbackBadge)); } }
+    }
+    public bool HasRollback => _rollbackVersion is not null;
+    public string RollbackBadge => "↩ " + (PrettyVersion(_rollbackVersion) is { Length: > 0 } p ? p : "上一版");
+
+    /// Why this jar can't run on the selected Minecraft version (from its own fabric.mod.json), or null.
+    private string? _incompatible;
+    public string? Incompatible
+    {
+        get => _incompatible;
+        set { if (_incompatible != value) { _incompatible = value; OnChanged(); OnChanged(nameof(IsIncompatible)); } }
+    }
+    public bool IsIncompatible => _incompatible is not null;
+
     private bool _enabled;
     public bool Enabled
     {

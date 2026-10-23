@@ -12,6 +12,8 @@ namespace S1mp1e.Services;
 /// <summary>Metadata for one entry in the skin gallery.</summary>
 public sealed record TrendingSkin(string Id, string TextureUrl);
 
+public sealed record CapeInfo(string Id, string Alias, string Url, bool Active);
+
 /// <summary>
 /// Change the current MC profile's skin via Mojang's REST API and fetch a
 /// gallery of recently-uploaded skins from mineskin.org (NameMC is behind
@@ -26,6 +28,39 @@ public static class SkinService
     static SkinService()
     {
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("S1mp1e-Launcher", "0.1.0"));
+    }
+
+    /// <summary>Null when <paramref name="png"/> is a skin Mojang accepts (a 64×64 or legacy 64×32 PNG), else why not.</summary>
+    public static string? CheckSkinPng(byte[] png)
+    {
+        ReadOnlySpan<byte> sig = stackalloc byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        if (png.Length < 24 || !png.AsSpan(0, 8).SequenceEqual(sig)) return "這不是 PNG 圖片";
+        int w = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+        int h = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
+        return w == 64 && (h == 64 || h == 32) ? null : $"皮膚必須是 64×64（或舊版 64×32）的 PNG，這張是 {w}×{h}";
+    }
+
+    /// <summary>
+    /// "slim" for an Alex-style skin (3-pixel arms), else "classic". On a 64×64 skin the slim arm leaves the right
+    /// arm's outer columns (x 54–55, y 20–31) transparent; legacy 64×32 skins are always classic.
+    /// </summary>
+    public static string DetectVariant(byte[] png)
+    {
+        try
+        {
+            using var ms = new MemoryStream(png);
+            using var bmp = new Avalonia.Media.Imaging.Bitmap(ms);
+            if (bmp.PixelSize.Width != 64 || bmp.PixelSize.Height != 64) return "classic";
+            const int x = 54, y = 20, w = 2, h = 12, stride = w * 4;
+            var buf = new byte[stride * h];
+            var handle = System.Runtime.InteropServices.GCHandle.Alloc(buf, System.Runtime.InteropServices.GCHandleType.Pinned);
+            try { bmp.CopyPixels(new Avalonia.PixelRect(x, y, w, h), handle.AddrOfPinnedObject(), buf.Length, stride); }
+            finally { handle.Free(); }
+            for (int i = 3; i < buf.Length; i += 4)   // alpha is the 4th byte in both BGRA and RGBA
+                if (buf[i] != 0) return "classic";
+            return "slim";
+        }
+        catch { return "classic"; }
     }
 
     /// <summary>POST a raw skin PNG to Mojang, replacing the account's current skin.</summary>
@@ -113,6 +148,43 @@ public static class SkinService
             return list;
         }
         catch { return Array.Empty<TrendingSkin>(); }
+    }
+
+    /// <summary>The capes this Minecraft profile owns (Minecon, Migrator, Vanilla, …) and which one is shown.</summary>
+    public static async Task<IReadOnlyList<CapeInfo>> GetCapesAsync(string mcToken, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.minecraftservices.com/minecraft/profile");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", mcToken);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) throw new UnauthorizedAccessException();
+        resp.EnsureSuccessStatusCode();
+        await using var s = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct).ConfigureAwait(false);
+        var list = new List<CapeInfo>();
+        if (doc.RootElement.TryGetProperty("capes", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            foreach (var c in arr.EnumerateArray())
+                list.Add(new CapeInfo(
+                    c.GetProperty("id").GetString() ?? "",
+                    c.TryGetProperty("alias", out var a) ? a.GetString() ?? "" : "",
+                    c.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "",
+                    c.TryGetProperty("state", out var st) && st.GetString() == "ACTIVE"));
+        return list;
+    }
+
+    /// <summary>Show the given cape, or hide the cape entirely when <paramref name="capeId"/> is null.</summary>
+    public static async Task SetActiveCapeAsync(string mcToken, string? capeId, CancellationToken ct = default)
+    {
+        using var req = capeId is null
+            ? new HttpRequestMessage(HttpMethod.Delete, "https://api.minecraftservices.com/minecraft/profile/capes/active")
+            : new HttpRequestMessage(HttpMethod.Put, "https://api.minecraftservices.com/minecraft/profile/capes/active")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { capeId }), System.Text.Encoding.UTF8, "application/json"),
+            };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", mcToken);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) throw new UnauthorizedAccessException();
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"Mojang cape change failed ({(int)resp.StatusCode}): {await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)}");
     }
 
     /// <summary>Download the raw PNG behind a textures.minecraft.net URL.</summary>

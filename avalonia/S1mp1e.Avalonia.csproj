@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\s1mp1e.ico</ApplicationIcon>
     <!-- Single source of truth for the app version. The GitHub release tag is
          "v{Version}", and UpdateChecker compares this against the latest release. -->
-    <Version>0.2.3</Version>
+    <Version>0.2.4</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -45,7 +45,7 @@
        toolchain 鈥?same as building the glass mods) and carry it into both the build
        output and the publish output. EnsureItest runs before AssignTargetPaths so the
        exe exists when the None item's copy is computed. -->
-  <Target Name="EnsureItest" BeforeTargets="AssignTargetPaths">
+  <Target Name="EnsureItest" BeforeTargets="AssignTargetPaths" Condition="'$(SkipItest)' != 'true'">
     <Exec Command="cargo build --release --bin itest"
           WorkingDirectory="$(MSBuildThisFileDirectory)..\src-tauri" />
   </Target>

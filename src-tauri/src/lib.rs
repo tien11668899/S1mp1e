@@ -17,3 +17,4 @@ pub mod media;
 pub mod launch;
 pub mod config;
 pub mod auth;
+pub mod playtime;

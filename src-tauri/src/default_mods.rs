@@ -90,6 +90,62 @@ fn tick(emit: &Emit, message: String, done: u64, total: u64) {
     emit(Progress { phase: "mods".into(), message, done, total });
 }
 
+/// The `version` string of a Fabric mod jar's `fabric.mod.json`, or None.
+pub(crate) fn fabric_mod_version(jar: &Path) -> Option<String> {
+    let f = std::fs::File::open(jar).ok()?;
+    let mut zip = zip::ZipArchive::new(f).ok()?;
+    let mut entry = zip.by_name("fabric.mod.json").ok()?;
+    let mut text = String::new();
+    entry.read_to_string(&mut text).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()?
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+}
+
+/// Compare two mod version strings the way people read them: dot/dash/plus separated parts, numeric parts as
+/// numbers (so 0.16.10 > 0.16.9 and beta.10 > beta.9), a release above its own pre-release (1.0.0 > 1.0.0-beta.1).
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    fn split(s: &str) -> (Vec<&str>, Vec<&str>) {
+        let core_end = s.find(['-', '+']).unwrap_or(s.len());
+        let core: Vec<&str> = s[..core_end].split('.').collect();
+        let pre: Vec<&str> = if s[core_end..].starts_with('-') {
+            let rest = &s[core_end + 1..];
+            rest[..rest.find('+').unwrap_or(rest.len())].split(['.', '-']).collect()
+        } else {
+            Vec::new()
+        };
+        (core, pre)
+    }
+    fn cmp_parts(x: &[&str], y: &[&str]) -> Ordering {
+        for i in 0..x.len().max(y.len()) {
+            let (p, q) = (x.get(i).copied().unwrap_or("0"), y.get(i).copied().unwrap_or("0"));
+            let o = match (p.parse::<u64>(), q.parse::<u64>()) {
+                (Ok(m), Ok(n)) => m.cmp(&n),
+                (Ok(_), Err(_)) => Ordering::Less,
+                (Err(_), Ok(_)) => Ordering::Greater,
+                _ => p.cmp(q),
+            };
+            if o != Ordering::Equal {
+                return o;
+            }
+        }
+        Ordering::Equal
+    }
+    let ((ca, pa), (cb, pb)) = (split(a), split(b));
+    match cmp_parts(&ca, &cb) {
+        Ordering::Equal => match (pa.is_empty(), pb.is_empty()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            _ => cmp_parts(&pa, &pb),
+        },
+        o => o,
+    }
+}
+
 /// The `id` of a Fabric mod jar, or None when it is not one / unreadable.
 pub(crate) fn fabric_mod_id(jar: &Path) -> Option<String> {
     let f = std::fs::File::open(jar).ok()?;
@@ -116,7 +172,9 @@ fn installed_ids(dir: &Path) -> BTreeSet<String> {
         for e in rd.flatten() {
             let p = e.path();
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
-            if name.ends_with(".jar") || name.contains(".jar.") {
+            // Only real jars and the player's disabled ones: a leftover `.jar.part` / `.jar.s1part` from an interrupted
+            // download must not count as "installed", or a missing Fabric API would never be restored.
+            if name.ends_with(".jar") || name.ends_with(".jar.disabled") {
                 if let Some(id) = fabric_mod_id(&p) {
                     out.insert(id);
                 }

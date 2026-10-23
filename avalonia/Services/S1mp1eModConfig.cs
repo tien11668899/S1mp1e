@@ -30,32 +30,56 @@ public static class S1mp1eModConfig
 
     /// <param name="mcDir">The .minecraft root (the launcher's EffectiveMcDir).</param>
     /// <param name="glfwCode">The open key as a GLFW code — see <see cref="KeyChoices"/>.</param>
-    public static void WriteMenuKey(string mcDir, int glfwCode)
-    {
-        try
+    public static bool WriteMenuKey(string mcDir, int glfwCode) =>
+        UpdateSharedModulesJson(mcDir, root =>
         {
-            var path = SharedModulesJsonPath(mcDir);
-            JsonObject root;
-            try
-            {
-                root = File.Exists(path)
-                    ? (JsonNode.Parse(File.ReadAllText(path)) as JsonObject) ?? new JsonObject()
-                    : new JsonObject();
-            }
-            catch { root = new JsonObject(); }
-
-            root["version"] ??= 1;
             root["menuKey"] = glfwCode;
             // Everything else is the mod's: unknown modules, per-setting values and the
             // "_seedRank"/"_migrated" bookkeeping all stay exactly as written.
             if (root["modules"] is null) root["modules"] = new JsonObject();
+        });
 
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var tmp = path + ".tmp";
-            File.WriteAllText(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmp, path, overwrite: true);
+    /// <summary>
+    /// Read-modify-write the shared modules.json. A missing file starts empty. A file that cannot be read right now
+    /// (the game saving it) is retried briefly; one that still cannot be read, or does not parse, is LEFT ALONE and
+    /// false is returned — writing a fresh object over it would erase every in-game setting the player has. The write
+    /// is atomic (per-process temp file, then rename).
+    /// </summary>
+    public static bool UpdateSharedModulesJson(string mcDir, Action<JsonObject> change)
+    {
+        var path = SharedModulesJsonPath(mcDir);
+        JsonObject? root = null;
+        for (int attempt = 0; attempt < 5 && root is null; attempt++)
+        {
+            try
+            {
+                if (!File.Exists(path)) { root = new JsonObject(); break; }
+                var text = File.ReadAllText(path);
+                if (string.IsNullOrWhiteSpace(text)) { root = new JsonObject(); break; }   // the mod treats empty as defaults too
+                root = JsonNode.Parse(text) as JsonObject;
+                if (root is null) return false;
+            }
+            catch (JsonException) { return false; }
+            catch (IOException) { System.Threading.Thread.Sleep(60 * (attempt + 1)); }
+            catch (UnauthorizedAccessException) { return false; }
         }
-        catch { /* best effort — the in-game rebind is the reliable path */ }
+        if (root is null) return false;
+        root["version"] ??= 1;
+        change(root);
+        string? tmp = null;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            tmp = $"{path}.{Environment.ProcessId}.tmp";
+            File.WriteAllText(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            for (int attempt = 0; ; attempt++)
+            {
+                try { File.Move(tmp!, path, overwrite: true); tmp = null; return true; }
+                catch (IOException) when (attempt < 4) { System.Threading.Thread.Sleep(60 * (attempt + 1)); }
+            }
+        }
+        catch { return false; }
+        finally { if (tmp != null) try { File.Delete(tmp); } catch { } }
     }
 
     /// <summary>The open key the shared modules.json currently holds (a GLFW code), or null
