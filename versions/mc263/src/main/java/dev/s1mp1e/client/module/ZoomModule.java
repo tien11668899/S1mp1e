@@ -34,7 +34,7 @@ public final class ZoomModule extends Module {
 
     private static ZoomModule instance;
 
-    public final Setting key   = add(Setting.integer("Key", 6, 0, 512));   // SDL scancode C (26.3 uses SDL)
+    public final Setting key   = add(Setting.key("Key", 6));   // SDL scancode C (26.3 uses SDL)
     public final Setting zoom  = add(Setting.number("Zoom", 0.30D, 0.10D, 0.90D));
     public final Setting smooth = add(Setting.number("Smoothness", 14.0D, 4.0D, 40.0D));
     public final Setting blockOthers = add(Setting.bool("Block other zoom", true));

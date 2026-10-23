@@ -43,6 +43,7 @@ public final class GlassPipeline {
    private static RenderPipeline ringArc;
    /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
    private static RenderPipeline lens;
+   private static RenderPipeline minimap;
    private static RenderPipeline line;
    private static RenderPipeline btn;
    /** Flat AA rounded rect (glass_round.fsh) — the 26.2 port of 1.21.1's ROUND program. */
@@ -137,6 +138,14 @@ public final class GlassPipeline {
    /** The creative-tab pipelines refract the backdrop (need SAMPLER0 + a live grab), so gate exactly like {@link #usable()}. */
    public static boolean tabUsable() {
       return state == 1 && tabTop != null && tabBot != null && grabView != null && sampler != null;
+   }
+
+   public static RenderPipeline minimap() {
+      return minimap;
+   }
+
+   public static boolean minimapUsable() {
+      return state == 1 && minimap != null;
    }
 
    public static RenderPipeline lens() {
@@ -458,6 +467,20 @@ public final class GlassPipeline {
                }
             } catch (Throwable varLens) {
                LiquidGlassClient.LOG.warn("[LiquidGlass] lens pipeline unavailable: {}", varLens.toString());
+            }
+
+            try {
+               // Glass minimap (dev.s1mp1e.client.minimap): same bind groups as the backdrop programs, but Sampler0 is the
+               // minimap's own ring texture (MinimapRenderState's TextureSetup), not the scene backdrop.
+               minimap = buildBackdropProgram(dev, src, "minimap");
+               if (minimap != null) {
+                  LiquidGlassClient.LOG.info("[LiquidGlass] minimap pipeline compiled");
+               } else {
+                  LiquidGlassClient.LOG.warn("[LiquidGlass] minimap pipeline invalid, the minimap is unavailable");
+               }
+            } catch (Throwable varMap) {
+               minimap = null;
+               LiquidGlassClient.LOG.warn("[LiquidGlass] minimap pipeline unavailable: {}", varMap.toString());
             }
 
             try {

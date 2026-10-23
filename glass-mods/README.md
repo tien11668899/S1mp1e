@@ -24,6 +24,7 @@ tooltips and buttons). No tint, no gameplay hooks.
 | `glass-1.21.1.jar` | 1.21.1 | Fabric |
 | `glass-1.21.8.jar` | 1.21.8 | Fabric |
 | `glass-26.2.jar`   | 26.2   | Fabric |
+| `glass-26.3.jar`   | 26.3   | Fabric |
 
 ## ⚠️ Fabric builds HARD-DEPEND on Fabric API
 

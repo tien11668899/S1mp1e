@@ -44,7 +44,11 @@
     "ScreenShellMixin", "OptionsSubScreenShellMixin", "CycleButtonShellMixin", "KeyEntryShellMixin",
     "KeyCategoryShellMixin", "OptionsHeaderShellMixin", "LanguageEntryShellMixin", "WidgetShellSuppressMixin", "MouseWheelShellMixin", "WorldOptionsShellMixin",
     "ForeignZoomKeyBlockMixin",
-    "BlockOutlineMixin"
+    "BlockOutlineMixin",
+    "ToggleKeyMappingAccessor", "ToggleKeyOptionsMixin", "MovementTickMixin",
+    "FreelookCameraMixin", "FreelookMouseMixin",
+    "MinimapChunkMixin", "MinimapBlockMixin",
+    "LivingEntityRendererLayersInvoker", "AvatarRendererWingsMixin", "CapeLayerWingsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

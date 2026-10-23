@@ -634,8 +634,28 @@ public final class Bench {
         o.entityDistanceScaling().set(1.0);
         o.guiScale().set(GUI);
         o.pauseOnLostFocus = false;
+        pinMinimap();
         log("settings: preset=FANCY rd=" + RENDER_DISTANCE + " sim=" + SIM_DISTANCE + " fps=unlimited vsync=off fov=70"
-                + " particles=all entityDistance=100% gui=" + GUI + " window=" + WIN_W + "x" + WIN_H);
+                + " particles=all entityDistance=100% gui=" + GUI + " window=" + WIN_W + "x" + WIN_H + " minimap=" + minimapState);
+    }
+
+    /** S1MP1E_BENCH_MINIMAP=on|off: the minimap A/B (docs/MINIMAP_SPEC.md 效能驗收). "on" = the default look
+     *  (round, follow facing, medium zoom, 96 px); unset = leave the module as configured. Not saved to the config. */
+    private static String minimapState = "unchanged";
+
+    private static void pinMinimap() {
+        String v = System.getenv("S1MP1E_BENCH_MINIMAP");
+        if (v == null || v.isBlank()) return;
+        if (!(ModuleManager.byName("Minimap") instanceof dev.s1mp1e.client.module.MinimapModule m)) { minimapState = "missing"; return; }
+        boolean on = "on".equalsIgnoreCase(v.trim());
+        if (on) {
+            m.shape.modeValue = dev.s1mp1e.client.module.MinimapModule.ROUND;
+            m.orientation.modeValue = dev.s1mp1e.client.module.MinimapModule.FOLLOW;
+            m.zoom.modeValue = dev.s1mp1e.client.module.MinimapModule.MEDIUM;
+            m.size.intValue = 96;
+        }
+        m.setEnabled(on);
+        minimapState = on ? "on" : "off";
     }
 
     private static void pinWindow(Minecraft mc) {
@@ -802,6 +822,7 @@ public final class Bench {
     private static void writeSummary(Minecraft mc) {
         StringBuilder b = new StringBuilder();
         b.append("{\n\"java\":\"").append(esc(System.getProperty("java.vendor") + " " + System.getProperty("java.version"))).append("\",\n");
+        b.append("\"minimap\":\"").append(esc(minimapState)).append("\",\n");
         b.append("\"jvmArgs\":[");
         List<String> args = ManagementFactory.getRuntimeMXBean().getInputArguments();
         for (int i = 0; i < args.size(); i++) b.append(i == 0 ? "" : ",").append('"').append(esc(args.get(i))).append('"');

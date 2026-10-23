@@ -118,6 +118,12 @@ public final class ModuleManager {
         // name-tag plate: glass (real refraction) / vanilla / off
         add("NameTagModule",       safeNameTag());
         add("KnifeModule",         safeKnife());
+        // movement comfort (26.3 first): vanilla's own toggle keys with a glass status pill, and hold-key freelook
+        add("ToggleSprintModule",  safeToggleSprint());
+        add("FreelookModule",      safeFreelook());
+        add("MinimapModule",       safeMinimap());
+        // cosmetic: small Ender Dragon wings on your own back in place of the cape
+        add("DragonWingsModule",   safeDragonWings());
         // 正在播放：靈動島外觀已棄用（改做 iOS 控制中心「正在播放」玻璃卡，打開畫面才顯示）。
         // MediaClient/AlbumArt/DynamicIslandModule 類別先保留給卡片重用，但不再註冊成 HUD 模組。
         // add("DynamicIslandModule", safeDynamicIsland());
@@ -232,6 +238,22 @@ public final class ModuleManager {
 
     private static Module safeKnife() {
         try { return new dev.s1mp1e.client.module.KnifeModule(); } catch (Throwable t) { return fail("KnifeModule", t); }
+    }
+
+    private static Module safeToggleSprint() {
+        try { return new dev.s1mp1e.client.module.ToggleSprintModule(); } catch (Throwable t) { return fail("ToggleSprintModule", t); }
+    }
+
+    private static Module safeFreelook() {
+        try { return new dev.s1mp1e.client.module.FreelookModule(); } catch (Throwable t) { return fail("FreelookModule", t); }
+    }
+
+    private static Module safeMinimap() {
+        try { return new dev.s1mp1e.client.module.MinimapModule(); } catch (Throwable t) { return fail("MinimapModule", t); }
+    }
+
+    private static Module safeDragonWings() {
+        try { return new dev.s1mp1e.client.module.DragonWingsModule(); } catch (Throwable t) { return fail("DragonWingsModule", t); }
     }
 
     private static Module safeNameTag() {

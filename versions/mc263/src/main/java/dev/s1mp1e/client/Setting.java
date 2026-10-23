@@ -28,6 +28,10 @@ public final class Setting {
      *  the HUD editor). Set via {@link #hide()}. */
     public boolean hidden;
 
+    /** An {@link Type#INT} that holds a key code (SDL scancode on 26.3, 0 = unbound). Stored and saved as a plain int;
+     *  only the config GUI treats it differently — a press-a-key button showing the key's name instead of a slider. */
+    public boolean isKey;
+
     /** Packed ARGB, i.e. {@code 0xAARRGGBB}. Alpha 0xFF is fully opaque. */
     public int colorValue;
 
@@ -78,6 +82,13 @@ public final class Setting {
         s.min = min;
         s.max = max;
         s.doubleValue = d;
+        return s;
+    }
+
+    /** A key binding: an INT in 0..512 (SDL scancodes) edited by pressing the key. See {@link #isKey}. */
+    public static Setting key(String name, int def) {
+        Setting s = integer(name, def, 0, 512);
+        s.isKey = true;
         return s;
     }
 

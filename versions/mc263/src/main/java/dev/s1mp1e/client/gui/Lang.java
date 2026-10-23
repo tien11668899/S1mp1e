@@ -42,6 +42,10 @@ public final class Lang {
         MODULE.put("HitMarker", "命中標記");
         MODULE.put("DynamicIsland", "音樂靈動島");
         MODULE.put("NameTags", "名牌");
+        MODULE.put("ToggleSprint", "自動疾跑／潛行");
+        MODULE.put("Freelook", "自由視角");
+        MODULE.put("Minimap", "玻璃小地圖");
+        MODULE.put("DragonWings", "末影龍翅膀");
 
         SETTING.put("X", "X 位置");
         SETTING.put("Y", "Y 位置");
@@ -113,6 +117,27 @@ public final class Lang {
         SETTING.put("Saturation", "飽和度");
         SETTING.put("Wave", "字元波動");
         SETTING.put("Accents", "套用至高光點綴");
+        // ToggleSprint
+        SETTING.put("Toggle sprint", "疾跑切換");
+        SETTING.put("Toggle sneak", "潛行切換");
+        SETTING.put("Show status", "顯示狀態標示");
+        // Freelook
+        SETTING.put("Third person", "按住時切到第三人稱");
+        SETTING.put("Smooth return", "放開後平滑轉回");
+        SETTING.put("Return speed", "轉回速度");
+        // Minimap ("Shape", "Size", "Zoom", "X", "Y" are shared with other modules above)
+        SETTING.put("Orientation", "朝向");
+        SETTING.put("Map style", "地圖風格");
+        MODE.put("Apple", "Apple 地圖");
+        MODE.put("Classic", "原版地圖");
+        SETTING.put("Soft colours", "柔和色調");
+        SETTING.put("Bezel opacity", "玻璃外框不透明度");
+        SETTING.put("Show players", "顯示其他玩家（僅自己的世界）");
+        SETTING.put("Player names", "顯示玩家名稱");
+        SETTING.put("Tab radar", "按住 Tab 顯示生物與掉落物（僅自己的世界）");
+        SETTING.put("Fullscreen key", "全螢幕地圖按鍵");
+        // DragonWings
+        SETTING.put("Wing size", "翅膀大小");
         // LowFire
         SETTING.put("Fire lower", "下降高度");
         SETTING.put("Fire opacity", "火焰不透明度");
@@ -154,6 +179,14 @@ public final class Lang {
         MODE.put("Glass", "液態玻璃");
         MODE.put("Vanilla", "原版");
         MODE.put("Off", "關閉");
+        // Minimap
+        MODE.put("Round", "圓形");
+        MODE.put("Rounded square", "圓角正方形");
+        MODE.put("Follow facing", "跟著朝向轉");
+        MODE.put("North up", "北方朝上");
+        MODE.put("Close", "近");
+        MODE.put("Medium", "中");
+        MODE.put("Far", "遠");
         MODULE.put("CS2Knife", "CS2 刀");
         SETTING.put("Skin", "刀皮");
         SETTING.put("Wear", "磨損");
