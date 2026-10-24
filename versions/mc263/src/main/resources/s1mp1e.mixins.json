@@ -47,7 +47,7 @@
     "KeyCategoryShellMixin", "OptionsHeaderShellMixin", "LanguageEntryShellMixin", "WidgetShellSuppressMixin", "MouseWheelShellMixin", "WorldOptionsShellMixin",
     "ForeignZoomKeyBlockMixin",
     "BlockOutlineMixin",
-    "ToggleKeyMappingAccessor", "ToggleKeyOptionsMixin", "MovementTickMixin",
+    "ToggleKeyMappingAccessor", "ToggleKeyOptionsMixin", "MovementTickMixin", "BidiFastPathMixin",
     "FreelookCameraMixin", "FreelookMouseMixin",
     "MinimapChunkMixin", "MinimapBlockMixin",
     "LivingEntityRendererLayersInvoker", "AvatarRendererWingsMixin", "CapeLayerWingsMixin"

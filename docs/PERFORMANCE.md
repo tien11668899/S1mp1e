@@ -46,6 +46,7 @@ inert unless `S1MP1E_BENCH` is set. Driver scripts (not in the repo, kept with t
 | Fixed heap + `AlwaysPreTouch` | not applied | no measurable gain over ZGC alone (1080p: 1801 vs 1798 FPS explore, same lows) |
 | Lithium 0.25.3, FerriteCore 9.0.0, ImmediatelyFast 1.16.5 (26.2) | **in the pack** | 4K, ZGC: entities 381 → 447 FPS (ranges 363–398 vs 443–451), chunkload 626 → 673; no visual change. Pinned by Modrinth version + SHA-1; a copy the player installed themselves is used instead |
 | Cull Leaves 4.1.2 (26.2) | **in the pack** | culling mod (allowed even though it changes the picture: leaf faces hidden behind other leaves are dropped). 4K, terrain-following routes: explore 614 → 651, chunkload 578 → 659 FPS, non-overlapping ranges |
+| Lithium, FerriteCore, ImmediatelyFast, Cull Leaves (26.3 builds) | **in the pack** | the 26.2 decision carried to 26.3's builds of the same mods; they are part of the 26.3 setup measured in "26.3 at 4K" below (no separate with/without A/B on 26.3) |
 | MoreCulling | **not used** | measured on the terrain-following routes: no gain (explore 594, chunkload 561 vs 614 / 578 without it). It is a culling mod, so it was allowed; it simply did not help |
 | Partial glass backdrop copy (our glass client) | **on** | see "Liquid glass cost" |
 | BadOptimizations | **excluded** | its lightmap cache cancels `LightmapRenderStateExtractor.tick()`, which also stops vanilla's block-light flicker — a visible animation |
@@ -101,6 +102,43 @@ Earlier measurement:
 Measured by switching the refraction pipeline off (`-Ds1mp1e.bench.noglass=true`, a benchmark-only switch; never
 shipped). At 1080p the difference was within run-to-run noise (chunkload 1557 vs 1542 FPS). The glass is not a
 bottleneck and the pack does not touch it.
+
+## 26.3 at 4K with a player's own settings (2026-10-24)
+
+Same machine, Minecraft 26.3, Fabric loader 0.20.1, Sodium 0.9.2, the player's real mod set (pack mods, Essential,
+Continuity, Sodium Extra, …) and **the player's own settings** (`S1MP1E_BENCH_SETTINGS=player`: render distance 14,
+simulation 6, FOV 110, particles minimal, clouds off, GUI scale 2), **exclusive fullscreen** at the monitor's native
+3840 × 2160 (`S1MP1E_BENCH_FULLSCREEN=1`), ZGC, frame cap off. Driver: `bench263.ps1` (kept with the tester).
+
+| Config | explore avg / 1 % / 0.1 % | chunkload avg / 1 % | entities avg / 1 % |
+|---|---|---|---|
+| as played (3 runs, 766–771 explore) | **767 / 361 / 224** | 693 / 261 | 502 / 236 |
+| glass refraction off (2 runs) | 720 / 296 / 196 | 648 / 243 | 442 / 236 |
+
+One option changed at a time (explore only, 1 run each; same-config reference runs 702 and 768): render distance 10
+**874**, FOV 70 798, fast leaves 776, entity shadows off 768, chunk fade-in off 764, anisotropic filtering off 700,
+mipmaps off 699 — only render distance is clearly above the run-to-run spread.
+
+Findings:
+
+- **The GPU is the limit.** Per-process GPU counters during the runs: the game ~86 % of the 3D engine, the Claude
+  desktop app 2–10 %, DWM the rest; `nvidia-smi` reads ~80 % for the game alone. Explore results fall into two
+  clusters (~767 and ~707, memory clock at 14001 MHz and P0 in both); the low one is most likely other programs'
+  GPU use, not the game.
+- **Render-thread CPU savings do not move FPS here.** A JFR profile of the render thread (explore) showed ICU bidi
+  reordering of every drawn string at 3.6 % and the hunger-bar glint's 37 one-pixel fills (each one an overlap search
+  in the GUI render-state tree) at ~2 %. Both were fixed (`BidiFastPathMixin`: plain in-order text when nothing in it
+  needs bidi; the glint as four rotated gradients). An interleaved A/B (N/O × 4, explore) gave 707.2 vs 706.5 FPS —
+  no change at 4K. The fixes stay (less CPU per frame, which matters where the CPU is the limit); **not verified** at
+  lower resolutions yet.
+- **Glass off is slower**, consistently: the fallback path costs more than the real refraction.
+- **Harness bugs fixed**: the route height profile was looked up on disk every frame when missing (`File.exists`,
+  4.7 % of the render thread), and the player's "reduce FPS when AFK" setting capped input-less runs at 30 FPS
+  (benchmark runs now set it to "minimized").
+- **Launcher bug fixed**: an early crash with the pack loaded switches the pack off for that version; a crash with
+  another cause (here the Redirection Guard `saves` junction crash) had switched 26.3's pack — and so ZGC — off. The
+  pack is now only blamed when the crash report's error and stack traces name a pack mod or ZGC; with no report it is
+  still switched off.
 
 ## Bugs found by the benchmark
 

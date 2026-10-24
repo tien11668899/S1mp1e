@@ -75,17 +75,42 @@ public final class HungerSaturationHudModule extends Module {
             int baseA = Math.round(30f + ratio * 95f);     // ~30..125 alpha
             g.fill(x0, y0, x1, y1, (baseA << 24) | gold);
 
-            // moving highlight band (enchant-glint feel), clipped to the bar
+            // moving highlight band (enchant-glint feel), clipped to the bar: alpha peaks at the band centre and falls
+            // off as f^2 (f = 1 - distance/band). Drawn as four horizontal gradients through the f^2 values at the
+            // centre, half way and the ends — four GUI elements; one 1 px fill per column (37 elements, each placed
+            // into the GUI render-state tree with an overlap search) cost ~2% of the render thread at 4K.
             float t = (net.minecraft.util.Util.getNanos() % 1_800_000_000L) / 1.8e9f;   // 0..1 scroll every 1.8s
             int span = x1 - x0, band = 18;
             int bx = x0 - band + Math.round(t * (span + band * 2));
-            for (int i = -band; i <= band; i++) {
-                int px = bx + i;
-                if (px < x0 || px >= x1) continue;
-                float f = 1f - Math.abs(i) / (float) band;   // triangular peak
-                int a = Math.round((0.35f + 0.65f * ratio) * f * f * 190f);   // stronger, still fades with saturation
-                if (a > 0) g.fill(px, y0, px + 1, y1, (a << 24) | 0xFFFFFF);
-            }
+            float peak = (0.35f + 0.65f * ratio) * 190f;   // stronger, still fades with saturation
+            int half = band / 2;
+            float mid = peak * 0.25f;                      // f = 0.5 -> f^2 = 0.25
+            hGradient(g, bx - band, bx - half, x0, x1, y0, y1, 0f, mid);
+            hGradient(g, bx - half, bx, x0, x1, y0, y1, mid, peak);
+            hGradient(g, bx, bx + half, x0, x1, y0, y1, peak, mid);
+            hGradient(g, bx + half, bx + band, x0, x1, y0, y1, mid, 0f);
+        } finally {
+            g.pose().popMatrix();
+        }
+    }
+
+    /**
+     * White, alpha {@code a0} at x {@code xa} to {@code a1} at {@code xb}, over y0..y1, clipped to [clip0, clip1) with
+     * the alpha interpolated at the cut. {@code fillGradient} only runs top to bottom, so it is drawn under a pose
+     * turned by -90 degrees: local (x, y) lands on screen at (y, -x), which makes its top-to-bottom run left to right.
+     */
+    private static void hGradient(GuiGraphicsExtractor g, int xa, int xb, int clip0, int clip1, int y0, int y1, float a0, float a1) {
+        int ca = Math.max(xa, clip0), cb = Math.min(xb, clip1);
+        if (cb <= ca || xb <= xa) return;
+        float fa = a0 + (a1 - a0) * (ca - xa) / (float) (xb - xa);
+        float fb = a0 + (a1 - a0) * (cb - xa) / (float) (xb - xa);
+        int alphaA = Math.round(Mth.clamp(fa, 0f, 255f)), alphaB = Math.round(Mth.clamp(fb, 0f, 255f));
+        if (alphaA <= 0 && alphaB <= 0) return;
+        g.pose().pushMatrix();
+        try {
+            g.pose().translate(ca, y0);
+            g.pose().rotate((float) (-Math.PI / 2));
+            g.fillGradient(-(y1 - y0), 0, 0, cb - ca, (alphaA << 24) | 0xFFFFFF, (alphaB << 24) | 0xFFFFFF);
         } finally {
             g.pose().popMatrix();
         }

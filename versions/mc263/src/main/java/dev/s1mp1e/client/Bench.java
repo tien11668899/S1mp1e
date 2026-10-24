@@ -73,6 +73,11 @@ public final class Bench {
      *  so HUD and glass cover the same share of the screen as for a player at 4K). */
     private static int WIN_W = 3840, WIN_H = 2160, GUI = 4;
     private static final int RENDER_DISTANCE = 12, SIM_DISTANCE = 12;
+    /** {@code S1MP1E_BENCH_SETTINGS=player}: keep the player's own graphics settings (render distance, FOV, particles,
+     *  GUI scale…) instead of the fixed set, to measure what that player actually gets; only the frame cap, VSync and
+     *  pause-on-focus-loss are still pinned. {@code S1MP1E_BENCH_FULLSCREEN=1}: exclusive fullscreen at the monitor's
+     *  own mode instead of a WxH window. */
+    private static boolean PLAYER_SETTINGS, FULLSCREEN, fullscreenRequested;
 
     /** One measured scenario: hold still {@code warmS} at the start pose, then follow the path for {@code measureS}. */
     private static final class Scenario {
@@ -156,6 +161,8 @@ public final class Bench {
                     }
                     String gui = System.getenv("S1MP1E_BENCH_GUI");
                     if (gui != null && gui.matches("\\d+")) GUI = Integer.parseInt(gui);
+                    PLAYER_SETTINGS = "player".equalsIgnoreCase(String.valueOf(System.getenv("S1MP1E_BENCH_SETTINGS")).trim());
+                    FULLSCREEN = "1".equals(System.getenv("S1MP1E_BENCH_FULLSCREEN"));
                     String list = System.getenv("S1MP1E_BENCH_SCENARIOS");
                     for (Scenario s : ALL) {
                         if (list == null || list.isBlank() || Arrays.asList(list.split(",")).contains(s.name)) todo.add(s);
@@ -317,9 +324,14 @@ public final class Bench {
      *  never above the clouds for long). Falls back to y 200 without a profile. */
     private static double routeY(String route, double x) {
         int[] h = profiles.get(route);
-        if (h == null) h = loadProfile(route);
+        if (h == null) {
+            // looked up once per route: a missing profile is remembered as an empty array, so the per-frame camera
+            // placement never touches the disk (a File.exists() every frame cost ~5% of the render thread)
+            h = loadProfile(route);
+            if (h == null) { h = new int[0]; profiles.put(route, h); }
+        }
         Scenario r = route.equals("explore") ? EXPLORE : CHUNKLOAD;
-        if (h == null) return 200;
+        if (h.length == 0) return 200;
         int i = (int) Math.round(x - r.x0);
         int top = Integer.MIN_VALUE;
         for (int k = Math.max(0, i - LOOKAHEAD); k <= Math.min(h.length - 1, i + LOOKAHEAD); k++) top = Math.max(top, h[k]);
@@ -624,6 +636,20 @@ public final class Bench {
     /** Fixed, documented graphics state — the same for every configuration that is compared. */
     private static void pinSettings(Minecraft mc) {
         var o = mc.options;
+        // The benchmark sends no input: with "reduce FPS when AFK" the game would drop to 30 FPS during a run.
+        o.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
+        if (PLAYER_SETTINGS) {
+            o.framerateLimit().set(260);          // 260 = unlimited
+            o.enableVsync().set(false);
+            o.pauseOnLostFocus = false;
+            pinMinimap();
+            applyTweak(o);
+            log("settings: the player's own (rd=" + o.renderDistance().get() + " sim=" + o.simulationDistance().get()
+                    + " fov=" + o.fov().get() + " particles=" + o.particles().get() + " gui=" + o.guiScale().get()
+                    + ") fps=unlimited vsync=off afk-limit=off window=" + (FULLSCREEN ? "exclusive fullscreen" : WIN_W + "x" + WIN_H)
+                    + " minimap=" + minimapState);
+            return;
+        }
         try { o.applyGraphicsPreset(GraphicsPreset.FANCY); } catch (Throwable t) { log("preset: " + t); }
         o.renderDistance().set(RENDER_DISTANCE);
         o.simulationDistance().set(SIM_DISTANCE);
@@ -637,6 +663,28 @@ public final class Bench {
         pinMinimap();
         log("settings: preset=FANCY rd=" + RENDER_DISTANCE + " sim=" + SIM_DISTANCE + " fps=unlimited vsync=off fov=70"
                 + " particles=all entityDistance=100% gui=" + GUI + " window=" + WIN_W + "x" + WIN_H + " minimap=" + minimapState);
+    }
+
+    /**
+     * {@code S1MP1E_BENCH_TWEAK=<name>}: one graphics option changed on top of the player's settings, to measure what
+     * that option costs: {@code rd10} render distance 10, {@code fov70} FOV 70, {@code af0} anisotropic filtering off,
+     * {@code mip0} mipmaps off, {@code fastleaves} leaves without cutout, {@code noshadow} entity shadows off,
+     * {@code nofade} chunk fade-in off.
+     */
+    private static void applyTweak(net.minecraft.client.Options o) {
+        String t = System.getenv("S1MP1E_BENCH_TWEAK");
+        if (t == null || t.isBlank()) return;
+        switch (t.trim()) {
+            case "rd10" -> o.renderDistance().set(10);
+            case "fov70" -> o.fov().set(70);
+            case "af0" -> o.maxAnisotropyBit().set(0);
+            case "mip0" -> o.mipmapLevels().set(0);
+            case "fastleaves" -> o.cutoutLeaves().set(false);
+            case "noshadow" -> o.entityShadows().set(false);
+            case "nofade" -> o.chunkSectionFadeInTime().set(0.0);
+            default -> { log("tweak: unknown " + t); return; }
+        }
+        log("tweak: " + t);
     }
 
     /** S1MP1E_BENCH_MINIMAP=on|off: the minimap A/B (docs/MINIMAP_SPEC.md 效能驗收). "on" = the default look
@@ -661,6 +709,11 @@ public final class Bench {
     private static void pinWindow(Minecraft mc) {
         try {
             Window w = mc.getWindow();
+            if (FULLSCREEN) {
+                // setFullscreen only records the request; the game loop applies it (updateFullscreenIfChanged)
+                if (!fullscreenRequested) { fullscreenRequested = true; w.setExclusiveFullscreen(true); w.setFullscreen(true); }
+                return;
+            }
             if (w.isExclusiveFullscreen()) w.setFullscreen(false);
             if (w.getWidth() != WIN_W || w.getHeight() != WIN_H) { w.setWindowed(WIN_W, WIN_H); mc.framebufferSizeChanged(); }
         } catch (Throwable ignored) { }
@@ -842,6 +895,7 @@ public final class Bench {
         } catch (Throwable t) { b.append("\"?\""); }
         b.append("],\n\"gpu\":\"").append(esc(gpuName())).append("\",\n");
         b.append("\"window\":\"").append(mc.getWindow().getWidth()).append('x').append(mc.getWindow().getHeight()).append("\",\n");
+        b.append("\"exclusiveFullscreen\":").append(mc.getWindow().isExclusiveFullscreen()).append(",\n");
         var rt = mc.gameRenderer.mainRenderTarget();
         b.append("\"renderTarget\":\"").append(rt.width).append('x').append(rt.height).append("\",\n");
         b.append("\"guiScale\":").append(mc.getWindow().getGuiScale()).append(",\n");

@@ -294,7 +294,9 @@ public final class GlassPipeline {
                backend, gpu.vendorName(), gpu.isZZeroToOne());
             boolean openGl = backend == null
                || backend.toLowerCase(Locale.ROOT).contains("opengl");
-            if (Boolean.getBoolean("s1mp1e.bench.noglass")) {   // benchmark only: measure the cost of real refraction
+            // benchmark only: measure the cost of real refraction (the env form works through the launcher, which owns
+            // the JVM arguments but passes its environment on)
+            if (Boolean.getBoolean("s1mp1e.bench.noglass") || "1".equals(System.getenv("S1MP1E_BENCH_NOGLASS"))) {
                state = -1;
                LiquidGlassClient.LOG.info("[LiquidGlass] -Ds1mp1e.bench.noglass -> primitive glass (benchmark)");
                return false;

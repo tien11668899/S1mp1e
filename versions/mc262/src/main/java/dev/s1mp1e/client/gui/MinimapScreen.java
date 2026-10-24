@@ -96,18 +96,9 @@ public final class MinimapScreen extends Screen {
         float fade = fade(now);
         float pt = delta;
         double px = Mth.lerp(pt, p.xo, p.getX()), pz = Mth.lerp(pt, p.zo, p.getZ());
-        float s = 0.96F + 0.04F * fade;   // a slight grow-in, like an iOS sheet
-        float cx = width * 0.5F, cy = height * 0.5F;
-        g.pose().pushMatrix();
-        try {
-            g.pose().translate(cx, cy);
-            g.pose().scale(s, s);
-            g.pose().translate(-cx, -cy);
-            cursorWorld = MinimapHud.renderFullscreen(g, font, x0(), y0(), x1(), y1(), Math.exp(logPpb),
-                    px + panX, pz + panZ, fade, pt, mouseX, mouseY);
-        } finally {
-            g.pose().popMatrix();
-        }
+        // the sheet only fades in (no grow-in scale)
+        cursorWorld = MinimapHud.renderFullscreen(g, font, x0(), y0(), x1(), y1(), Math.exp(logPpb),
+                px + panX, pz + panZ, fade, pt, mouseX, mouseY);
 
         // ---- footer: where the cursor points, and the controls ----
         int a = Math.round(fade * 255F);

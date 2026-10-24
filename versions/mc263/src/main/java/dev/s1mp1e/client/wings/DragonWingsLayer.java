@@ -18,10 +18,12 @@ public final class DragonWingsLayer extends RenderLayer<AvatarRenderState, Playe
     /** Dragon units → blocks at size 1: each 112-unit wing comes out about 0.7 blocks long (span ≈ 1.5 blocks). */
     private static final float BASE_SCALE = 0.10F;
     /**
-     * Tilt of the whole pair: the dragon's membranes lie flat behind a flying body; leaning them back by this much hangs
-     * them behind a standing player's shoulders like a bat's folded-open wings.
+     * Tilt of the whole pair about the body's X axis. The dragon's wing is a bone (leading edge) with the membrane
+     * trailing behind it (+z), lying flat on a flying body; tipping that frame by -62 degrees stands the bone on top and
+     * hangs the membrane down behind the shoulders, so the beat swings back and forth behind the player like a bat's
+     * wings. (Model space is y-down: a positive tilt would send the membrane up and the stroke toward the front.)
      */
-    private static final float TILT = (float) Math.toRadians(62.0D);
+    private static final float TILT = (float) Math.toRadians(-62.0D);
 
     private final DragonWingsModel model = DragonWingsModel.create();
 
