@@ -969,9 +969,34 @@
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#5E5CE6"><Image Source="avares://S1mp1e/Assets/Icons/square.on.square.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲設定沿用" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="新版本第一次開啟時，自動沿用最近玩的版本的按鍵、靈敏度、音量與語言；也可以手動匯入到「開始遊戲」選的版本" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <Button Grid.Column="2" Classes="mini" Content="匯入…" VerticalAlignment="Center" Click="OnImportOptionsClick"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/sparkles.png" Width="18" Height="18"/></Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="效能優化" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="自動載入經實測的優化模組與 Java 設定，不改畫質" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
                                         <ctl:LiquidToggle x:Name="PerfToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnPerfToggleChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#34C759"><Image Source="avares://S1mp1e/Assets/Icons/desktopcomputer.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="使用高效能顯示卡" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="筆電有內顯和獨顯時讓遊戲用獨立顯卡（寫入 Windows 圖形設定；你自己設過的不會改）" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:LiquidToggle x:Name="DiscreteGpuToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnDiscreteGpuToggleChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#FF9F0A"><Image Source="avares://S1mp1e/Assets/Icons/gauge.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲優先順序" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="背景程式搶 CPU 時讓遊戲先拿到；「高」可能讓語音、直播等其他程式變卡" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:GlassSelect x:Name="PriorityBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="1" VerticalAlignment="Center" FontSize="13"
+                                                         Options="一般|高於一般|高" SelectionChanged="OnPriorityChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#30B0C7"><Image Source="avares://S1mp1e/Assets/Icons/checkmark.shield.fill.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="啟動前效能檢查" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="提醒無邊框全螢幕、背景正在用顯示卡的程式（動態桌布、影片、直播）、筆電沒插電" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:LiquidToggle x:Name="PerfCheckToggle" Grid.Column="2" IsChecked="True" VerticalAlignment="Center" Margin="0,-6,-12,-6" IsCheckedChanged="OnPerfCheckToggleChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">

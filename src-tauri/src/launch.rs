@@ -451,6 +451,10 @@ pub struct LaunchPlan {
     pub cwd: PathBuf,
     /// 主類別名稱（args 裡它之前的是 JVM 參數）
     pub main_class: String,
+    /// Settings → 使用高效能顯示卡: mark `java_exe` "high performance" in Windows' per-app graphics preference.
+    pub prefer_discrete_gpu: bool,
+    /// Settings → 遊戲優先順序: "normal" | "above_normal" | "high" (anything else = normal).
+    pub priority: String,
 }
 
 /// Per-version instance directory. Each MC version launches with its OWN gameDir
@@ -484,10 +488,11 @@ fn setup_instance(root: &PathBuf, mc: &str) -> PathBuf {
                 .output();
         }
     }
-    // Share the settings file on first run.
-    let opt = inst.join("options.txt");
-    if !opt.exists() && root.join("options.txt").exists() {
-        let _ = std::fs::copy(root.join("options.txt"), &opt);
+    // First launch of this version: start from the settings of the version played most recently (key bindings,
+    // sensitivity, volume, language...) instead of Minecraft's defaults.
+    // The UI turns the OPTIONS_SEEDED line into a launch note ("" = the main .minecraft/options.txt).
+    if let Some(from) = crate::options_sync::seed_new_instance(root, mc) {
+        println!("OPTIONS_SEEDED\t{mc}\t{from}");
     }
     inst
 }
@@ -879,7 +884,50 @@ pub fn plan_launch(root: &PathBuf, id: &str, auth: &AuthInfo, settings: &crate::
         args.push(settings.res_height.to_string());
     }
 
-    Ok(LaunchPlan { java_exe, args, cwd: gamedir, main_class: merged.main_class.clone() })
+    Ok(LaunchPlan {
+        java_exe,
+        args,
+        cwd: gamedir,
+        main_class: merged.main_class.clone(),
+        prefer_discrete_gpu: settings.discrete_gpu,
+        priority: settings.process_priority.clone(),
+    })
+}
+
+/// Windows priority class for Settings → 遊戲優先順序, given to the JVM as a creation flag.
+#[cfg(target_os = "windows")]
+fn priority_class(p: &str) -> u32 {
+    match p {
+        "high" => 0x0000_0080,         // HIGH_PRIORITY_CLASS
+        "above_normal" => 0x0000_8000, // ABOVE_NORMAL_PRIORITY_CLASS
+        _ => 0x0000_0020,              // NORMAL_PRIORITY_CLASS
+    }
+}
+
+/// Windows' per-app graphics preference (Settings → System → Display → Graphics) is the value named after the exe in
+/// HKCU\Software\Microsoft\DirectX\UserGpuPreferences, "GpuPreference=2;" meaning high performance. Windows does not
+/// see Java as a game, so on a laptop with an integrated and a discrete GPU the game otherwise runs on the integrated
+/// one. Written only when the exe has no entry yet — a choice the player made there wins. Returns whether it wrote.
+#[cfg(target_os = "windows")]
+fn prefer_high_performance_gpu(exe: &std::path::Path) -> Result<bool> {
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::{RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ};
+    let key = HSTRING::from(r"Software\Microsoft\DirectX\UserGpuPreferences");
+    let name = HSTRING::from(exe.as_os_str());
+    let mut size: u32 = 0;
+    let found = unsafe { RegGetValueW(HKEY_CURRENT_USER, &key, &name, RRF_RT_REG_SZ, None, None, Some(&mut size)) };
+    if found == ERROR_SUCCESS {
+        return Ok(false);
+    }
+    let data: Vec<u16> = "GpuPreference=2;".encode_utf16().chain(std::iter::once(0)).collect();
+    let r = unsafe {
+        RegSetKeyValueW(HKEY_CURRENT_USER, &key, &name, REG_SZ.0, Some(data.as_ptr().cast()), (data.len() * 2) as u32)
+    };
+    if r != ERROR_SUCCESS {
+        return Err(anyhow!("registry write failed ({})", r.0));
+    }
+    Ok(true)
 }
 
 /// Spawn the JVM, streaming stdout+stderr lines via `on_line`, and return the
@@ -926,6 +974,15 @@ pub fn run_blocking(plan: LaunchPlan, on_line: impl Fn(String, bool) + Send + Sy
         let _ = std::fs::create_dir_all(short_tmp);
         cmd.env("TEMP", short_tmp);
         cmd.env("TMP",  short_tmp);
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(priority_class(&plan.priority));
+        if plan.prefer_discrete_gpu {
+            match prefer_high_performance_gpu(&plan.java_exe) {
+                Ok(true) => on_line(format!("[S1mp1e] {}: graphics preference set to high performance", plan.java_exe.display()), false),
+                Ok(false) => {}
+                Err(e) => on_line(format!("[S1mp1e] graphics preference not set: {e}"), false),
+            }
+        }
     }
     let mut child = cmd.spawn().context("spawn jvm")?;
 
@@ -1124,5 +1181,29 @@ mod launch_arg_tests {
         }
         assert!(!custom_java_fits(&d.join("bin").join("javaw.exe"), 26), "Java 25 cannot run a version needing 26");
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod gpu_preference_tests {
+    use super::prefer_high_performance_gpu;
+
+    /// Writes the per-app graphics preference for a made-up exe path, checks it with `reg query`, then deletes it.
+    /// Touches the user's registry, so it only runs on request:
+    /// `cargo test --release gpu_preference -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn writes_once_and_respects_an_existing_entry() {
+        let exe = std::env::temp_dir().join(format!("s1mp1e-gpu-test-{}", std::process::id())).join("javaw.exe");
+        let key = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
+        let name = exe.to_string_lossy().to_string();
+        assert_eq!(prefer_high_performance_gpu(&exe).unwrap(), true);
+        let q = std::process::Command::new("reg").args(["query", key, "/v", &name]).output().unwrap();
+        let out = String::from_utf8_lossy(&q.stdout).to_string();
+        println!("{out}");
+        assert!(out.contains("GpuPreference=2;"));
+        assert_eq!(prefer_high_performance_gpu(&exe).unwrap(), false);   // already there: left alone
+        let d = std::process::Command::new("reg").args(["delete", key, "/v", &name, "/f"]).output().unwrap();
+        assert!(d.status.success());
     }
 }

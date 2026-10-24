@@ -52,10 +52,33 @@ public partial class MainWindow
         bool go;
         try { go = await PreLaunchCheckAsync(mc, loader); }
         catch (Exception ex) { LogCrash(ex); go = true; }   // the check must never block playing
+        if (go && _cfg.Settings.PerfCheck && _cfg.Settings.PerfHintBorderless)
+        {
+            try { await BorderlessCheckAsync(mc); }
+            catch (Exception ex) { LogCrash(ex); }   // a hint must never block playing
+        }
         PlayButton.IsEnabled = true;
         if (!go) { _joinAddress = null; return; }
         _healthChecked = true;
         OnPlay(sender, e);
+    }
+
+    /// <summary>
+    /// Settings → 啟動前效能檢查: a version set to borderless fullscreen (fullscreen on, exclusive off) sends every frame
+    /// through the Windows compositor. Offer exclusive fullscreen once; "維持" remembers not to ask again.
+    /// </summary>
+    private async Task BorderlessCheckAsync(string mc)
+    {
+        var options = Path.Combine(EffectiveMcDir(), "instances", mc, "options.txt");
+        if (!PerfCheck.IsBorderless(options)) return;
+        var pick = await ChoiceAsync("效能提示",
+            $"{mc} 目前是「無邊框全螢幕」：每一幀都要先經過 Windows 的畫面合成，FPS 通常比「獨佔全螢幕」低。\n" +
+            "要改成獨佔全螢幕嗎？（之後可在遊戲的「顯示設定」改回來）",
+            new List<(string, ChoiceKind)> { ("維持無邊框，不再提醒", ChoiceKind.Secondary), ("改成獨佔全螢幕", ChoiceKind.Primary) },
+            "health");
+        if (pick == 0) { _cfg.Settings.PerfHintBorderless = false; SaveCfg(); }
+        else if (pick == 1)
+            ShowToast(PerfCheck.MakeExclusive(options) ? $"已把 {mc} 改成獨佔全螢幕" : "沒辦法修改遊戲設定，請在遊戲的顯示設定裡改", 3600);
     }
 
     /// <summary>Warn (only when something is wrong) before a launch that is likely to fail. Returns false to cancel.</summary>

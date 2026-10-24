@@ -7,6 +7,7 @@
 //!   itest perf <mc> [mcPath]                    Prepare the performance pack and print what a Fabric launch would use.
 //!   itest plan <mc> <loader> [mcPath]           Print the launch command (offline identity) as JSON, don't start.
 //!   itest forge-deps <mc> [mcPath]              Fetch the libraries the Forge mods for <mc> need.
+//!   itest options-import <mcPath> <from> <to>   Copy one version's game settings over another's (prints OK <n> / ERR <msg>).
 //!
 //! `login` prints `CODE <user_code>\t<verification_uri>` the instant it has a device
 //! code (the UI shows/opens it), then `DONE <name>\t<uuid>` and SAVES the account to
@@ -15,7 +16,7 @@
 //! session (user_type "msa") that online servers accept — fixing the "shell account"
 //! where launch always used the offline placeholder.
 
-use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, media, meta, ornithe, paths, perf, playtime};
+use s1mp1e::{auth, config, default_mods, download, forge_deps, install, launch, media, meta, options_sync, ornithe, paths, perf, playtime};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -35,6 +36,7 @@ async fn main() {
         "list-versions" => cmd_list_versions().await,
         "refresh" => cmd_refresh().await,
         "media-serve" => cmd_media_serve(),
+        "options-import" => cmd_options_import(rest),
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
             let ai = resolve_auth("Player").await;
@@ -47,6 +49,18 @@ async fn main() {
         }
     };
     std::process::exit(code);
+}
+
+/// `options-import <mcPath> <from> <to>`: the launcher's 「從其他版本匯入設定」. Prints `OK <count>` or `ERR <message>`.
+fn cmd_options_import(rest: &[String]) -> i32 {
+    let (Some(root), Some(from), Some(to)) = (rest.first(), rest.get(1), rest.get(2)) else {
+        println!("ERR usage: itest options-import <mcPath> <from> <to>");
+        return 2;
+    };
+    match options_sync::import(std::path::Path::new(root), from, to) {
+        Ok(n) => { println!("OK {n}"); 0 }
+        Err(e) => { println!("ERR {e}"); 1 }
+    }
 }
 
 /// Microsoft device-code sign-in. Streams CODE/DONE lines the UI parses.

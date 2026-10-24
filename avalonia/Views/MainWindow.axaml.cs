@@ -461,6 +461,10 @@ public partial class MainWindow : Window
             var proc = new System.Diagnostics.Process { StartInfo = psi, EnableRaisingEvents = true };
             var errTail = new LaunchErrorTail();
             var notes = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            // 啟動前效能檢查: what else is using the GPU, and running on battery — measured while the game loads, shown
+            // with the other launch notes once it runs (never blocks the launch)
+            if (_cfg.Settings.PerfCheck)
+                _ = System.Threading.Tasks.Task.Run(() => { foreach (var n in PerfCheck.BackgroundNotes()) notes.Enqueue(n); });
             bool authOffline = false;
             int runningOnce = 0;
             proc.OutputDataReceived += (_, ev) =>
@@ -475,6 +479,16 @@ public partial class MainWindow : Window
                 {
                     var f = data.Split('\t');
                     if (f.Length >= 4) notes.Enqueue($"「{f[3]}」和「{f[2]}」是同一個模組，這次只載入「{f[2]}」");
+                    return;
+                }
+                if (data.StartsWith("OPTIONS_SEEDED\t", StringComparison.Ordinal))
+                {
+                    // first launch of a version: its settings were started from another version's (options_sync.rs)
+                    var f = data.Split('\t');
+                    if (f.Length >= 3)
+                        notes.Enqueue(f[2].Length > 0
+                            ? $"第一次開 {f[1]}：已沿用 {f[2]} 的按鍵、靈敏度、音量等遊戲設定"
+                            : $"第一次開 {f[1]}：已沿用原本 Minecraft 的遊戲設定");
                     return;
                 }
                 if (data.StartsWith("JAVA_OVERRIDE_SKIPPED\t", StringComparison.Ordinal))
@@ -3097,6 +3111,9 @@ public partial class MainWindow : Window
             ApplyAccent(s.Accent);
             if (GlassToggle is not null) GlassToggle.IsChecked = s.Glass;
             if (PerfToggle is not null) PerfToggle.IsChecked = s.PerfPack;
+            if (DiscreteGpuToggle is not null) DiscreteGpuToggle.IsChecked = s.DiscreteGpu;
+            if (PriorityBox is not null) PriorityBox.SelectedIndex = s.ProcessPriority switch { "normal" => 0, "high" => 2, _ => 1 };
+            if (PerfCheckToggle is not null) PerfCheckToggle.IsChecked = s.PerfCheck;
             if (PrereleaseToggle is not null) PrereleaseToggle.IsChecked = s.UpdatePrerelease;
             if (KnivesSettingToggle is not null) KnivesSettingToggle.IsChecked = s.Cs2Knives;
             if (DiscordToggle is not null) DiscordToggle.IsChecked = s.DiscordPresence;
@@ -3782,6 +3799,26 @@ public partial class MainWindow : Window
     {
         if (_hydrating || PerfToggle is null) return;
         _cfg.Settings.PerfPack = PerfToggle.IsChecked == true;
+        SaveCfg();
+    }
+    private void OnDiscreteGpuToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || DiscreteGpuToggle is null) return;
+        _cfg.Settings.DiscreteGpu = DiscreteGpuToggle.IsChecked == true;
+        SaveCfg();
+    }
+    private void OnPriorityChanged(object? sender, EventArgs e)
+    {
+        if (_hydrating || PriorityBox is null) return;
+        _cfg.Settings.ProcessPriority = PriorityBox.SelectedIndex switch { 0 => "normal", 2 => "high", _ => "above_normal" };
+        SaveCfg();
+    }
+    private void OnPerfCheckToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_hydrating || PerfCheckToggle is null) return;
+        _cfg.Settings.PerfCheck = PerfCheckToggle.IsChecked == true;
+        // switching the check back on also brings back the borderless question that "不再提醒" turned off
+        if (_cfg.Settings.PerfCheck) _cfg.Settings.PerfHintBorderless = true;
         SaveCfg();
     }
     private void OnPrereleaseToggleChanged(object? sender, RoutedEventArgs e)

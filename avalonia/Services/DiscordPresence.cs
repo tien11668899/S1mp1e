@@ -24,7 +24,7 @@ public static class DiscordPresence
 {
     /// <summary>Discord application id (Developer Portal → application "S1mp1e"; its name is the "正在玩 …" line).
     /// Empty = presence off.</summary>
-    public const string ApplicationId = "";
+    public const string ApplicationId = "1563386778960920746";
 
     private const string Logo = "https://tien11668899.github.io/S1mp1e/assets/icon.png";
     private const string Releases = "https://github.com/tien11668899/S1mp1e/releases";

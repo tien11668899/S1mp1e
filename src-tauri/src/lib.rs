@@ -18,3 +18,4 @@ pub mod launch;
 pub mod config;
 pub mod auth;
 pub mod playtime;
+pub mod options_sync;

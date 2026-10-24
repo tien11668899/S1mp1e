@@ -20,7 +20,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 
 # 遊戲內靈動島的「正在播放」：Windows 系統媒體控制（SMTC），Spotify 等播放器都會登記在這裡
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams", "Win32_System_WinRT"] }
+windows = { version = "0.58", features = ["Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams", "Win32_System_WinRT", "Win32_Foundation", "Win32_System_Registry"] }
 
 [profile.release]
 opt-level = "s"

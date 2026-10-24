@@ -89,6 +89,39 @@ pub const PACK: &[PerfMod] = &[
         sha1: "0286260261591fe77ba0d332d5d5a2d2e868c2c6",
         ids: &["immediatelyfast"],
     },
+    // 26.3: the same four mods' 26.3 builds (see docs/PERFORMANCE.md, "26.3").
+    PerfMod {
+        mc: "26.3",
+        slug: "lithium",
+        version: "mc26.3-0.26.2-fabric",
+        file: "lithium-fabric-0.26.2+mc26.3.jar",
+        sha1: "dd5a4ec2c68d7601d8bce9076f789c55a5f8bef3",
+        ids: &["lithium"],
+    },
+    PerfMod {
+        mc: "26.3",
+        slug: "ferrite-core",
+        version: "9.0.0-fabric",
+        file: "ferritecore-9.0.0-fabric.jar",
+        sha1: "eac76ff0f3753422c61b2c44487d0d195d88d4bc",
+        ids: &["ferritecore"],
+    },
+    PerfMod {
+        mc: "26.3",
+        slug: "cull-leaves",
+        version: "4.1.2+26.3-fabric",
+        file: "cullleaves-fabric-4.1.2+26.3.jar",
+        sha1: "ff792771822c8844fd699493db1fc078611c1acd",
+        ids: &["cullleaves"],
+    },
+    PerfMod {
+        mc: "26.3",
+        slug: "immediatelyfast",
+        version: "1.17.1+26.3-fabric",
+        file: "ImmediatelyFast-Fabric-1.17.1+26.3.jar",
+        sha1: "f565bbeb201f2305e81761429d3f1f47e1c3a321",
+        ids: &["immediatelyfast"],
+    },
 ];
 
 /// JVM flags the pack adds for a given Java feature version, when the player has not chosen a
@@ -396,8 +429,16 @@ pub fn judge_exit(root: &Path, mc: &str, gamedir: &Path, exit_code: i32) -> Opti
     let started = st.pending_since;
     st.pending_since = 0;
     let dir = perf_dir(root, mc);
-    let msg = if exit_code != 0 && ran < EARLY_CRASH_SECS {
-        let report = newest_crash_report(gamedir, started);
+    let report = (exit_code != 0 && ran < EARLY_CRASH_SECS).then(|| newest_crash_report(gamedir, started)).flatten();
+    let innocent = report.as_deref().is_some_and(|r| {
+        std::fs::read_to_string(gamedir.join("crash-reports").join(r)).is_ok_and(|t| !report_blames_pack(&t, mc))
+    });
+    let msg = if exit_code != 0 && ran < EARLY_CRASH_SECS && innocent {
+        // The crash report names the cause, and it is not the pack (e.g. a broken save-folder link): keep the pack on.
+        log(&dir, &format!("early exit {exit_code} after {ran} s, but the crash report does not involve the pack ({}): pack stays on",
+                           report.as_deref().unwrap_or("?")));
+        None
+    } else if exit_code != 0 && ran < EARLY_CRASH_SECS {
         st.disabled = true;
         st.reason = format!(
             "the game exited with code {exit_code} after {ran} s while the performance pack was loaded{}",
@@ -412,6 +453,16 @@ pub fn judge_exit(root: &Path, mc: &str, gamedir: &Path, exit_code: i32) -> Opti
     };
     save_state(root, mc, &st);
     msg
+}
+
+/// Whether a crash report points at the pack: one of this version's pack mods, or ZGC, appears in the error and its
+/// stack traces. Only the part before "-- System Details --" counts — that section lists every loaded mod (pack mods
+/// included) and the JVM flags in every report, whatever the cause.
+fn report_blames_pack(report: &str, mc: &str) -> bool {
+    let head = report.split("-- System Details --").next().unwrap_or(report).to_ascii_lowercase();
+    head.contains("zgc")
+        || head.contains("zcollectedheap")
+        || pack_for(mc).iter().any(|m| m.ids.iter().any(|id| head.contains(id)))
 }
 
 fn newest_crash_report(gamedir: &Path, since: u64) -> Option<String> {
@@ -495,6 +546,31 @@ mod tests {
         st.disabled = true;
         save_state(&root, "26.2", &st);
         assert!(!load_state(&root, "26.2").disabled);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn crash_report_decides_whether_the_pack_is_blamed() {
+        const DETAILS: &str = "\n-- System Details --\nFabric Mods: lithium, ferritecore, immediatelyfast\nJVM Flags: -XX:+UseZGC\n";
+        let saves = format!("Description: Initializing game\njava.io.UncheckedIOException: FileAlreadyExistsException: saves\n{DETAILS}");
+        let lithium = format!("Description: Ticking entity\njava.lang.NullPointerException\n\tat net.caffeinemc.mods.lithium.Foo.bar\n{DETAILS}");
+        assert!(!report_blames_pack(&saves, "26.2"));
+        assert!(report_blames_pack(&lithium, "26.2"));
+        assert!(report_blames_pack("Out of memory in ZCollectedHeap", "26.2"));
+
+        // an early crash whose report names another cause keeps the pack on; no report at all still switches it off
+        let root = std::env::temp_dir().join(format!("s1mp1e-perf-blame-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let game = root.join("game");
+        std::fs::create_dir_all(game.join("crash-reports")).unwrap();
+        mark_launch(&root, "26.2");
+        std::fs::write(game.join("crash-reports").join("crash-1.txt"), &saves).unwrap();
+        assert!(judge_exit(&root, "26.2", &game, -1).is_none());
+        assert!(!load_state(&root, "26.2").disabled);
+        std::fs::remove_file(game.join("crash-reports").join("crash-1.txt")).unwrap();
+        mark_launch(&root, "26.2");
+        assert!(judge_exit(&root, "26.2", &game, -1).is_some());
+        assert!(load_state(&root, "26.2").disabled);
         let _ = std::fs::remove_dir_all(&root);
     }
 }
