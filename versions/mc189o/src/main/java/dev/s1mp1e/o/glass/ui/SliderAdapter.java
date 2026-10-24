@@ -4,7 +4,10 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
+import net.minecraft.client.gui.screen.SoundsScreen;
+import net.minecraft.client.gui.screen.world.GeneratorOptionSlider;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.OptionSliderWidget;
 
 /**
  * Reads {@code value} (0..1) and the {@code held}/dragging flag from a vanilla or
@@ -16,7 +19,7 @@ import net.minecraft.client.gui.widget.ButtonWidget;
  *   <tr><th>class</th><th>value</th><th>held</th></tr>
  *   <tr><td>net.minecraft.client.gui.widget.OptionSliderWidget</td>
  *       <td>sliderValue / value (float)</td><td>dragging / dragging</td></tr>
- *   <tr><td>net.minecraft.client.gui.screen.SoundsScreen$Button</td>
+ *   <tr><td>net.minecraft.client.gui.screen.SoundsScreen$SoundSliderWidget</td>
  *       <td>sliderButtonPos (float)</td><td>dragging</td></tr>
  *   <tr><td>net.minecraft.client.gui.screen.world.GeneratorOptionSlider</td>
  *       <td>sliderPosition / amount (float)</td><td>isMouseDown / hovered</td></tr>
@@ -67,16 +70,18 @@ public final class SliderAdapter {
     private static SliderAdapter build(Class<?> cls) {
         Class<?> c = cls;
         while (c != null && ButtonWidget.class.isAssignableFrom(c)) {
+            // Minecraft classes are compared as classes (remapped by the build), never by name: in the player's game
+            // their names are obfuscated, so name checks only matched in the dev client.
             String n = c.getName();
-            if ("net.minecraft.client.gui.widget.OptionSliderWidget".equals(n)) {
+            if (c == OptionSliderWidget.class) {
                 return make(c, new String[] { dev.s1mp1e.o.util.Names.of("value", "f_96577240"), "sliderValue" },
                                new String[] { dev.s1mp1e.o.util.Names.of("dragging", "f_73479383"), "dragging" });
             }
-            if ("net.minecraft.client.gui.screen.SoundsScreen$Button".equals(n)) {
+            if (n.startsWith(SoundsScreen.class.getName() + "$")) {   // SoundsScreen$SoundSliderWidget (not nameable here)
                 return make(c, new String[] { dev.s1mp1e.o.util.Names.of("sliderButtonPos", "f_62442638") },
                                new String[] { dev.s1mp1e.o.util.Names.of("dragging", "f_03209506") });
             }
-            if ("net.minecraft.client.gui.screen.world.GeneratorOptionSlider".equals(n)) {
+            if (c == GeneratorOptionSlider.class) {
                 return make(c, new String[] { dev.s1mp1e.o.util.Names.of("amount", "f_89841361"), "sliderPosition" },
                                new String[] { dev.s1mp1e.o.util.Names.of("hovered", "f_19156849"), "isMouseDown" });
             }

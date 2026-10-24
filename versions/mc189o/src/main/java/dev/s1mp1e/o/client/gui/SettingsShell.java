@@ -457,8 +457,15 @@ public final class SettingsShell {
         return K_RAW;
     }
 
+    /**
+     * The volume slider is an inner class of {@code SoundsScreen} that cannot be named here. In the player's game every
+     * name is obfuscated ({@code C_66909242$C_22278918}), so the old check for "SoundsScreen" in the name only ever
+     * matched in the dev client: the released game took the slider for a plain button whose click did nothing, and the
+     * volume could not be changed. Matched instead by the remapped outer class's own runtime name plus '$' (which
+     * does not depend on the InnerClasses metadata an old obfuscated jar may lack).
+     */
     private static boolean isSoundSlider(ButtonWidget b) {
-        return b.getClass().getName().contains("SoundsScreen");
+        return b.getClass().getName().startsWith(SoundsScreen.class.getName() + "$");
     }
 
     // ============================================================================================
