@@ -111,6 +111,13 @@ public final class DevShot {
     // NAMETAGS mode (S1MP1E_SHOT_MODE=nametags): after the world settles, spawn named armor stands against striped
     // walls and capture one frame per NameTags Background look (Glass / Vanilla / Off). Inert unless that mode is set.
     private static final int P_NAMETAGS = 100;
+    // WINGS / MINIMAP modes (S1MP1E_SHOT_MODE=wings | minimap): the 26.x sweeps for the ported DragonWings cosmetic and
+    // the glass minimap + full-screen map (+ the ToggleSprint pill). The minimap mode uses a normal-terrain world.
+    private static final int P_WINGS = 110, P_MINIMAP = 120;
+    private static boolean wingsMode, minimapMode;
+    private static int wgStage, mmStage;
+    private static long wgT0, mmT0;
+    private static net.minecraft.client.network.OtherClientPlayerEntity[] mmFakes;
 
     private static boolean resolved;      // env vars checked exactly once
     private static String  mode;          // S1MP1E_SHOT_MODE (null => base pipeline only)
@@ -176,6 +183,8 @@ public final class DevShot {
                 mode = (m == null || m.trim().isEmpty()) ? null : m.trim().toLowerCase();
                 introMode = "intro".equals(mode);
                 nameTagsMode = "nametags".equals(mode);
+                wingsMode = "wings".equals(mode);
+                minimapMode = "minimap".equals(mode);
             } catch (Throwable t) {
                 mode = null;
             }
@@ -206,7 +215,7 @@ public final class DevShot {
         }
 
         // Global watchdog — never hang.
-        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L : WATCHDOG_MS;
+        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L : minimapMode ? 420_000L : WATCHDOG_MS;
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
             System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
@@ -246,6 +255,8 @@ public final class DevShot {
                 case P_AUDIT:              if (DevAudit.step(client)) phase = P_STOP; break;
                 case P_ESSENTIAL:          stepEssential(client);                break;
                 case P_NAMETAGS:           stepNameTags(client);                 break;
+                case P_WINGS:              stepWings(client);                    break;
+                case P_MINIMAP:            stepMinimap(client);                  break;
                 case P_STOP:               stepStop(client);                     break;
                 default:                   break;
             }
@@ -556,6 +567,8 @@ public final class DevShot {
         if (frames < WORLD_SETTLE) return;
         applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
         if (nameTagsMode) { ntStage = 0; frames = 0; phase = P_NAMETAGS; return; }
+        if (wingsMode) { frames = 0; phase = P_WINGS; return; }
+        if (minimapMode) { frames = 0; phase = P_MINIMAP; return; }
         frames = 0; phase = P_WORLD;
     }
 
@@ -803,6 +816,181 @@ public final class DevShot {
         phase = P_DONE;
     }
 
+    // ---- wings + minimap sweeps (S1MP1E_SHOT_MODE=wings | minimap), ported from 26.x ----------------
+
+    /** Server command run as the player (so "~" is relative to them); the result or parse error goes to the log. */
+    private static void devCmd(MinecraftClient client, String cmd) {
+        try {
+            MinecraftServer server = client.getServer();
+            if (server == null) return;
+            server.execute(() -> {
+                if (server.getPlayerManager().getPlayerList().isEmpty()) return;
+                ServerPlayerEntity sp = server.getPlayerManager().getPlayerList().get(0);
+                try {
+                    int r = server.getCommandManager().getDispatcher().execute(cmd, sp.getCommandSource().withSilent());
+                    System.out.println("[S1mp1e][DevShot] cmd '" + cmd + "' -> " + r);
+                } catch (Throwable t) {
+                    System.out.println("[S1mp1e][DevShot] cmd '" + cmd + "' failed: " + t.getMessage());
+                }
+            });
+        } catch (Throwable t) { skip("cmd " + cmd, t); }
+    }
+
+    /**
+     * Third-person shots of the DragonWings module: standing (back, front), sneaking (folded), falling and creative
+     * flight, wearing an elytra (wings must hide) and with the module off. Same stages as the 26.x sweep.
+     */
+    private static void stepWings(MinecraftClient client) {
+        ClientPlayerEntity player = client.player;
+        Module m = ModuleManager.byName("DragonWings");
+        if (player == null || m == null) { phase = P_STOP; return; }
+        try { if (client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) client.setScreen(null); } catch (Throwable ignored) {}
+        long now = System.nanoTime();
+        if (frames++ == 0) {
+            wgStage = 0;
+            wgT0 = now;
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            m.setEnabled(true);
+            devCmd(client, "gamemode creative");
+            devCmd(client, "clear @s");   // the throwaway devshot world: no armor or shield hiding the back
+            devCmd(client, "time set noon");
+            devCmd(client, "tp @s ~ ~ ~ 0 15");
+            client.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_BACK);
+            return;
+        }
+        double secs = (now - wgT0) / 1e9;
+        // three-quarter stage: the body turned 50 degrees (the most a player's head allows) under the back camera
+        if (wgStage == 10) { player.bodyYaw = player.getYaw() - 50f; player.prevBodyYaw = player.bodyYaw; }
+        switch (wgStage) {
+            case 0 -> { if (secs > 4.0) { capture(client, "wings-01-back-idle.png"); wgNext(now, 1);
+                        client.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_FRONT); } }
+            case 1 -> { if (secs > 1.0) { capture(client, "wings-02-front-idle.png"); wgNext(now, 10);
+                        client.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_BACK); } }
+            case 10 -> { if (secs > 1.0) { capture(client, "wings-03-back-three-quarter.png"); wgNext(now, 2);
+                        player.bodyYaw = player.getYaw(); player.prevBodyYaw = player.bodyYaw;
+                        client.options.sneakKey.setPressed(true); } }
+            case 2 -> { if (secs > 1.5) { capture(client, "wings-04-sneak-folded.png"); wgNext(now, 3);
+                        client.options.sneakKey.setPressed(false); devCmd(client, "tp @s ~ ~8 ~"); } }
+            case 3 -> { if (secs > 0.6) { capture(client, "wings-05-falling.png"); wgNext(now, 4); } }
+            case 4 -> { if (secs > 2.5) { wgNext(now, 5);
+                        player.getAbilities().flying = true; player.sendAbilitiesUpdate(); devCmd(client, "tp @s ~ ~3 ~"); } }
+            case 5 -> { if (secs > 1.5) { capture(client, "wings-06-flying.png"); wgNext(now, 6);
+                        player.getAbilities().flying = false; player.sendAbilitiesUpdate();
+                        devCmd(client, "item replace entity @s armor.chest with minecraft:elytra"); } }
+            case 6 -> { if (secs > 2.5) { capture(client, "wings-08-elytra-hides-wings.png"); wgNext(now, 7);
+                        devCmd(client, "item replace entity @s armor.chest with minecraft:air"); m.setEnabled(false); } }
+            case 7 -> { if (secs > 1.0) { capture(client, "wings-09-module-off.png"); wgNext(now, 8);
+                        client.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON); } }
+            default -> { if (secs > 0.5) phase = P_STOP; }
+        }
+    }
+
+    private static void wgNext(long now, int stage) { wgStage = stage; wgT0 = now; }
+
+    /**
+     * docs/MINIMAP_SPEC.md acceptance sweep on a normal-terrain world: orientation check with coloured wool (red east,
+     * blue north, then lime south placed AFTER the map is drawn = the block-update path), both shapes and orientations,
+     * all zoom steps, Tab radar (still mobs + items), other players (client-side test players, one inside and one far
+     * outside the map), a 640-block teleport (ring window shift: no wrapped terrain), the Nether placeholder, the
+     * full-screen map, module-off releasing the texture, and the ToggleSprint pill. Each shot waits for the work queue.
+     */
+    private static void stepMinimap(MinecraftClient client) {
+        ClientPlayerEntity player = client.player;
+        dev.s1mp1e.client.module.MinimapModule m = dev.s1mp1e.client.module.MinimapModule.get();
+        if (player == null || m == null) { phase = P_STOP; return; }
+        try { client.getToastManager().clear(); } catch (Throwable ignored) {}
+        try { if (client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) client.setScreen(null); } catch (Throwable ignored) {}
+        long now = System.nanoTime();
+        if (frames++ == 0) {
+            mmStage = 0;
+            mmT0 = now;
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            m.setEnabled(true);
+            m.shape.modeValue = dev.s1mp1e.client.module.MinimapModule.ROUND;
+            m.orientation.modeValue = dev.s1mp1e.client.module.MinimapModule.NORTH_UP;
+            m.zoom.modeValue = dev.s1mp1e.client.module.MinimapModule.MEDIUM;
+            m.size.intValue = 96;
+            m.names.boolValue = false;
+            devCmd(client, "gamemode creative");
+            devCmd(client, "tp @s ~ ~ ~ -90 30");   // face east
+            devCmd(client, "fill ~4 ~15 ~-1 ~26 ~15 ~1 minecraft:red_wool");
+            devCmd(client, "fill ~-1 ~15 ~-26 ~1 ~15 ~-4 minecraft:blue_wool");
+            return;
+        }
+        double secs = (now - mmT0) / 1e9;
+        boolean settled = dev.s1mp1e.client.minimap.MinimapData.pendingWork() == 0;
+        String R = dev.s1mp1e.client.module.MinimapModule.ROUND, SQ = dev.s1mp1e.client.module.MinimapModule.SQUARE;
+        String N = dev.s1mp1e.client.module.MinimapModule.NORTH_UP, F = dev.s1mp1e.client.module.MinimapModule.FOLLOW;
+        switch (mmStage) {
+            case 0 -> { if (secs > 4.0 && settled || secs > 20.0) { capture(client, "mm-01-round-north-medium.png"); mmNext(now, 1); m.orientation.modeValue = F; } }
+            case 1 -> { if (secs > 1.0) { capture(client, "mm-02-round-follow-facing-east.png"); mmNext(now, 2); m.shape.modeValue = SQ; m.orientation.modeValue = N; } }
+            case 2 -> { if (secs > 1.0) { capture(client, "mm-03-square-north-medium.png"); mmNext(now, 3); m.orientation.modeValue = F; m.zoom.modeValue = dev.s1mp1e.client.module.MinimapModule.CLOSE; } }
+            case 3 -> { if (secs > 1.5) { capture(client, "mm-04-square-follow-close.png"); mmNext(now, 4); m.shape.modeValue = R; m.orientation.modeValue = N; m.zoom.modeValue = dev.s1mp1e.client.module.MinimapModule.FAR; } }
+            case 4 -> { if (secs > 1.5 && settled || secs > 10.0) { capture(client, "mm-05-round-north-far.png"); mmNext(now, 5); m.zoom.modeValue = dev.s1mp1e.client.module.MinimapModule.MEDIUM;
+                        devCmd(client, "fill ~-1 ~15 ~4 ~1 ~15 ~26 minecraft:lime_wool"); } }
+            case 5 -> { if (secs > 1.5 && settled) { capture(client, "mm-06-block-update-lime-south.png"); mmNext(now, 6);
+                        for (int i = 0; i < 4; i++) {
+                            devCmd(client, "summon minecraft:husk ~" + (8 + i * 3) + " ~ ~" + (6 - i * 4) + " {NoAI:1b,PersistenceRequired:1b,Silent:1b}");
+                            devCmd(client, "summon minecraft:cow ~" + (-6 - i * 3) + " ~ ~" + (8 + i * 2) + " {NoAI:1b,PersistenceRequired:1b,Silent:1b}");
+                            devCmd(client, "summon minecraft:item ~" + (-4 - i * 2) + " ~1 ~" + (-6 - i * 3) + " {Item:{id:\"minecraft:diamond\",count:1},PickupDelay:32767}");
+                        }
+                        mmFakes = new net.minecraft.client.network.OtherClientPlayerEntity[] {
+                                mmFake(client, "Alex", 14, -18), mmFake(client, "Steve", -20, 6), mmFake(client, "Far", 400, -250) };
+                        client.options.playerListKey.setPressed(true); } }
+            case 6 -> { if (secs > 2.0) { capture(client, "mm-07-tab-radar-players.png"); mmNext(now, 7);
+                        m.names.boolValue = true; m.orientation.modeValue = F; } }
+            case 7 -> { if (secs > 1.0) { capture(client, "mm-08-names-follow.png"); mmNext(now, 8);
+                        client.options.playerListKey.setPressed(false); m.names.boolValue = false; m.orientation.modeValue = N;
+                        if (mmFakes != null) for (var f : mmFakes) if (f != null) client.world.removeEntity(f.getId(), net.minecraft.entity.Entity.RemovalReason.DISCARDED);
+                        devCmd(client, "tp @s ~640 ~40 ~"); } }
+            case 8 -> { if (secs > 6.0 && settled || secs > 30.0) { capture(client, "mm-09-after-640-teleport.png"); mmNext(now, 9);
+                        devCmd(client, "execute in minecraft:the_nether run tp @s 0 80 0"); } }
+            case 9 -> { if (secs > 5.0) { capture(client, "mm-10-nether-placeholder.png"); mmNext(now, 10);
+                        devCmd(client, "execute in minecraft:overworld run tp @s 0 140 0"); } }
+            case 10 -> { if (secs > 6.0 && settled || secs > 30.0) { capture(client, "mm-11-back-overworld.png"); mmNext(now, 20);
+                        client.setScreen(new dev.s1mp1e.client.gui.MinimapScreen()); } }
+            // full-screen map (M): as opened, then zoomed out with the wheel, then closed
+            case 20 -> { if (secs > 1.5) { capture(client, "mm-11b-fullscreen.png"); mmNext(now, 21);
+                        if (client.currentScreen instanceof dev.s1mp1e.client.gui.MinimapScreen ms)
+                            ms.mouseScrolled(client.getWindow().getScaledWidth() / 2.0, client.getWindow().getScaledHeight() / 2.0, 0, -6); } }
+            case 21 -> { if (secs > 1.5) { capture(client, "mm-11c-fullscreen-zoomed-out.png"); mmNext(now, 22);
+                        if (client.currentScreen instanceof dev.s1mp1e.client.gui.MinimapScreen ms) ms.close(); } }
+            case 22 -> { if (secs > 0.6) {
+                        System.out.println("[S1mp1e][DevShot] fullscreen map closed: screen=" + client.currentScreen);
+                        mmNext(now, 11); m.setEnabled(false); } }
+            case 11 -> { if (secs > 2.5) {
+                        System.out.println("[S1mp1e][DevShot] minimap after module off: texture allocated=" + dev.s1mp1e.client.minimap.MinimapData.hasTexture()
+                                + " active=" + dev.s1mp1e.client.minimap.MinimapData.active);
+                        capture(client, "mm-12-module-off.png");
+                        // ToggleSprint: one tap of the sprint key latches it; the glass pill says so
+                        Module ts = ModuleManager.byName("ToggleSprint");
+                        if (ts != null) ts.setEnabled(true);
+                        client.options.sprintKey.setPressed(true);
+                        client.options.sprintKey.setPressed(false);
+                        mmNext(now, 12); } }
+            case 12 -> { if (secs > 1.0) {
+                        System.out.println("[S1mp1e][DevShot] toggle sprint latched=" + client.options.sprintKey.isPressed());
+                        capture(client, "ts-01-sprint-toggled-pill.png");
+                        phase = P_STOP; } }
+            default -> phase = P_STOP;
+        }
+    }
+
+    private static void mmNext(long now, int stage) { mmStage = stage; mmT0 = now; }
+
+    /** A client-only player at (dx, dz) from the player, on the same height, for the minimap marker check. */
+    private static net.minecraft.client.network.OtherClientPlayerEntity mmFake(MinecraftClient client, String name, double dx, double dz) {
+        try {
+            net.minecraft.client.network.OtherClientPlayerEntity rp = new net.minecraft.client.network.OtherClientPlayerEntity(client.world,
+                    new com.mojang.authlib.GameProfile(java.util.UUID.nameUUIDFromBytes(("mm-" + name).getBytes()), name));
+            rp.setId(-0x5EED0000 - Math.floorMod(name.hashCode(), 0xFFFF));   // client-only id, far from server ids
+            rp.refreshPositionAndAngles(client.player.getX() + dx, client.player.getY(), client.player.getZ() + dz, 0f, 0f);
+            rp.resetPosition();
+            client.world.addEntity(rp);
+            return rp;
+        } catch (Throwable t) { skip("minimap fake player " + name, t); return null; }
+    }
+
     // ---- world creation + setup -------------------------------------------
 
     /** Delete any previous {@code devshot} save and start a fresh flat world. Attempted once only. */
@@ -823,7 +1011,7 @@ public final class DevShot {
             // A SAFE_MODE flat world never triggers that path; a fresh TitleScreen is a safe fallback.
             client.createIntegratedServerLoader().createAndStart(
                     "devshot", info, gen,
-                    drm -> drm.get(RegistryKeys.WORLD_PRESET).getOrThrow(WorldPresets.FLAT)
+                    drm -> drm.get(RegistryKeys.WORLD_PRESET).getOrThrow(minimapMode ? WorldPresets.DEFAULT : WorldPresets.FLAT)
                               .createDimensionsRegistryHolder(),
                     new TitleScreen());
             return true;

@@ -2,6 +2,7 @@ package dev.s1mp1e.client.gui;
 
 import dev.s1mp1e.client.Setting;
 import dev.s1mp1e.client.gui.widget.ColorWidget;
+import dev.s1mp1e.client.gui.widget.KeyWidget;
 import dev.s1mp1e.client.gui.widget.ModeWidget;
 import dev.s1mp1e.client.gui.widget.SliderWidget;
 import dev.s1mp1e.client.gui.widget.ToggleWidget;
@@ -12,6 +13,7 @@ public final class SettingWidgets {
     private SettingWidgets() {}
 
     public static Widget forSetting(Setting s) {
+        if (s.isKey) return new KeyWidget(s);
         switch (s.type) {
             case BOOL:   return ToggleWidget.forSetting(s);
             case INT:

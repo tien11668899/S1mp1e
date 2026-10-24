@@ -117,7 +117,16 @@
     "RecipeBookInvGlideMixin",
     "RecipeCascadeMixin",
     "RecipeBookButtonGlassMixin",
-    "DevShotMixin"
+    "DevShotMixin",
+    "FreelookCameraMixin",
+    "FreelookMouseMixin",
+    "StickyKeyBindingAccessor",
+    "ToggleKeyOptionsMixin",
+    "LivingEntityRendererFeatureInvoker",
+    "PlayerRendererWingsMixin",
+    "CapeWingsMixin",
+    "MinimapChunkMixin",
+    "MinimapBlockMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -164,6 +164,9 @@ public final class S1mp1eClient implements ClientModInitializer {
         // carried over from launch can't fire it.
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client == null || client.getWindow() == null) return;
+            dev.s1mp1e.client.module.ToggleSprintModule.tick();
+            dev.s1mp1e.client.module.FreelookModule.tick();
+            dev.s1mp1e.client.module.MinimapModule.tick();
             int mk = S1mp1eConfig.getMenuKey();
             boolean down = mk > 0
                     && client.isWindowFocused()

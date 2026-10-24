@@ -228,6 +228,52 @@ public final class GlassRenderer {
         batchTex = false;
     }
 
+    /**
+     * Quads given vertex by vertex through {@code kind}'s program with {@code textureId} on unit 0 (Sampler0) instead of
+     * the scene backdrop — the glass minimap ({@code dev.s1mp1e.client.minimap}). {@code xyuv} holds 4 floats per vertex
+     * (GUI x, y, u, v) and {@code argb} one packed colour per vertex, 4 vertices per quad in A-B-C-D order. Every
+     * position goes through {@code m} on the CPU (the caller's DrawContext matrix, which the RenderSystem model-view
+     * this program reads does not carry), so the quads follow the same translate/scale as the text drawn over them.
+     */
+    public static void texturedQuads(int kind, int textureId, float[] xyuv, int[] argb, int vertices, org.joml.Matrix4f m) {
+        if (vertices < 4 || !GlassProgram.ensureReady()) return;
+        if (kind == GlassProgram.MINIMAP && !GlassProgram.minimapUsable()) return;
+        batchKind = kind;
+        batchTex = true;   // endBatch resyncs unit 0 through RenderSystem
+        RenderSystem.enableBlend();
+        RenderSystem.blendFuncSeparate(770, 771, 1, 0);   // same as beginBatch
+        RenderSystem.disableCull();
+        RenderSystem.depthMask(false);
+        RenderSystem.activeTexture(GL13.GL_TEXTURE0);
+        RenderSystem.bindTexture(textureId);
+        GlassProgram.bind(kind);
+        if (vao == 0) {
+            vao = GL30.glGenVertexArrays();
+            vbo = GL15.glGenBuffers();
+        }
+        cpu.clear();
+        vertCount = 0;
+        for (int q = 0; q + 3 < vertices; q += 4) {
+            texVert(xyuv, argb, q, m);       // A
+            texVert(xyuv, argb, q + 1, m);   // B
+            texVert(xyuv, argb, q + 2, m);   // C
+            texVert(xyuv, argb, q, m);       // A
+            texVert(xyuv, argb, q + 2, m);   // C
+            texVert(xyuv, argb, q + 3, m);   // D
+        }
+        endBatch();
+    }
+
+    private static void texVert(float[] xyuv, int[] argb, int i, org.joml.Matrix4f m) {
+        int o = i * 4;
+        float x = xyuv[o], y = xyuv[o + 1];
+        float sx = m.m00() * x + m.m10() * y + m.m30();
+        float sy = m.m01() * x + m.m11() * y + m.m31();
+        int c = argb[i];
+        vert(sx, sy, xyuv[o + 2], xyuv[o + 3],
+             ((c >> 16) & 255) / 255f, ((c >> 8) & 255) / 255f, (c & 255) / 255f, ((c >>> 24) & 255) / 255f);
+    }
+
     // ---- convenience wrappers matching 26.2's call sites -------------------
 
     /** Refractive glass: corner scale, neutral lift, opacity, frost. */
