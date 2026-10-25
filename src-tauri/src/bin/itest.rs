@@ -559,10 +559,8 @@ async fn cmd_play(a: &[String]) -> i32 {
     if let Some(addr) = a.iter().position(|s| s == "--join").and_then(|i| a.get(i + 1)) {
         plan.args.extend(join_args(&mc, addr));
     }
-    // 遊戲內靈動島的「正在播放」服務（Windows 系統媒體控制）：只在遊戲執行期間、只綁 127.0.0.1
-    if let Some(ms) = media::start() {
-        insert_jvm_arg(&mut plan, ms.jvm_arg());
-    }
+    // 「正在播放」服務（media.rs）不再隨遊戲啟動：遊戲內沒有任何版本在用它（靈動島從 v0.2.0 起停用）。
+    // 開發時要用可以跑 `itest media-serve`。
     let gamedir = plan.cwd.clone();
     if pack_on {
         perf::mark_launch(&root, &mc);
@@ -603,12 +601,6 @@ async fn cmd_play(a: &[String]) -> i32 {
         }
     }
     code
-}
-
-/// 在主類別名稱前插入一個 JVM 參數（-D 系統屬性要在主類別之前）
-fn insert_jvm_arg(plan: &mut launch::LaunchPlan, arg: String) {
-    let i = plan.args.iter().position(|a| *a == plan.main_class).unwrap_or(0);
-    plan.args.insert(i, arg);
 }
 
 /// itest media-serve — 開發用：開「正在播放」服務並印出給遊戲的 JVM 參數，一直執行到被關掉。
