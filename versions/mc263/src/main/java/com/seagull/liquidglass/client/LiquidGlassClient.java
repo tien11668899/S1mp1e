@@ -13,6 +13,9 @@ public class LiquidGlassClient implements ClientModInitializer {
       LOG.info("[LiquidGlass] client initialized (v0.1.0, MC 26.2 / mojmap)");
       // Build the S1mp1e client modules + load saved config (guarded internally; never throws).
       try { dev.s1mp1e.client.ModuleManager.init(); } catch (Throwable t) { LOG.warn("[S1mp1e] module init failed", t); }
+      // The render (main) thread gets a physical core of its own (never throws).
+      dev.s1mp1e.client.perf.CoreIsolation.start();
+      dev.s1mp1e.client.perf.ThreadPriorities.start();
       // The menu key (RightShift) is polled by dev.s1mp1e.client.mixin.MenuKeyMixin at Minecraft.tick() RETURN.
 
       // DEV ONLY (set by `runClient` via -Ds1mp1e.preloadMixinTargets=true, never in production): force every mixin

@@ -148,7 +148,9 @@ public final class KnifeSkins {
             int style = entry.has("style") ? entry.get("style").getAsInt() : combo % 9;
             int size = Math.min(2048, entry.get("size").getAsInt());
             long t0 = System.nanoTime();
-            NativeImage img = SkinCompositor.composite(root(), SeedRoll.apply(entry, seed()), style, wear, size, pre);
+            final Map<String, SkinCompositor.Decoded> inputs = pre;
+            final float w = wear;
+            NativeImage img = CompositorContext.call(() -> SkinCompositor.composite(root(), SeedRoll.apply(entry, seed()), style, w, size, inputs));
             String dump = System.getenv("S1MP1E_SKIN_DUMP");
             if (dump != null && !dump.isEmpty()) {
                 try { img.writeToFile(java.nio.file.Path.of(dump, knife + "_" + paint + "_s" + seed() + ".png")); } catch (Throwable ignored) {}

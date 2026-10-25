@@ -21,7 +21,7 @@ tooltips and buttons). No tint, no gameplay hooks.
 | `glass-1.18.2.jar` | 1.18.2 | Fabric |
 | `glass-1.19.2.jar` | 1.19.2 | Fabric |
 | `glass-1.20.1.jar` | 1.20.1 | Fabric |
-| `glass-1.21.1.jar` | 1.21.1 | Fabric |
+| `glass-1.21.1.jar` | 1.21.1, 1.21 | Fabric (1.21 has no jar of its own: the launcher runs this one there, see `GLASS_SHARED` in `src-tauri/src/install.rs`) |
 | `glass-1.21.8.jar` | 1.21.8 | Fabric |
 | `glass-26.2.jar`   | 26.2   | Fabric |
 | `glass-26.3.jar`   | 26.3   | Fabric |

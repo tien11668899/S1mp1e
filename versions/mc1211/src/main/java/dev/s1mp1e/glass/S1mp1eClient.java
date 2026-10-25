@@ -105,6 +105,19 @@ public final class S1mp1eClient implements ClientModInitializer {
             }
         }
 
+        // PORT CHECK (env S1MP1E_MIXIN_AUDIT=1, set only by hand for a test run; the launcher passes env through): apply
+        // every mixin of every config now. This jar also runs on 1.21 (install.rs GLASS_SHARED); a target that differs
+        // there fails here, at start-up, with the offending mixin in the log, instead of when its screen first opens.
+        if ("1".equals(System.getenv("S1MP1E_MIXIN_AUDIT"))) {
+            try {
+                org.spongepowered.asm.mixin.MixinEnvironment.getCurrentEnvironment().audit();
+                System.out.println("[S1mp1e] mixin audit: every target loaded");
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e] mixin audit FAILED: " + t);
+                t.printStackTrace();
+            }
+        }
+
         // Build modules + load saved config (guarded internally; never throws).
         try { ModuleManager.init(); } catch (Throwable t) { System.out.println("[S1mp1e] module init failed: " + t); }
 

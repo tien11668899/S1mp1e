@@ -180,8 +180,38 @@ final class DevShotScenes {
         if (has("invfill")) queueInvFill();
         if (has("trans")) queueTrans();
         if (has("ag")) queueAg();
+        if (has("sensprobe")) queueSens();
         add(new Scene() { public boolean step(Minecraft mc, int f) { mc.openScreen(null); return true; } });
         wait(5);
+    }
+
+    /**
+     * {@code sensprobe}：滑鼠靈敏度實測。關掉畫面、鎖定滑鼠（視角模式），每 20 ms 把玩家 yaw / pitch、滑鼠是否鎖定、
+     * 視窗是否在前景寫進 {@code <S1MP1E_SHOT>/sens.txt}；外部腳本注入已知的原始滑鼠移動量後，讀這個檔案算轉了幾度。
+     * 腳本建立 {@code sens.done} 就結束（最多 120 秒）。
+     */
+    private static void queueSens() {
+        add(new Scene() {
+            long t0, last;
+            public boolean step(Minecraft mc, int f) {
+                long now = System.currentTimeMillis();
+                java.io.File dir = new java.io.File(System.getenv("S1MP1E_SHOT").trim());
+                if (t0 == 0L) {
+                    t0 = now;
+                    System.out.println("[S1mp1e][DevShot] sensprobe: sensitivity " + mc.options.mouseSensitivity);
+                }
+                if (mc.screen != null) mc.openScreen(null);
+                boolean active = org.lwjgl.opengl.Display.isActive();
+                if (active && !mc.focused) mc.lockMouse();
+                if (now - last >= 20 && mc.player != null) {
+                    last = now;
+                    String s = String.format(java.util.Locale.ROOT, "%.5f %.5f %b %b %d%n", mc.player.yaw, mc.player.pitch,
+                            org.lwjgl.input.Mouse.isGrabbed(), active, now);
+                    try { java.nio.file.Files.write(new java.io.File(dir, "sens.txt").toPath(), s.getBytes("UTF-8")); } catch (Throwable ignored) {}
+                }
+                return new java.io.File(dir, "sens.done").exists() || now - t0 > 120000L;
+            }
+        });
     }
 
     // ---- ag：全玻璃輪專用場景（#4 選中膠囊、#15 F3 卡、#17 經驗條、#12 附魔三態）----------------------

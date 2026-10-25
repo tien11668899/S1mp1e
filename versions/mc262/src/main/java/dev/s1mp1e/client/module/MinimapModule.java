@@ -34,7 +34,7 @@ public final class MinimapModule extends Module implements HudBounds, HudRendere
     public final Setting names       = add(Setting.bool("Player names", false));
     public final Setting radar       = add(Setting.bool("Tab radar", true));
     // M opens the full-screen map (gui.MinimapScreen); GLFW key code on 26.2 (77 = M), 0 = off
-    public final Setting fullscreenKey = add(Setting.key("Fullscreen key", 77));
+    public final Setting fullscreenKey = add(Setting.key("Fullscreen key (GLFW)", 77));
     // Default X past any screen width: the HUD clamps it to the right edge, so the map starts top-right everywhere.
     public final Setting posX        = add(Setting.integer("X", 4000, 0, 4000));
     public final Setting posY        = add(Setting.integer("Y", 4, 0, 4000));

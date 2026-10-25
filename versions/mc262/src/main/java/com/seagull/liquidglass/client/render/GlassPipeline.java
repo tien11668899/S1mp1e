@@ -241,13 +241,12 @@ public final class GlassPipeline {
          try {
             GpuDevice dev = RenderSystem.getDevice();
             // 26.2 replaced the fixed OpenGL renderer with a GpuBackend abstraction and shipped an
-            // experimental, user-selectable Vulkan backend. Our backdrop-sampling shaders
-            // (glass / glass_lens / glass_fade) read Sampler0 at gl_FragCoord.xy / ScreenSize
-            // assuming OpenGL's BOTTOM-left framebuffer origin (see the rationale in glass.fsh:88-92).
-            // On Vulkan the fragment origin is TOP-left, so the refraction would sample the scene
-            // vertically MIRRORED, and the custom GLSL->SPIR-V path is untested on this build. Until the
-            // shaders are validated on Vulkan, drop to the coordinate-agnostic primitive painter on any
-            // non-OpenGL backend. OpenGL (the default) is unaffected: it keeps full shader refraction.
+            // experimental, user-selectable Vulkan backend. Our backdrop-sampling shaders read Sampler0 at
+            // gl_FragCoord.xy / ScreenSize assuming OpenGL's BOTTOM-left framebuffer origin (glass.fsh:88-92).
+            // 26.2's Vulkan backend keeps that convention: it renders with an unflipped viewport and flips the
+            // frame only when it blits to the swapchain (VulkanGpuSurface.blitFromTexture: dst y from h to 0),
+            // so render targets hold the bottom row first and the same shaders hold there, as on 26.3.
+            // S1MP1E_GLASS_VULKAN=0 keeps the old primitive-painter fallback on non-OpenGL backends.
             //
             // backendName() is the ONLY reliable discriminator here: 26.2's OpenGL backend reports a
             // unified [0,1] clip-Z (isZZeroToOne()==true) exactly like Vulkan, so isZZeroToOne is NOT a
@@ -266,9 +265,9 @@ public final class GlassPipeline {
                LiquidGlassClient.LOG.info("[LiquidGlass] -Ds1mp1e.bench.noglass -> primitive glass (benchmark)");
                return false;
             }
-            if (!openGl) {
+            if (!openGl && "0".equals(System.getenv("S1MP1E_GLASS_VULKAN"))) {
                state = -1;
-               LiquidGlassClient.LOG.warn("[LiquidGlass] non-OpenGL graphics backend ('{}') -> using primitive glass fallback (shader refraction assumes an OpenGL framebuffer origin; set Options > Graphics API to OpenGL for full liquid glass)", backend);
+               LiquidGlassClient.LOG.warn("[LiquidGlass] non-OpenGL graphics backend ('{}') with S1MP1E_GLASS_VULKAN=0 -> primitive glass fallback", backend);
                return false;
             }
             glass = RenderPipeline.builder(new Snippet[0])
@@ -546,6 +545,13 @@ public final class GlassPipeline {
    }
 
    private static int copyImage = -1;   // -1 unknown, 0 no, 1 yes
+   private static boolean partialBroken;
+
+   /** On OpenGL the boxes go through glCopyImageSubData; on any other backend through the command encoder. */
+   private static boolean openGlTextures(RenderTarget main) {
+      return main.getColorTexture() instanceof com.mojang.blaze3d.opengl.GlTexture
+            && grabTex instanceof com.mojang.blaze3d.opengl.GlTexture;
+   }
 
    /** glCopyImageSubData needs OpenGL 4.3 or ARB_copy_image (every current desktop driver; checked once). */
    private static boolean copyImageAvailable() {
@@ -563,8 +569,8 @@ public final class GlassPipeline {
 
    /** Copy the boxes the glass reads this frame. False = copy everything instead. */
    private static boolean copyReaders(GpuDevice dev, RenderTarget main, int w, int h) {
-      if (readerCount < 0 || !copyImageAvailable() || !(main.getColorTexture() instanceof com.mojang.blaze3d.opengl.GlTexture src)
-            || !(grabTex instanceof com.mojang.blaze3d.opengl.GlTexture dst)) {
+      boolean gl = openGlTextures(main);
+      if (readerCount < 0 || partialBroken || (gl && !copyImageAvailable())) {
          return false;
       }
       var enc = dev.createCommandEncoder();
@@ -604,12 +610,28 @@ public final class GlassPipeline {
       if (!COPY_DEBUG && area * 10 >= (long) w * h * 9) {
          return false;   // nearly the whole frame anyway: one copy is cheaper than many
       }
-      for (int[] bx : boxes) {
-         // GL texture rows count up from the bottom, GUI y counts down. Not CommandEncoder.copyTextureToTexture: its
-         // blit passes width/height as the END coordinates, so only boxes starting at (0, 0) come out right.
-         int ty = h - bx[3];
-         org.lwjgl.opengl.GL43C.glCopyImageSubData(src.glId(), org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, 0, bx[0], ty, 0,
-               dst.glId(), org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, 0, bx[0], ty, 0, bx[2] - bx[0], bx[3] - bx[1], 1);
+      if (gl) {
+         int src = ((com.mojang.blaze3d.opengl.GlTexture) main.getColorTexture()).glId();
+         int dst = ((com.mojang.blaze3d.opengl.GlTexture) grabTex).glId();
+         for (int[] bx : boxes) {
+            // GL texture rows count up from the bottom, GUI y counts down. Not CommandEncoder.copyTextureToTexture: its
+            // blit passes width/height as the END coordinates, so only boxes starting at (0, 0) come out right.
+            int ty = h - bx[3];
+            org.lwjgl.opengl.GL43C.glCopyImageSubData(src, org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, 0, bx[0], ty, 0,
+                  dst, org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, 0, bx[0], ty, 0, bx[2] - bx[0], bx[3] - bx[1], 1);
+         }
+         return true;
+      }
+      try {
+         // Vulkan: vkCmdCopyImage with a true extent; rows are stored bottom first here too (see ensureReady)
+         for (int[] bx : boxes) {
+            int ty = h - bx[3];
+            enc.copyTextureToTexture(main.getColorTexture(), grabTex, 0, bx[0], ty, bx[0], ty, bx[2] - bx[0], bx[3] - bx[1]);
+         }
+      } catch (Throwable t) {
+         partialBroken = true;
+         LiquidGlassClient.LOG.warn("[LiquidGlass] partial backdrop copy failed, copying whole frames from now on: {}", t.toString());
+         return false;
       }
       return true;
    }

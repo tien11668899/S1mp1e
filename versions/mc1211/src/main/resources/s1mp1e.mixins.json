@@ -126,7 +126,8 @@
     "PlayerRendererWingsMixin",
     "CapeWingsMixin",
     "MinimapChunkMixin",
-    "MinimapBlockMixin"
+    "MinimapBlockMixin",
+    "BidiFastPathMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -77,7 +77,7 @@ public final class Bench {
      *  GUI scale…) instead of the fixed set, to measure what that player actually gets; only the frame cap, VSync and
      *  pause-on-focus-loss are still pinned. {@code S1MP1E_BENCH_FULLSCREEN=1}: exclusive fullscreen at the monitor's
      *  own mode instead of a WxH window. */
-    private static boolean PLAYER_SETTINGS, FULLSCREEN, fullscreenRequested;
+    private static boolean PLAYER_SETTINGS, FULLSCREEN, BORDERLESS, fullscreenRequested;
 
     /** One measured scenario: hold still {@code warmS} at the start pose, then follow the path for {@code measureS}. */
     private static final class Scenario {
@@ -162,7 +162,9 @@ public final class Bench {
                     String gui = System.getenv("S1MP1E_BENCH_GUI");
                     if (gui != null && gui.matches("\\d+")) GUI = Integer.parseInt(gui);
                     PLAYER_SETTINGS = "player".equalsIgnoreCase(String.valueOf(System.getenv("S1MP1E_BENCH_SETTINGS")).trim());
-                    FULLSCREEN = "1".equals(System.getenv("S1MP1E_BENCH_FULLSCREEN"));
+                    // 1 = exclusive fullscreen, borderless = fullscreen without exclusive mode (how many players have it)
+                    BORDERLESS = "borderless".equalsIgnoreCase(String.valueOf(System.getenv("S1MP1E_BENCH_FULLSCREEN")));
+                    FULLSCREEN = BORDERLESS || "1".equals(System.getenv("S1MP1E_BENCH_FULLSCREEN"));
                     String list = System.getenv("S1MP1E_BENCH_SCENARIOS");
                     for (Scenario s : ALL) {
                         if (list == null || list.isBlank() || Arrays.asList(list.split(",")).contains(s.name)) todo.add(s);
@@ -646,7 +648,7 @@ public final class Bench {
             applyTweak(o);
             log("settings: the player's own (rd=" + o.renderDistance().get() + " sim=" + o.simulationDistance().get()
                     + " fov=" + o.fov().get() + " particles=" + o.particles().get() + " gui=" + o.guiScale().get()
-                    + ") fps=unlimited vsync=off afk-limit=off window=" + (FULLSCREEN ? "exclusive fullscreen" : WIN_W + "x" + WIN_H)
+                    + ") fps=unlimited vsync=off afk-limit=off window=" + (BORDERLESS ? "borderless fullscreen" : FULLSCREEN ? "exclusive fullscreen" : WIN_W + "x" + WIN_H)
                     + " minimap=" + minimapState);
             return;
         }
@@ -711,7 +713,7 @@ public final class Bench {
             Window w = mc.getWindow();
             if (FULLSCREEN) {
                 // setFullscreen only records the request; the game loop applies it (updateFullscreenIfChanged)
-                if (!fullscreenRequested) { fullscreenRequested = true; w.setExclusiveFullscreen(true); w.setFullscreen(true); }
+                if (!fullscreenRequested) { fullscreenRequested = true; w.setExclusiveFullscreen(!BORDERLESS); w.setFullscreen(true); }
                 return;
             }
             if (w.isExclusiveFullscreen()) w.setFullscreen(false);

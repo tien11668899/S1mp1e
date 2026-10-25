@@ -89,7 +89,7 @@ void main() {
     // The SDF normal lives in GUI space (+y = down) but screen UV is GL space
     // (+y = up) -> flip the normal's y or the vertical refraction inverts and the
     // bottom edge samples past the screen boundary (CLAMP_TO_EDGE streaks).
-    vec2 nUV = vec2(n.x, -n.y);
+    vec2 nUV = vec2(n.x, -LG_Y * n.y);   // LG_Y (GlassPipeline): +1 OpenGL screen y up, -1 Vulkan y down
     vec2 refrOffset = -nUV * edgeFactor * OFFSET_SCALE * vec2(ScreenSize.y / ScreenSize.x, 1.0);
     vec2 base = gl_FragCoord.xy / ScreenSize;
 

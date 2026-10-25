@@ -212,7 +212,48 @@ public final class GlassPipeline {
          return null;
       }
       String ext = type == ShaderType.VERTEX ? ".vsh" : ".fsh";
-      return readResource("/assets/liquidglass/shaders/" + id.getPath() + ext);
+      String src = readResource("/assets/liquidglass/shaders/" + id.getPath() + ext);
+      return src == null ? null : withScreenDirection(src);
+   }
+
+   /** Screen-space y direction the shaders see (LG_Y). 26.3's Vulkan backend keeps OpenGL's convention — gl_FragCoord
+    *  counts up from the bottom and render targets are stored bottom row first (checked: with -1 the brand intro came
+    *  out mirrored) — so it is +1 on both; {@code S1MP1E_GLASS_YMODE=down} flips it for testing another backend. */
+   static int screenY() {
+      return "down".equalsIgnoreCase(System.getenv("S1MP1E_GLASS_YMODE")) ? -1 : 1;
+   }
+
+   private static int openGl = -1;   // -1 unknown, 0 no, 1 yes
+
+   /** Whether renderpearl runs on OpenGL (its copies then take END corners, see {@link #backendOf}). */
+   static boolean openGlBackend() {
+      if (openGl < 0) {
+         try {
+            String b = RenderSystem.getDevice().getDeviceInfo().backendName();
+            openGl = b == null || b.toLowerCase(Locale.ROOT).contains("opengl") ? 1 : 0;
+         } catch (Throwable t) {
+            return true;   // no device yet: ask again next time
+         }
+      }
+      return openGl == 1;
+   }
+
+   /** {@code #define LG_Y ±1.0} right after the #version / #extension lines. */
+   private static String withScreenDirection(String src) {
+      int at = 0;
+      int i = 0;
+      while (i < src.length()) {
+         int nl = src.indexOf('\n', i);
+         int end = nl < 0 ? src.length() : nl + 1;
+         String line = src.substring(i, end).trim();
+         if (line.startsWith("#version") || line.startsWith("#extension")) {
+            at = end;
+         } else if (!line.isEmpty() && !line.startsWith("//")) {
+            break;
+         }
+         i = end;
+      }
+      return src.substring(0, at) + "#define LG_Y " + (screenY() < 0 ? "-1.0" : "1.0") + "\n" + src.substring(at);
    }
 
    private static String readResource(String path) {
@@ -274,13 +315,10 @@ public final class GlassPipeline {
          try {
             GpuDevice dev = RenderSystem.getDevice();
             // 26.2 replaced the fixed OpenGL renderer with a GpuBackend abstraction and shipped an
-            // experimental, user-selectable Vulkan backend. Our backdrop-sampling shaders
-            // (glass / glass_lens / glass_fade) read Sampler0 at gl_FragCoord.xy / ScreenSize
-            // assuming OpenGL's BOTTOM-left framebuffer origin (see the rationale in glass.fsh:88-92).
-            // On Vulkan the fragment origin is TOP-left, so the refraction would sample the scene
-            // vertically MIRRORED, and the custom GLSL->SPIR-V path is untested on this build. Until the
-            // shaders are validated on Vulkan, drop to the coordinate-agnostic primitive painter on any
-            // non-OpenGL backend. OpenGL (the default) is unaffected: it keeps full shader refraction.
+            // experimental, user-selectable Vulkan backend. Our backdrop-sampling shaders read Sampler0 at
+            // gl_FragCoord.xy / ScreenSize; 26.3's Vulkan backend keeps OpenGL's bottom-left convention, so the same
+            // shaders hold there (LG_Y, screenY(), stays a test switch).
+            // S1MP1E_GLASS_VULKAN=0 keeps the old primitive-painter fallback on non-OpenGL backends.
             //
             // backendName() is the ONLY reliable discriminator here: 26.2's OpenGL backend reports a
             // unified [0,1] clip-Z (isZZeroToOne()==true) exactly like Vulkan, so isZZeroToOne is NOT a
@@ -301,11 +339,12 @@ public final class GlassPipeline {
                LiquidGlassClient.LOG.info("[LiquidGlass] -Ds1mp1e.bench.noglass -> primitive glass (benchmark)");
                return false;
             }
-            if (!openGl) {
+            if (!openGl && "0".equals(System.getenv("S1MP1E_GLASS_VULKAN"))) {
                state = -1;
-               LiquidGlassClient.LOG.warn("[LiquidGlass] non-OpenGL graphics backend ('{}') -> using primitive glass fallback (shader refraction assumes an OpenGL framebuffer origin; set Options > Graphics API to OpenGL for full liquid glass)", backend);
+               LiquidGlassClient.LOG.warn("[LiquidGlass] non-OpenGL graphics backend ('{}') with S1MP1E_GLASS_VULKAN=0 -> primitive glass fallback", backend);
                return false;
             }
+            LiquidGlassClient.LOG.info("[LiquidGlass] shader screen direction LG_Y={}", screenY());
             glass = RenderPipeline.builder(new Snippet[0])
                .withLocation(Identifier.fromNamespaceAndPath("liquidglass", "pipeline/glass"))
                .withBindGroupLayout(BindGroupLayouts.GLOBALS)
@@ -561,9 +600,11 @@ public final class GlassPipeline {
     * off; {@code -Ds1mp1e.glass.copyDebug=true} paints the backdrop magenta first, so any glass pixel that reads outside
     * the copied boxes shows up magenta in a screenshot.
     */
-   // 26.3: OFF by default. The partial copy is raw glCopyImageSubData, bypassing renderpearl; mixing raw GL into its
-   // frame was implicated in intermittent native crashes on this version. Opt back in with -Ds1mp1e.glass.partialCopy=true.
-   private static final boolean PARTIAL_COPY = Boolean.getBoolean("s1mp1e.glass.partialCopy");
+   // 26.3: the copies go through renderpearl (raw glCopyImageSubData mixed into its frame was implicated in native crashes
+   // on this version), so the partial copy works on OpenGL and Vulkan alike. -Ds1mp1e.glass.fullCopy=true or
+   // S1MP1E_GLASS_FULLCOPY=1 copies the whole frame instead.
+   private static final boolean PARTIAL_COPY = !Boolean.getBoolean("s1mp1e.glass.fullCopy")
+         && !"1".equals(System.getenv("S1MP1E_GLASS_FULLCOPY"));
    private static final boolean COPY_DEBUG = Boolean.getBoolean("s1mp1e.glass.copyDebug");
    private static final Vector4f DEBUG_MAGENTA = new Vector4f(1.0F, 0.0F, 1.0F, 1.0F);
    /** Boxes in GUI coordinates (x0, y0, x1, y1) of this frame's backdrop readers; null = copy the whole frame. */
@@ -597,26 +638,25 @@ public final class GlassPipeline {
       if (!unknown[0]) readerCount = n[0];
    }
 
-   private static int copyImage = -1;   // -1 unknown, 0 no, 1 yes
+   private static java.lang.reflect.Field encoderBackend;
+   private static boolean partialBroken;
 
-   /** glCopyImageSubData needs OpenGL 4.3 or ARB_copy_image (every current desktop driver; checked once). */
-   private static boolean copyImageAvailable() {
-      if (copyImage < 0) {
-         try {
-            var caps = org.lwjgl.opengl.GL.getCapabilities();
-            copyImage = (caps.OpenGL43 || caps.GL_ARB_copy_image) && caps.glCopyImageSubData != 0L ? 1 : 0;
-         } catch (Throwable t) {
-            copyImage = 0;
-         }
-         LiquidGlassClient.LOG.info("[LiquidGlass] partial backdrop copy: {}", copyImage == 1 ? "available" : "unavailable, full copy");
+   /**
+    * The backend behind renderpearl's command encoder. OpenGL's copyTextureToTexture blits with width/height as the END
+    * corner (still so in 26.3), which the front end's region check rejects for any box that does not start at (0, 0);
+    * the backend call does the same blit through renderpearl's own GL state handling, without that check.
+    */
+   private static com.mojang.renderpearl.backend.api.CommandEncoderBackend backendOf(Object enc) throws ReflectiveOperationException {
+      if (encoderBackend == null) {
+         encoderBackend = enc.getClass().getDeclaredField("backend");
+         encoderBackend.setAccessible(true);
       }
-      return copyImage == 1;
+      return (com.mojang.renderpearl.backend.api.CommandEncoderBackend) encoderBackend.get(enc);
    }
 
    /** Copy the boxes the glass reads this frame. False = copy everything instead. */
    private static boolean copyReaders(GpuDevice dev, RenderTarget main, int w, int h) {
-      if (readerCount < 0 || !copyImageAvailable() || !(main.getColorTexture() instanceof com.mojang.renderpearl.backend.opengl.GlTexture src)
-            || !(grabTex instanceof com.mojang.renderpearl.backend.opengl.GlTexture dst)) {
+      if (readerCount < 0 || partialBroken) {
          return false;
       }
       var enc = dev.createCommandEncoder();
@@ -656,12 +696,24 @@ public final class GlassPipeline {
       if (!COPY_DEBUG && area * 10 >= (long) w * h * 9) {
          return false;   // nearly the whole frame anyway: one copy is cheaper than many
       }
-      for (int[] bx : boxes) {
-         // GL texture rows count up from the bottom, GUI y counts down. Not CommandEncoder.copyTextureToTexture: its
-         // blit passes width/height as the END coordinates, so only boxes starting at (0, 0) come out right.
-         int ty = h - bx[3];
-         org.lwjgl.opengl.GL43C.glCopyImageSubData(src.glId(), org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, 0, bx[0], ty, 0,
-               dst.glId(), org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, 0, bx[0], ty, 0, bx[2] - bx[0], bx[3] - bx[1], 1);
+      try {
+         // rows count up from the bottom on both backends (see screenY)
+         if (openGlBackend()) {
+            // OpenGL: the blit takes the END corner (see backendOf)
+            var be = backendOf(enc);
+            for (int[] bx : boxes) {
+               be.copyTextureToTexture(main.getColorTexture(), grabTex, 0, bx[0], h - bx[3], bx[0], h - bx[3], bx[2], h - bx[1]);
+            }
+         } else {
+            // Vulkan: vkCmdCopyImage with a true extent
+            for (int[] bx : boxes) {
+               enc.copyTextureToTexture(main.getColorTexture(), grabTex, 0, bx[0], h - bx[3], bx[0], h - bx[3], bx[2] - bx[0], bx[3] - bx[1]);
+            }
+         }
+      } catch (Throwable t) {
+         partialBroken = true;
+         LiquidGlassClient.LOG.warn("[LiquidGlass] partial backdrop copy failed, copying whole frames from now on: {}", t.toString());
+         return false;
       }
       return true;
    }

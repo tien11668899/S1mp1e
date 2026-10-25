@@ -142,7 +142,7 @@ public final class DevShot {
                              P_FLICKER = 21, P_TABS = 22, P_SCROLL = 23, P_CLICKS = 24, P_GLIDE = 25,
                              P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28, P_TRANS = 29, P_INGAME = 30, P_LISTS = 31,
                              P_LOOPPREV = 32, P_AUDIT = 34, P_GLASSHUD = 35, P_ESSENTIAL = 36,
-                             P_NAMETAGS = 37, P_KNIFE = 38, P_LOCKER = 39, P_KANIM = 40, P_KHOLD = 41, P_LOCKANIM = 42, P_CSARM = 43, P_SEEDS = 44, P_CSROLL = 45, P_WINGS = 46, P_MINIMAP = 47;
+                             P_NAMETAGS = 37, P_KNIFE = 38, P_LOCKER = 39, P_KANIM = 40, P_KHOLD = 41, P_LOCKANIM = 42, P_CSARM = 43, P_SEEDS = 44, P_CSROLL = 45, P_WINGS = 46, P_MINIMAP = 47, P_VISIT = 48, P_CMDS = 49, P_DUMP = 50;
 
     /** Per-screen shot timing for the {@code screens} sweep. */
     private static final int SCREEN_SETTLE = 45;   // frames rendered before the capture request
@@ -222,6 +222,15 @@ public final class DevShot {
     private static boolean seedsMode, sdSetup; private static long sdT0; private static int sdIdx;
     private static boolean csrollMode, crSetup; private static long crT0; private static int crIdx;
     private static boolean wingsMode; private static int wgStage; private static long wgT0;
+    /** {@code S1MP1E_SHOT_MODE=visit}: open the existing world {@code S1MP1E_SHOT_WORLD} (a saves folder) as it is, and shoot
+     *  each camera position of {@code S1MP1E_SHOT_VISIT} ("x y z yaw pitch;...", spectator). Checks converted worlds. */
+    private static boolean visitMode; private static int vsIdx; private static long vsT0; private static String shotWorld;
+    /** {@code S1MP1E_SHOT_MODE=commands}: run every line of the file {@code S1MP1E_SHOT_COMMANDS} as a server command in the
+     *  fresh devshot world (builds test worlds, e.g. every block and item a version adds, for the world converter). */
+    private static boolean cmdsMode; private static java.util.List<String> cmdsList; private static int cmdsIdx; private static long cmdsT0;
+    /** {@code S1MP1E_SHOT_MODE=dump}: every entity type, every block entity and the player saved the way the game stores
+     *  them, one {@code kind<TAB>id<TAB>SNBT} line each, into {@code dump.txt} (reference data for the world converter). */
+    private static boolean dumpMode; private static volatile boolean dumpDone; private static long dumpT0;
     private static boolean minimapMode; private static int mmStage; private static long mmT0;
     private static net.minecraft.client.player.RemotePlayer[] mmFakes;
     private static boolean lockanimMode, laSetup;
@@ -324,6 +333,10 @@ public final class DevShot {
                     seedsMode = mode != null && mode.trim().equalsIgnoreCase("seeds");
                     csrollMode = mode != null && mode.trim().equalsIgnoreCase("csroll");
                     wingsMode = mode != null && mode.trim().equalsIgnoreCase("wings");
+                    visitMode = mode != null && mode.trim().equalsIgnoreCase("visit");
+                    shotWorld = System.getenv("S1MP1E_SHOT_WORLD");
+                    cmdsMode = mode != null && mode.trim().equalsIgnoreCase("commands");
+                    dumpMode = mode != null && mode.trim().equalsIgnoreCase("dump");
                     minimapMode = mode != null && mode.trim().equalsIgnoreCase("minimap");
                     lockanimMode = mode != null && mode.trim().equalsIgnoreCase("lockanim");
                     combatMode = mode != null && mode.trim().equalsIgnoreCase("combat");
@@ -424,6 +437,9 @@ public final class DevShot {
                 case P_EFFECTS:      stepEffects(client);                  break;
                 case P_NAMETAGS:     stepNameTags(client);                 break;
                 case P_WINGS:        stepWings(client);                    break;
+                case P_VISIT:        stepVisit(client);                    break;
+                case P_CMDS:         stepCmds(client);                     break;
+                case P_DUMP:         stepDump(client);                     break;
                 case P_MINIMAP:      stepMinimap(client);                  break;
                 case P_KNIFE:        stepKnife(client);                    break;
                 case P_LOCKER:       stepLocker(client);                   break;
@@ -596,7 +612,7 @@ public final class DevShot {
             if (transMode) { frames = 0; transStep = 0; phase = P_TRANS; return; }   // menus only, no world
             if (listsMode) { frames = 0; phase = P_LISTS; return; }
             if (essentialMode) { frames = 0; phase = P_ESSENTIAL; return; }   // menus only, no world
-            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode) {
+            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode || visitMode || cmdsMode || dumpMode) {
                 // Screens / HUD / modules / flicker / tabs / scroll / clicks / effects sweep: skip the title/config baseline shots and head straight for the world.
                 if (createWorld(client)) {
                     frames = 0; phase = P_WAIT_WORLD;
@@ -669,11 +685,11 @@ public final class DevShot {
             frames = 0; phase = P_DRAIN;
             return;
         }
-        applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
+        if (!visitMode) applyWorldSetup(client);   // time/weather/position/loadout; a visited world stays as it is
         frames = 0; phase = glassHudMode ? P_GLASSHUD : auditMode ? P_AUDIT : transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
                 : modulesMode ? P_MODULES : flickerMode ? P_FLICKER : tabsMode ? P_TABS
                 : scrollMode ? P_SCROLL : clicksMode ? P_CLICKS : glideMode ? P_GLIDE : tooltipsMode ? P_TOOLTIPS
-                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : wingsMode ? P_WINGS : minimapMode ? P_MINIMAP : P_WORLD;
+                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : wingsMode ? P_WINGS : visitMode ? P_VISIT : minimapMode ? P_MINIMAP : cmdsMode ? P_CMDS : dumpMode ? P_DUMP : P_WORLD;
     }
 
     private static void stepWorld(Minecraft client) {
@@ -1163,6 +1179,144 @@ public final class DevShot {
             client.level.addEntity(rp);
             return rp;
         } catch (Throwable t) { skip("minimap fake player " + name, t); return null; }
+    }
+
+    // ---- visit (S1MP1E_SHOT_MODE=visit): camera spots in an existing (e.g. converted) world ----
+
+    /** Spectator shots of each {@code S1MP1E_SHOT_VISIT} spot in the world {@code S1MP1E_SHOT_WORLD}: 3 s each, {@code visit-NN.png}. */
+    private static void stepVisit(Minecraft client) {
+        if (client.player == null) { frames = 0; phase = P_DRAIN; return; }
+        try { if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) client.gui.setScreen(null); } catch (Throwable ignored) {}
+        String[] spots = String.valueOf(System.getenv("S1MP1E_SHOT_VISIT")).split(";");
+        long now = System.nanoTime();
+        if (frames++ == 0) {
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            hudCmd(client, "gamemode spectator @a");
+            vsIdx = -1;
+            vsT0 = now;
+            return;
+        }
+        if ((now - vsT0) / 1e9 < (vsIdx < 0 ? 1.0 : 3.0)) return;
+        if (vsIdx >= 0) capture(client, String.format("visit-%02d.png", vsIdx));
+        vsIdx++;
+        if (vsIdx >= spots.length || spots[vsIdx].isBlank() || "null".equals(spots[vsIdx])) { frames = 0; phase = P_DRAIN; return; }
+        hudCmd(client, "tp @a " + spots[vsIdx].trim());
+        vsT0 = now;
+    }
+
+    // ---- commands + dump (S1MP1E_SHOT_MODE=commands | dump): test worlds and reference NBT for the world converter ----
+
+    /**
+     * Runs every line of the file {@code S1MP1E_SHOT_COMMANDS} as a server command (blank and {@code #} lines skipped),
+     * 40 per frame, each on the server thread; then waits 6 s and shoots {@code commands-done.png}. Same as the 26.3 mode.
+     */
+    private static void stepCmds(Minecraft client) {
+        long now = System.currentTimeMillis();
+        if (cmdsList == null) {
+            try {
+                cmdsList = java.nio.file.Files.readAllLines(java.nio.file.Path.of(System.getenv("S1MP1E_SHOT_COMMANDS").trim()));
+            } catch (Throwable t) {
+                skip("read commands", t);
+                cmdsList = java.util.List.of();
+            }
+            cmdsIdx = 0;
+            System.out.println("[S1mp1e][DevShot] commands: " + cmdsList.size());
+        }
+        if (cmdsIdx < cmdsList.size()) {
+            for (int n = 0; n < 40 && cmdsIdx < cmdsList.size(); n++) {
+                String c = cmdsList.get(cmdsIdx++).trim();
+                // on the server thread: block entity data (a chest's items) set from the render thread did not stick
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null && !c.isEmpty() && !c.startsWith("#")) {
+                    server.execute(() -> {
+                        try { server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), c); }
+                        catch (Throwable t) { System.out.println("[S1mp1e][DevShot] command failed: " + c + " " + t); }
+                    });
+                }
+            }
+            cmdsT0 = now;
+            return;
+        }
+        if (now - cmdsT0 < 6000) return;   // let block updates, entity spawns and chunk saves settle
+        capture(client, "commands-done.png");
+        frames = 0; phase = P_DRAIN;
+    }
+
+    /**
+     * Saves, on the server thread, one instance of every entity type (created at the player, never added to the world),
+     * the block entity of every block that has one (default state, at the player's block) and the server player, exactly
+     * as the game writes them: entities as into an entity chunk ({@code Entity.save}, with id), block entities as into a
+     * chunk ({@code saveWithFullMetadata}: id + x/y/z), the player as its playerdata file ({@code saveWithoutId}). One
+     * {@code kind<TAB>registry id<TAB>SNBT} line each into {@code dump.txt} (kind entity / block_entity / player; the id
+     * of a block entity line is its block's), then {@code dump-done.png}.
+     */
+    private static void stepDump(Minecraft client) {
+        long now = System.currentTimeMillis();
+        if (frames++ == 0) {
+            MinecraftServer server = client.getSingleplayerServer();
+            if (server == null) { frames = 0; phase = P_DRAIN; return; }
+            dumpT0 = now;
+            server.execute(() -> dumpAll(server));
+            return;
+        }
+        if (!dumpDone && now - dumpT0 < 60_000L) return;
+        if (!dumpDone) skip("dump", new IllegalStateException("server task did not finish in 60 s"));
+        capture(client, "dump-done.png");
+        frames = 0; phase = P_DRAIN;
+    }
+
+    private static void dumpAll(MinecraftServer server) {
+        try {
+            List<ServerPlayer> players = server.getPlayerList().getPlayers();
+            if (players.isEmpty()) { skip("dump", new IllegalStateException("no server player")); return; }
+            ServerPlayer sp = players.get(0);
+            ServerLevel level = sp.level();
+            BlockPos pos = sp.blockPosition();
+            StringBuilder out = new StringBuilder();
+            int ents = 0, bes = 0;
+            for (net.minecraft.world.entity.EntityType<?> type : net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE) {
+                String id = String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type));
+                try {
+                    // ignoreChecks: hostile mobs are not created in the peaceful devshot world otherwise
+                    net.minecraft.world.entity.Entity e = type.create(level, new net.minecraft.world.entity.EntitySpawnRequest(
+                            net.minecraft.world.entity.EntitySpawnReason.COMMAND, true));
+                    if (e == null) { System.out.println("[S1mp1e][DevShot] dump: no instance of " + id); continue; }
+                    e.snapTo(sp.getX(), sp.getY(), sp.getZ(), sp.getYRot(), 0f);
+                    net.minecraft.world.level.storage.TagValueOutput tag = net.minecraft.world.level.storage.TagValueOutput
+                            .createWithContext(net.minecraft.util.ProblemReporter.DISCARDING, e.registryAccess());
+                    if (!e.save(tag)) { System.out.println("[S1mp1e][DevShot] dump: " + id + " is not saved to chunks"); continue; }
+                    dumpLine(out, "entity", id, tag.buildResult());
+                    ents++;
+                } catch (Throwable t) { skip("dump entity " + id, t); }
+            }
+            for (net.minecraft.world.level.block.Block block : net.minecraft.core.registries.BuiltInRegistries.BLOCK) {
+                if (!(block instanceof net.minecraft.world.level.block.EntityBlock eb)) continue;
+                String id = String.valueOf(net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(block));
+                try {
+                    net.minecraft.world.level.block.entity.BlockEntity be = eb.newBlockEntity(pos, block.defaultBlockState());
+                    if (be == null) { System.out.println("[S1mp1e][DevShot] dump: no block entity for " + id); continue; }
+                    be.setLevel(level);
+                    dumpLine(out, "block_entity", id, be.saveWithFullMetadata(level.registryAccess()));
+                    bes++;
+                } catch (Throwable t) { skip("dump block entity " + id, t); }
+            }
+            try {
+                net.minecraft.world.level.storage.TagValueOutput tag = net.minecraft.world.level.storage.TagValueOutput
+                        .createWithContext(net.minecraft.util.ProblemReporter.DISCARDING, sp.registryAccess());
+                sp.saveWithoutId(tag);
+                dumpLine(out, "player", String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(sp.getType())), tag.buildResult());
+            } catch (Throwable t) { skip("dump player", t); }
+            java.nio.file.Files.writeString(new File(outDir, "dump.txt").toPath(), out, java.nio.charset.StandardCharsets.UTF_8);
+            System.out.println("[S1mp1e][DevShot] dump: " + ents + " entities, " + bes + " block entities, player -> dump.txt");
+        } catch (Throwable t) {
+            skip("dump", t);
+        } finally {
+            dumpDone = true;
+        }
+    }
+
+    private static void dumpLine(StringBuilder out, String kind, String id, net.minecraft.nbt.CompoundTag tag) {
+        out.append(kind).append('\t').append(id).append('\t').append(tag).append('\n');
     }
 
     // ---- wings sweep (S1MP1E_SHOT_MODE=wings): the DragonWings cosmetic in each movement state ----
@@ -5254,8 +5408,8 @@ public final class DevShot {
                     if (ch != null) {
                         ch.enabled = true;
                         ch.shape.modeValue = combatStage == 13 ? "Cross" : "Circle";
-                        ch.size.intValue = 7; ch.gap.intValue = 3; ch.thick.intValue = 2;
-                        ch.rotation.intValue = combatStage == 13 ? 45 : 0;
+                        ch.size.doubleValue = 7; ch.gap.doubleValue = 3; ch.thick.doubleValue = 2;
+                        ch.rotation.doubleValue = combatStage == 13 ? 45 : 0;
                     }
                     if (ring != null) ring.shape.modeValue = "Wrap";
                     client.player.resetAttackStrengthTicker();
@@ -5268,7 +5422,7 @@ public final class DevShot {
                 } else if (frames >= 100000 + HUD_FLUSH) {
                     if (ch != null) {
                         ch.enabled = false; ch.shape.modeValue = "Cross";
-                        ch.size.intValue = 4; ch.gap.intValue = 2; ch.thick.intValue = 1; ch.rotation.intValue = 0;
+                        ch.size.doubleValue = 4; ch.gap.doubleValue = 2; ch.thick.doubleValue = 1; ch.rotation.doubleValue = 0;
                     }
                     if (ring != null) ring.shape.modeValue = "Circle";
                     frames = 0; combatStage++;
@@ -5350,6 +5504,16 @@ public final class DevShot {
     private static boolean createWorld(Minecraft client) {
         if (worldTried) return false;   // never start world creation twice
         worldTried = true;
+        // commands / dump always build in a fresh flat devshot world (as 26.3 does), never in S1MP1E_SHOT_WORLD
+        if (shotWorld != null && !shotWorld.isBlank() && !cmdsMode && !dumpMode) {
+            try {
+                client.createWorldOpenFlows().openWorld(shotWorld.trim(), () -> {});
+                return true;
+            } catch (Throwable t) {
+                skip("open world " + shotWorld, t);
+                return false;
+            }
+        }
         try {
             File saves = new File(client.gameDirectory, "saves");
             deleteRecursively(new File(saves, "devshot"));

@@ -141,7 +141,7 @@ public final class DevShot {
                              P_TOOLTIPS = 26, P_EFFECTS = 27, P_COMBAT = 28, P_TRANS = 29, P_INGAME = 30, P_LISTS = 31,
                              P_LOOPPREV = 32, P_AUDIT = 34, P_GLASSHUD = 35, P_ESSENTIAL = 36, P_OPTCLICK = 37, P_SLIDERDRAG = 38,
                              P_NAMETAGS = 39, P_KEYGUARD = 40,
-                             P_KNIFE = 41, P_LOCKER = 42, P_KANIM = 43, P_KHOLD = 44, P_LOCKANIM = 45, P_CSARM = 46, P_SEEDS = 47, P_CSROLL = 48, P_XHAIR = 49, P_MINIMAP = 50, P_WINGS = 51;
+                             P_KNIFE = 41, P_LOCKER = 42, P_KANIM = 43, P_KHOLD = 44, P_LOCKANIM = 45, P_CSARM = 46, P_SEEDS = 47, P_CSROLL = 48, P_XHAIR = 49, P_MINIMAP = 50, P_WINGS = 51, P_SENS = 52, P_CMDS = 53;
 
     /** Per-screen shot timing for the {@code screens} sweep. */
     private static final int SCREEN_SETTLE = 45;   // frames rendered before the capture request
@@ -222,6 +222,11 @@ public final class DevShot {
     private static boolean xhairMode; private static int xhIdx; private static long xhT0;
     private static boolean minimapMode; private static int mmStage; private static long mmT0;
     private static boolean wingsMode; private static int wgStage; private static long wgT0;
+    /** {@code S1MP1E_SHOT_MODE=sensprobe}: mouse-sensitivity probe, see {@link #stepSens}. */
+    private static boolean sensMode; private static long snT0, snLast;
+    /** {@code S1MP1E_SHOT_MODE=commands}: run every line of the file {@code S1MP1E_SHOT_COMMANDS} as a server command in the
+     *  fresh devshot world (builds test worlds, e.g. every block and item a version adds, for the world converter). */
+    private static boolean cmdsMode; private static java.util.List<String> cmdsList; private static int cmdsIdx; private static long cmdsT0;
     private static net.minecraft.client.player.RemotePlayer[] mmFakes;
     private static boolean seedsMode, sdSetup; private static long sdT0; private static int sdIdx;
     private static boolean csrollMode, crSetup; private static long crT0; private static int crIdx;
@@ -332,6 +337,8 @@ public final class DevShot {
                     xhairMode = mode != null && mode.trim().equalsIgnoreCase("xhair");
                     minimapMode = mode != null && mode.trim().equalsIgnoreCase("minimap");
                     wingsMode = mode != null && mode.trim().equalsIgnoreCase("wings");
+                    sensMode = mode != null && mode.trim().equalsIgnoreCase("sensprobe");
+                    cmdsMode = mode != null && mode.trim().equalsIgnoreCase("commands");
                     csrollMode = mode != null && mode.trim().equalsIgnoreCase("csroll");
                     lockanimMode = mode != null && mode.trim().equalsIgnoreCase("lockanim");
                     combatMode = mode != null && mode.trim().equalsIgnoreCase("combat");
@@ -447,6 +454,8 @@ public final class DevShot {
                 case P_XHAIR:        stepXhair(client);                    break;
                 case P_MINIMAP:      stepMinimap(client);                  break;
                 case P_WINGS:        stepWings(client);                    break;
+                case P_SENS:         stepSens(client);                     break;
+                case P_CMDS:         stepCmds(client);                     break;
                 case P_LOCKANIM:     stepLockanim(client);                 break;
                 case P_COMBAT:       stepCombat(client);                   break;
                 case P_TRANS:        stepTrans(client);                    break;
@@ -612,7 +621,7 @@ public final class DevShot {
             if (essentialMode) { frames = 0; phase = P_ESSENTIAL; return; }   // menus only, no world
             if (optClickMode) { frames = 0; phase = P_OPTCLICK; return; }   // menus only, no world
             if (sliderDragMode) { frames = 0; phase = P_SLIDERDRAG; return; }   // menus only, no world
-            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode || keyGuardMode || knifeMode || lockerMode || kanimMode || kholdMode || lockanimMode || csarmMode || seedsMode || csrollMode || xhairMode || minimapMode || wingsMode) {
+            if (glassHudMode || auditMode || screensMode || hudMode || modulesMode || flickerMode || tabsMode || scrollMode || clicksMode || glideMode || tooltipsMode || effectsMode || combatMode || ingameMode || nameTagsMode || keyGuardMode || knifeMode || lockerMode || kanimMode || kholdMode || lockanimMode || csarmMode || seedsMode || csrollMode || xhairMode || minimapMode || wingsMode || sensMode || cmdsMode) {
                 // Screens / HUD / modules / flicker / tabs / scroll / clicks / effects sweep: skip the title/config baseline shots and head straight for the world.
                 if (createWorld(client)) {
                     frames = 0; phase = P_WAIT_WORLD;
@@ -689,7 +698,7 @@ public final class DevShot {
         frames = 0; phase = glassHudMode ? P_GLASSHUD : auditMode ? P_AUDIT : transMode ? P_TRANS : verifyMode ? P_VERIFY : screensMode ? P_SCREENS : hudMode ? P_HUD
                 : modulesMode ? P_MODULES : flickerMode ? P_FLICKER : tabsMode ? P_TABS
                 : scrollMode ? P_SCROLL : clicksMode ? P_CLICKS : glideMode ? P_GLIDE : tooltipsMode ? P_TOOLTIPS
-                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : keyGuardMode ? P_KEYGUARD : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : xhairMode ? P_XHAIR : minimapMode ? P_MINIMAP : wingsMode ? P_WINGS : P_WORLD;
+                : effectsMode ? P_EFFECTS : combatMode ? P_COMBAT : ingameMode ? P_INGAME : nameTagsMode ? P_NAMETAGS : keyGuardMode ? P_KEYGUARD : knifeMode ? P_KNIFE : lockerMode ? P_LOCKER : kanimMode ? P_KANIM : kholdMode ? P_KHOLD : lockanimMode ? P_LOCKANIM : csarmMode ? P_CSARM : seedsMode ? P_SEEDS : csrollMode ? P_CSROLL : xhairMode ? P_XHAIR : minimapMode ? P_MINIMAP : wingsMode ? P_WINGS : sensMode ? P_SENS : cmdsMode ? P_CMDS : P_WORLD;
     }
 
     private static void stepWorld(Minecraft client) {
@@ -4727,7 +4736,7 @@ public final class DevShot {
                 } else if (frames >= 100000 + HUD_FLUSH) {
                     if (ch != null) {
                         ch.enabled = false; ch.shape.modeValue = "Cross";
-                        ch.size.intValue = 4; ch.gap.intValue = 2; ch.thick.intValue = 1; ch.rotation.intValue = 0;
+                        ch.size.doubleValue = 4; ch.gap.doubleValue = 2; ch.thick.doubleValue = 1; ch.rotation.doubleValue = 0;
                     }
                     if (ring != null) ring.shape.modeValue = "Circle";
                     frames = 0; combatStage++;
@@ -5385,6 +5394,64 @@ public final class DevShot {
      * Third-person shots of the DragonWings module: standing (back, front), sneaking (folded), falling and creative
      * flight (two frames apart, to show the beat), wearing an elytra (wings must hide) and with the module off.
      */
+    /**
+     * Mouse-sensitivity probe: no screen, mouse grabbed (look mode), and every 20 ms the player's yaw / pitch, whether
+     * the mouse is grabbed and whether the window is active go to {@code sens.txt}, so an outside script that injects a
+     * known raw mouse movement can read the turn it produced. Ends when the script creates {@code sens.done}, or after
+     * 120 s. The 1.8.9 line has the same probe ({@code DevShotScenes.queueSens}).
+     */
+    private static void stepCmds(Minecraft client) {
+        long now = System.currentTimeMillis();
+        if (cmdsList == null) {
+            try {
+                cmdsList = java.nio.file.Files.readAllLines(java.nio.file.Path.of(System.getenv("S1MP1E_SHOT_COMMANDS").trim()));
+            } catch (Throwable t) {
+                skip("read commands", t);
+                cmdsList = java.util.List.of();
+            }
+            cmdsIdx = 0;
+            System.out.println("[S1mp1e][DevShot] commands: " + cmdsList.size());
+        }
+        if (cmdsIdx < cmdsList.size()) {
+            for (int n = 0; n < 40 && cmdsIdx < cmdsList.size(); n++) {
+                String c = cmdsList.get(cmdsIdx++).trim();
+                // on the server thread: block entity data (a chest's items) set from the render thread did not stick
+                MinecraftServer server = client.getSingleplayerServer();
+                if (server != null && !c.isEmpty() && !c.startsWith("#")) {
+                    server.execute(() -> {
+                        try { server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), c); }
+                        catch (Throwable t) { System.out.println("[S1mp1e][DevShot] command failed: " + c + " " + t); }
+                    });
+                }
+            }
+            cmdsT0 = now;
+            return;
+        }
+        if (now - cmdsT0 < 6000) return;   // let block updates, entity spawns and chunk saves settle
+        capture(client, "commands-done.png");
+        frames = 0; phase = P_DRAIN;
+    }
+
+    private static void stepSens(Minecraft client) {
+        long now = System.currentTimeMillis();
+        if (snT0 == 0L) {
+            snT0 = now;
+            System.out.println("[S1mp1e][DevShot] sensprobe: sensitivity " + client.options.sensitivity().get());
+        }
+        if (currentScreen(client) != null) close(client);
+        boolean active = client.isWindowActive();
+        if (active && !client.mouseHandler.isMouseGrabbed()) {
+            try { client.mouseHandler.grabMouse(); } catch (Throwable ignored) {}
+        }
+        if (now - snLast >= 20 && client.player != null) {
+            snLast = now;
+            String s = String.format(java.util.Locale.ROOT, "%.5f %.5f %b %b %d%n", client.player.getYRot(), client.player.getXRot(),
+                    client.mouseHandler.isMouseGrabbed(), active, now);
+            try { java.nio.file.Files.writeString(new File(outDir, "sens.txt").toPath(), s); } catch (Throwable ignored) {}
+        }
+        if (new File(outDir, "sens.done").exists() || now - snT0 > 120_000L) { frames = 0; phase = P_DRAIN; }
+    }
+
     private static void stepWings(Minecraft client) {
         final LocalPlayer player = client.player;
         Module m = ModuleManager.byName("DragonWings");

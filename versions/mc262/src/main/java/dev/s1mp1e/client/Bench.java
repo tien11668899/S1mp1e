@@ -73,6 +73,11 @@ public final class Bench {
      *  so HUD and glass cover the same share of the screen as for a player at 4K). */
     private static int WIN_W = 3840, WIN_H = 2160, GUI = 4;
     private static final int RENDER_DISTANCE = 12, SIM_DISTANCE = 12;
+    /** {@code S1MP1E_BENCH_SETTINGS=player}: keep the player's own graphics settings (render distance, FOV, particles,
+     *  GUI scale…) instead of the fixed set, to measure what that player actually gets; only the frame cap, VSync and
+     *  pause-on-focus-loss are still pinned. {@code S1MP1E_BENCH_FULLSCREEN=1}: fullscreen at the monitor's own mode
+     *  instead of a WxH window (26.2 has one fullscreen kind, chosen at start-up). */
+    private static boolean PLAYER_SETTINGS, FULLSCREEN;
 
     /** One measured scenario: hold still {@code warmS} at the start pose, then follow the path for {@code measureS}. */
     private static final class Scenario {
@@ -156,6 +161,8 @@ public final class Bench {
                     }
                     String gui = System.getenv("S1MP1E_BENCH_GUI");
                     if (gui != null && gui.matches("\\d+")) GUI = Integer.parseInt(gui);
+                    PLAYER_SETTINGS = "player".equalsIgnoreCase(String.valueOf(System.getenv("S1MP1E_BENCH_SETTINGS")).trim());
+                    FULLSCREEN = "1".equals(System.getenv("S1MP1E_BENCH_FULLSCREEN"));
                     String list = System.getenv("S1MP1E_BENCH_SCENARIOS");
                     for (Scenario s : ALL) {
                         if (list == null || list.isBlank() || Arrays.asList(list.split(",")).contains(s.name)) todo.add(s);
@@ -317,9 +324,14 @@ public final class Bench {
      *  never above the clouds for long). Falls back to y 200 without a profile. */
     private static double routeY(String route, double x) {
         int[] h = profiles.get(route);
-        if (h == null) h = loadProfile(route);
+        if (h == null) {
+            // looked up once per route: a missing profile is remembered as an empty array, so the per-frame camera
+            // placement never touches the disk (a File.exists() every frame cost ~5% of the render thread on 26.3)
+            h = loadProfile(route);
+            if (h == null) { h = new int[0]; profiles.put(route, h); }
+        }
         Scenario r = route.equals("explore") ? EXPLORE : CHUNKLOAD;
-        if (h == null) return 200;
+        if (h.length == 0) return 200;
         int i = (int) Math.round(x - r.x0);
         int top = Integer.MIN_VALUE;
         for (int k = Math.max(0, i - LOOKAHEAD); k <= Math.min(h.length - 1, i + LOOKAHEAD); k++) top = Math.max(top, h[k]);
@@ -624,6 +636,17 @@ public final class Bench {
     /** Fixed, documented graphics state — the same for every configuration that is compared. */
     private static void pinSettings(Minecraft mc) {
         var o = mc.options;
+        // The benchmark sends no input: with "reduce FPS when AFK" the game would drop to 30 FPS during a run.
+        o.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
+        if (PLAYER_SETTINGS) {
+            o.framerateLimit().set(260);          // 260 = unlimited
+            o.enableVsync().set(false);
+            o.pauseOnLostFocus = false;
+            log("settings: the player's own (rd=" + o.renderDistance().get() + " sim=" + o.simulationDistance().get()
+                    + " fov=" + o.fov().get() + " particles=" + o.particles().get() + " gui=" + o.guiScale().get()
+                    + ") fps=unlimited vsync=off afk-limit=off window=" + (FULLSCREEN ? "fullscreen" : WIN_W + "x" + WIN_H));
+            return;
+        }
         try { o.applyGraphicsPreset(GraphicsPreset.FANCY); } catch (Throwable t) { log("preset: " + t); }
         o.renderDistance().set(RENDER_DISTANCE);
         o.simulationDistance().set(SIM_DISTANCE);
@@ -641,6 +664,10 @@ public final class Bench {
     private static void pinWindow(Minecraft mc) {
         try {
             Window w = mc.getWindow();
+            if (FULLSCREEN) {
+                if (!w.isFullscreen()) w.toggleFullScreen();
+                return;
+            }
             if (w.isFullscreen()) w.toggleFullScreen();
             if (w.getWidth() != WIN_W || w.getHeight() != WIN_H) { w.setWindowed(WIN_W, WIN_H); mc.framebufferSizeChanged(); }
         } catch (Throwable ignored) { }
@@ -824,6 +851,8 @@ public final class Bench {
         var rt = mc.gameRenderer.mainRenderTarget();
         b.append("\"renderTarget\":\"").append(rt.width).append('x').append(rt.height).append("\",\n");
         b.append("\"guiScale\":").append(mc.getWindow().getGuiScale()).append(",\n");
+        b.append("\"fullscreen\":").append(mc.getWindow().isFullscreen()).append(",\n");
+        b.append("\"backend\":\"").append(esc(com.mojang.blaze3d.systems.RenderSystem.getDevice().getDeviceInfo().backendName())).append("\",\n");
         b.append("\"results\":[\n");
         for (int i = 0; i < results.size(); i++) b.append(i == 0 ? "" : ",\n").append(results.get(i));
         b.append("\n]\n}\n");

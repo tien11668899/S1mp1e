@@ -118,6 +118,22 @@ public final class DevShot {
     private static int wgStage, mmStage;
     private static long wgT0, mmT0;
     private static net.minecraft.client.network.OtherClientPlayerEntity[] mmFakes;
+    // VISIT mode (S1MP1E_SHOT_MODE=visit), ported from 26.2: open the existing world S1MP1E_SHOT_WORLD (a saves folder) as
+    // it is, and shoot each camera position of S1MP1E_SHOT_VISIT ("x y z yaw pitch;...", spectator). Checks converted
+    // worlds. With S1MP1E_SHOT_RESAVE=1 every chunk loaded is marked for saving (as it loads, and all loaded ones again
+    // after the last shot) and a save-all flush follows, so 1.21.1 itself rewrites the chunks, entities, players and
+    // level.dat. DUMP mode (S1MP1E_SHOT_MODE=dump): every entity type, every block entity and the player saved the way
+    // the game stores them, one "kind<TAB>id<TAB>SNBT" line each, into dump.txt (reference data for the world converter).
+    private static final int P_VISIT = 130, P_DUMP = 140;
+    private static boolean visitMode, resaveMode, dumpMode;
+    private static String shotWorld;
+    private static int vsIdx;
+    private static long vsT0, dumpT0;
+    private static boolean vsResave;   // the last spot is shot; waiting for the resave
+    private static volatile boolean resaveDone, dumpDone;
+    /** Full chunks loaded right now in every ServerWorld (Fabric chunk events, server thread). Resave mode only. */
+    private static final java.util.Set<net.minecraft.world.chunk.WorldChunk> resaveLoaded = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static volatile int resaveOnLoad;   // chunks marked for saving as they loaded
 
     private static boolean resolved;      // env vars checked exactly once
     private static String  mode;          // S1MP1E_SHOT_MODE (null => base pipeline only)
@@ -185,6 +201,11 @@ public final class DevShot {
                 nameTagsMode = "nametags".equals(mode);
                 wingsMode = "wings".equals(mode);
                 minimapMode = "minimap".equals(mode);
+                visitMode = "visit".equals(mode);
+                dumpMode = "dump".equals(mode);
+                shotWorld = System.getenv("S1MP1E_SHOT_WORLD");
+                String rs = System.getenv("S1MP1E_SHOT_RESAVE");
+                resaveMode = visitMode && rs != null && rs.trim().equals("1");
             } catch (Throwable t) {
                 mode = null;
             }
@@ -215,7 +236,7 @@ public final class DevShot {
         }
 
         // Global watchdog — never hang.
-        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L : minimapMode ? 420_000L : WATCHDOG_MS;
+        long watchdog = DevShotVerify.handles(mode) ? 1_500_000L : minimapMode || visitMode ? 420_000L : WATCHDOG_MS;
         if (phase != P_DONE && startMs > 0 && System.currentTimeMillis() - startMs > watchdog) {
             System.out.println("[S1mp1e][DevShot] watchdog fired (" + (watchdog / 1000)
                     + "s) at phase " + phase + " — quitting.");
@@ -257,6 +278,8 @@ public final class DevShot {
                 case P_NAMETAGS:           stepNameTags(client);                 break;
                 case P_WINGS:              stepWings(client);                    break;
                 case P_MINIMAP:            stepMinimap(client);                  break;
+                case P_VISIT:              stepVisit(client);                    break;
+                case P_DUMP:               stepDump(client);                     break;
                 case P_STOP:               stepStop(client);                     break;
                 default:                   break;
             }
@@ -427,6 +450,15 @@ public final class DevShot {
                 return;
             }
             if ("essential".equals(mode)) { frames = 0; phase = P_ESSENTIAL; return; }   // menus only, no world
+            if (visitMode || dumpMode) {   // skip the title/config baseline shots and head straight for the world
+                if (createWorld(client)) {
+                    frames = 0; phase = P_WAIT_WORLD;
+                } else {
+                    skip("create world", new IllegalStateException("world creation did not start"));
+                    phase = P_STOP;
+                }
+                return;
+            }
             capture(client, "title.png");
             open(client, new S1mp1eConfigScreen(), "open settings (over title)");
             frames = 0; phase = P_WAIT_CONFIG;
@@ -565,7 +597,9 @@ public final class DevShot {
             return;
         }
         if (frames < WORLD_SETTLE) return;
+        if (visitMode) { frames = 0; phase = P_VISIT; return; }   // a visited world stays as it is: no world setup
         applyWorldSetup(client);            // time/weather/position/loadout (own try/catch inside)
+        if (dumpMode) { frames = 0; phase = P_DUMP; return; }
         if (nameTagsMode) { ntStage = 0; frames = 0; phase = P_NAMETAGS; return; }
         if (wingsMode) { frames = 0; phase = P_WINGS; return; }
         if (minimapMode) { frames = 0; phase = P_MINIMAP; return; }
@@ -991,12 +1025,193 @@ public final class DevShot {
         } catch (Throwable t) { skip("minimap fake player " + name, t); return null; }
     }
 
+    // ---- visit (S1MP1E_SHOT_MODE=visit, + S1MP1E_SHOT_RESAVE=1), ported from 26.2 ---------------------
+
+    /**
+     * Server command from the server's own source (permission 4, so it also works in a visited world without cheats),
+     * run on the server thread; a parse error or failure goes to the log.
+     */
+    private static void serverCmd(MinecraftClient client, String cmd) {
+        try {
+            MinecraftServer server = client.getServer();
+            if (server == null) return;
+            server.execute(() -> {
+                try { server.getCommandManager().executeWithPrefix(server.getCommandSource(), cmd); }
+                catch (Throwable t) { System.out.println("[S1mp1e][DevShot] cmd '" + cmd + "' failed: " + t); }
+            });
+        } catch (Throwable t) { skip("cmd " + cmd, t); }
+    }
+
+    /**
+     * Spectator shots of each {@code S1MP1E_SHOT_VISIT} spot in the world {@code S1MP1E_SHOT_WORLD}: 3 s each,
+     * {@code visit-NN.png}. With {@code S1MP1E_SHOT_RESAVE=1}, after the last shot every loaded chunk is marked for saving
+     * and the server saves everything (save-all flush); ~3 s later the run quits (which saves once more).
+     */
+    private static void stepVisit(MinecraftClient client) {
+        if (client.player == null) { phase = P_STOP; return; }
+        try { if (client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) client.setScreen(null); } catch (Throwable ignored) {}
+        String[] spots = String.valueOf(System.getenv("S1MP1E_SHOT_VISIT")).split(";");
+        long now = System.nanoTime();
+        if (frames++ == 0) {
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            serverCmd(client, "gamemode spectator @a");
+            vsIdx = -1;
+            vsT0 = now;
+            return;
+        }
+        double secs = (now - vsT0) / 1e9;
+        if (vsResave) {   // the server task first, then ~3 s for the region-file writes to land
+            if (resaveDone && secs >= 3.0 || secs > 60.0) phase = P_STOP;
+            return;
+        }
+        if (secs < (vsIdx < 0 ? 1.0 : 3.0)) return;
+        if (vsIdx >= 0) capture(client, String.format("visit-%02d.png", vsIdx));
+        vsIdx++;
+        if (vsIdx >= spots.length || spots[vsIdx].isBlank() || "null".equals(spots[vsIdx])) {
+            if (!resaveMode) { phase = P_STOP; return; }
+            MinecraftServer server = client.getServer();
+            if (server != null) server.execute(() -> resave(server));
+            else resaveDone = true;
+            vsResave = true;
+            vsT0 = now;
+            return;
+        }
+        serverCmd(client, "tp @a " + spots[vsIdx].trim());
+        vsT0 = now;
+    }
+
+    /**
+     * Resave mode: every full chunk is marked for saving as it loads (so one that unloads again while the camera moves
+     * on is rewritten by 1.21.1 on unload), and the set of loaded ones is kept for {@link #resave}. The Fabric chunk
+     * events fire on the server thread for every ServerWorld; nothing here touches the world. Registered once.
+     */
+    private static void registerResaveTracking() {
+        try {
+            net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
+                if (!resaveMode) return;
+                chunk.setNeedsSaving(true);
+                resaveLoaded.add(chunk);
+                resaveOnLoad++;
+            });
+            net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents.CHUNK_UNLOAD.register((world, chunk) -> resaveLoaded.remove(chunk));
+        } catch (Throwable t) { skip("resave chunk tracking", t); }
+    }
+
+    /**
+     * Server thread: mark every chunk loaded in every ServerWorld as needing save (so 1.21.1 re-serializes its block
+     * states, palettes and block entities, not only its entities), then the save-all flush ({@code saveAll(false, true,
+     * true)} = {@code /save-all flush}): player data, every world's chunks and entity chunks (flushed to disk), level.dat.
+     */
+    private static void resave(MinecraftServer server) {
+        try {
+            int n = 0;
+            java.util.Map<String, Integer> perWorld = new java.util.TreeMap<>();
+            for (net.minecraft.world.chunk.WorldChunk c : resaveLoaded) {
+                c.setNeedsSaving(true);
+                perWorld.merge(String.valueOf(c.getWorld().getRegistryKey().getValue()), 1, Integer::sum);
+                n++;
+            }
+            System.out.println("[S1mp1e][DevShot] resave: " + n + " chunks marked " + perWorld
+                    + " (" + resaveOnLoad + " marked as they loaded)");
+            boolean ok = server.saveAll(false, true, true);
+            System.out.println("[S1mp1e][DevShot] resave: save-all flush " + (ok ? "done" : "reported failure"));
+        } catch (Throwable t) {
+            skip("resave", t);
+        } finally {
+            resaveDone = true;
+        }
+    }
+
+    // ---- dump (S1MP1E_SHOT_MODE=dump): reference NBT of every entity / block entity / the player ------
+
+    /**
+     * Saves, on the server thread, one instance of every entity type (created at the player, never added to the world),
+     * the block entity of every block that has one (default state, at the player's block) and the server player, exactly
+     * as 1.21.1 writes them: entities as into an entity chunk ({@code saveNbt}, with id), block entities as into a chunk
+     * ({@code createNbtWithIdentifyingData}: id + x/y/z), the player as its playerdata file ({@code writeNbt}). One
+     * {@code kind<TAB>registry id<TAB>SNBT} line each into {@code dump.txt} (kind entity / block_entity / player; the id
+     * of a block entity line is its block's), then {@code dump-done.png}.
+     */
+    private static void stepDump(MinecraftClient client) {
+        long now = System.currentTimeMillis();
+        if (frames++ == 0) {
+            MinecraftServer server = client.getServer();
+            if (server == null) { phase = P_STOP; return; }
+            dumpT0 = now;
+            server.execute(() -> dumpAll(server));
+            return;
+        }
+        if (!dumpDone && now - dumpT0 < 60_000L) return;
+        if (!dumpDone) skip("dump", new IllegalStateException("server task did not finish in 60 s"));
+        capture(client, "dump-done.png");
+        phase = P_STOP;
+    }
+
+    private static void dumpAll(MinecraftServer server) {
+        try {
+            if (server.getPlayerManager().getPlayerList().isEmpty()) { skip("dump", new IllegalStateException("no server player")); return; }
+            ServerPlayerEntity sp = server.getPlayerManager().getPlayerList().get(0);
+            ServerWorld world = sp.getServerWorld();
+            BlockPos pos = sp.getBlockPos();
+            StringBuilder out = new StringBuilder();
+            int ents = 0, bes = 0;
+            for (net.minecraft.entity.EntityType<?> type : net.minecraft.registry.Registries.ENTITY_TYPE) {
+                String id = String.valueOf(net.minecraft.registry.Registries.ENTITY_TYPE.getId(type));
+                try {
+                    net.minecraft.entity.Entity e = type.create(world);
+                    if (e == null) { System.out.println("[S1mp1e][DevShot] dump: no instance of " + id); continue; }
+                    e.refreshPositionAndAngles(sp.getX(), sp.getY(), sp.getZ(), sp.getYaw(), 0f);
+                    net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
+                    if (!e.saveNbt(nbt)) { System.out.println("[S1mp1e][DevShot] dump: " + id + " is not saved to chunks"); continue; }
+                    dumpLine(out, "entity", id, nbt);
+                    ents++;
+                } catch (Throwable t) { skip("dump entity " + id, t); }
+            }
+            for (net.minecraft.block.Block block : net.minecraft.registry.Registries.BLOCK) {
+                if (!(block instanceof net.minecraft.block.BlockEntityProvider bep)) continue;
+                String id = String.valueOf(net.minecraft.registry.Registries.BLOCK.getId(block));
+                try {
+                    net.minecraft.block.entity.BlockEntity be = bep.createBlockEntity(pos, block.getDefaultState());
+                    if (be == null) { System.out.println("[S1mp1e][DevShot] dump: no block entity for " + id); continue; }
+                    be.setWorld(world);
+                    dumpLine(out, "block_entity", id, be.createNbtWithIdentifyingData(world.getRegistryManager()));
+                    bes++;
+                } catch (Throwable t) { skip("dump block entity " + id, t); }
+            }
+            try {
+                dumpLine(out, "player", String.valueOf(net.minecraft.registry.Registries.ENTITY_TYPE.getId(sp.getType())),
+                        sp.writeNbt(new net.minecraft.nbt.NbtCompound()));
+            } catch (Throwable t) { skip("dump player", t); }
+            java.nio.file.Files.writeString(new File(outDir, "dump.txt").toPath(), out, java.nio.charset.StandardCharsets.UTF_8);
+            System.out.println("[S1mp1e][DevShot] dump: " + ents + " entities, " + bes + " block entities, player -> dump.txt");
+        } catch (Throwable t) {
+            skip("dump", t);
+        } finally {
+            dumpDone = true;
+        }
+    }
+
+    private static void dumpLine(StringBuilder out, String kind, String id, net.minecraft.nbt.NbtCompound nbt) {
+        out.append(kind).append('\t').append(id).append('\t').append(nbt).append('\n');
+    }
+
     // ---- world creation + setup -------------------------------------------
 
     /** Delete any previous {@code devshot} save and start a fresh flat world. Attempted once only. */
     private static boolean createWorld(MinecraftClient client) {
         if (worldTried) return false;   // never start world creation twice
         worldTried = true;
+        if (resaveMode) registerResaveTracking();   // before the server starts, so the spawn chunks are caught too
+        // dump always builds in a fresh flat devshot world, never in S1MP1E_SHOT_WORLD
+        if (shotWorld != null && !shotWorld.isBlank() && !dumpMode) {
+            try {
+                client.createIntegratedServerLoader().start(shotWorld.trim(), () -> {});
+                return true;
+            } catch (Throwable t) {
+                skip("open world " + shotWorld, t);
+                return false;
+            }
+        }
         try {
             File saves = new File(client.runDirectory, "saves");
             deleteRecursively(new File(saves, "devshot"));

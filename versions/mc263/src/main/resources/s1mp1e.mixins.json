@@ -50,7 +50,8 @@
     "ToggleKeyMappingAccessor", "ToggleKeyOptionsMixin", "MovementTickMixin", "BidiFastPathMixin",
     "FreelookCameraMixin", "FreelookMouseMixin",
     "MinimapChunkMixin", "MinimapBlockMixin",
-    "LivingEntityRendererLayersInvoker", "AvatarRendererWingsMixin", "CapeLayerWingsMixin"
+    "LivingEntityRendererLayersInvoker", "AvatarRendererWingsMixin", "CapeLayerWingsMixin",
+    "GpuProfileFrameMixin", "GpuProfileGameMixin", "GpuProfileLevelMixin", "GuiScissorClampMixin", "PickRateMixin", "VulkanMarkersOffMixin", "VulkanSwapchainMixin", "GpuProfileVulkanMixin", "GpuProfileVulkanWaitMixin", "VulkanFastSyncMixin", "FrontendSurfaceFastSyncMixin", "CompositorWindowEventMixin"
   ],
   "injectors": {
     "defaultRequire": 1

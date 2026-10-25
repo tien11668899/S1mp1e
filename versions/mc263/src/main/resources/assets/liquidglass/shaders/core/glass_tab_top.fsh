@@ -89,7 +89,7 @@ void main() {
     // The SDF normal lives in GUI space (+y = down) but screen UV is GL space
     // (+y = up) -> flip the normal's y or the vertical refraction inverts and the
     // bottom edge samples past the screen boundary (CLAMP_TO_EDGE streaks).
-    vec2 nUV = vec2(n.x, -n.y);
+    vec2 nUV = vec2(n.x, -LG_Y * n.y);   // LG_Y (GlassPipeline): +1 OpenGL screen y up, -1 Vulkan y down
     vec2 refrOffset = -nUV * edgeFactor * OFFSET_SCALE * vec2(ScreenSize.y / ScreenSize.x, 1.0);
     // --- TAB (top row) edge-reflection sampling -------------------------------------------------------------
     // This tile is a creative-inventory category tab FUSED to the top edge of the inventory panel: its lower part
@@ -100,7 +100,7 @@ void main() {
     // the SAME material as the panel, biome-adaptive. lgEdge>0 only on the protruding side; the overlap samples self.
     // (Bottom-row tabs use glass_tab_bot.fsh, the vertical mirror of this.)
     float lgEdge = max(1.0 - vLocal.y, 0.0) * elemPx.y;
-    vec2 base = vec2(gl_FragCoord.x, gl_FragCoord.y - 2.0 * lgEdge) / ScreenSize;
+    vec2 base = vec2(gl_FragCoord.x, gl_FragCoord.y - LG_Y * 2.0 * lgEdge) / ScreenSize;
 
     // per-channel dispersion of the refraction offset (reglass: NR .985 / NG 1 / NB 1.015)
     const float NR = 0.985;

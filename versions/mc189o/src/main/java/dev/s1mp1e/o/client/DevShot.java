@@ -124,6 +124,23 @@ public final class DevShot {
     /** Called at the end of every rendered frame (render thread). No-op when both vars are unset. */
     private static long lastStepNs;
 
+    /** Pylon (the LWJGL3/SDL3 layer under 1.8.9) multiplies relative mouse motion by framebuffer width / window width;
+     *  log both, so a sensitivity difference against 26.x (raw SDL motion) can be measured, not guessed. */
+    private static void logMouseScale() {
+        try {
+            java.lang.reflect.Field f = Class.forName("pl.tomgirl.pylon.window.MouseSdl").getDeclaredField("DISPLAY");
+            f.setAccessible(true);
+            Object d = f.get(null);
+            Class<?> c = d.getClass();
+            int fbW = (Integer) c.getMethod("getWidth").invoke(d), winW = (Integer) c.getMethod("getWindowWidth").invoke(d);
+            float density = (Float) c.getMethod("getPixelDensity").invoke(d);
+            System.out.println("[S1mp1e][DevShot] mouse scale: framebuffer " + fbW + " / window " + winW + " = "
+                    + (winW > 0 ? (double) fbW / winW : -1) + ", SDL pixel density " + density);
+        } catch (Throwable t) {
+            System.out.println("[S1mp1e][DevShot] mouse scale: unknown (" + t + ")");
+        }
+    }
+
     public static void onRenderEnd(Minecraft mc) {
         if (!resolved) {
             resolved = true;
@@ -134,6 +151,7 @@ public final class DevShot {
                     outDir.mkdirs();
                     startMs = System.currentTimeMillis();
                     System.out.println("[S1mp1e][DevShot] active -> " + outDir.getAbsolutePath());
+                    logMouseScale();
                 }
             } catch (Throwable t) {
                 outDir = null;

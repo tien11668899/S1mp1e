@@ -142,7 +142,9 @@ public final class GloveSkins {
         try {
             pre = job.inputs().join();
             long t0 = System.nanoTime();
-            Map<String, NativeImage> imgs = GloveCompositor.compositeAll(root(), job.entry(), wear, pre);
+            final Map<String, SkinCompositor.Decoded> inputs = pre;
+            final float w = wear;
+            Map<String, NativeImage> imgs = CompositorContext.call(() -> GloveCompositor.compositeAll(root(), job.entry(), w, inputs));
             m = new HashMap<>();
             for (Map.Entry<String, NativeImage> h : imgs.entrySet()) {
                 NativeImage img = h.getValue();

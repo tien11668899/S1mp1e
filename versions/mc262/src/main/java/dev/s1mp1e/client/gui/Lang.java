@@ -165,6 +165,12 @@ public final class Lang {
         SETTING.put("Center Dot", "中心點");
         SETTING.put("Dot Size", "點大小");
         SETTING.put("Rotation", "旋轉");
+        SETTING.put("Vertical Size", "直向長度（0＝同大小）");
+        SETTING.put("Top Arm", "上臂");
+        SETTING.put("Bottom Arm", "下臂");
+        SETTING.put("Left Arm", "左臂");
+        SETTING.put("Right Arm", "右臂");
+        SETTING.put("Outline Thickness", "外框粗細");
         SETTING.put("Camera shake", "鏡頭晃動");
         SETTING.put("Red flash", "紅色閃爍");
         SETTING.put("Swing while using", "使用時揮手");
@@ -225,7 +231,7 @@ public final class Lang {
         SETTING.put("Show players", "顯示其他玩家（僅自己的世界）");
         SETTING.put("Player names", "顯示玩家名稱");
         SETTING.put("Tab radar", "按住 Tab 顯示生物與掉落物（僅自己的世界）");
-        SETTING.put("Fullscreen key", "全螢幕地圖按鍵");
+        SETTING.put("Fullscreen key (GLFW)", "全螢幕地圖按鍵");   // GLFW code; 26.3 keeps its SDL scancode under "Fullscreen key" in the shared modules.json
         MODE.put("Apple", "Apple 地圖");
         MODE.put("Classic", "原版地圖");
         MODE.put("Round", "圓形");

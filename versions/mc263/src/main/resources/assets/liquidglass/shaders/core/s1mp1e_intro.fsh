@@ -360,7 +360,7 @@ vec3 bootFrame(vec2 p, float t, bool shortCut){
 
 void main(){
   // framebuffer -> 1920x1080 design space, letter-boxed and centred (GL: bottom-left origin)
-  vec2 fb = vec2(gl_FragCoord.x, ScreenSize.y - gl_FragCoord.y);
+  vec2 fb = vec2(gl_FragCoord.x, LG_Y > 0.0 ? ScreenSize.y - gl_FragCoord.y : gl_FragCoord.y);   // top-left px
   float sc = min(ScreenSize.x / 1920., ScreenSize.y / 1080.);
   vec2 p = (fb - ScreenSize * .5) / sc + C0;
   vec3 col = vLocal.y > 1.5 ? loopFrame(p, vLocal.x) : bootFrame(p, vLocal.x, vLocal.y > .5);
