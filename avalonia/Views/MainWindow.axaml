@@ -970,8 +970,8 @@
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
                                         <Border Grid.Column="0" Classes="tile" Background="#5E5CE6"><Image Source="avares://S1mp1e/Assets/Icons/square.on.square.png" Width="18" Height="18"/></Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲設定沿用" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="新版本第一次開啟時，自動沿用最近玩的版本的按鍵、靈敏度、音量與語言；也可以手動匯入到「開始遊戲」選的版本" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
-                                        <Button Grid.Column="2" Classes="mini" Content="匯入…" VerticalAlignment="Center" Click="OnImportOptionsClick"/>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲設定沿用" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="新版本第一次開啟時，自動沿用最近玩的版本的按鍵、靈敏度、音量與語言；也可以手動選來源和目標版本，整份搬過去（含 1.8.9 格式轉換與模組設定）" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <Button Grid.Column="2" Classes="mini" Content="搬移…" VerticalAlignment="Center" Click="OnImportOptionsClick"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
@@ -991,6 +991,13 @@
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="遊戲優先順序" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="背景程式搶 CPU 時讓遊戲先拿到；「高」可能讓語音、直播等其他程式變卡" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
                                         <ctl:GlassSelect x:Name="PriorityBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="1" VerticalAlignment="Center" FontSize="13"
                                                          Options="一般|高於一般|高" SelectionChanged="OnPriorityChanged"/>
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
+                                    <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">
+                                        <Border Grid.Column="0" Classes="tile" Background="#5E5CE6"><Image Source="avares://S1mp1e/Assets/Icons/gauge.png" Width="18" Height="18"/></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="圖形 API（26.x）" FontSize="13" Foreground="{DynamicResource TextMain}"/><TextBlock Text="Vulkan 在 NVIDIA 顯示卡上較快，可搭配網格著色器地形；仍是 Minecraft 的實驗功能，遇到問題改回 OpenGL" FontSize="11" Foreground="{DynamicResource TextSub}" TextWrapping="Wrap"/></StackPanel>
+                                        <ctl:GlassSelect x:Name="BackendBox" Margin="0,0,-8,0" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" FontSize="13"
+                                                         Options="OpenGL|Vulkan" SelectionChanged="OnBackendChanged"/>
                                     </Grid>
                                     <Rectangle Height="1" Fill="{DynamicResource Divider}" Margin="56,0,16,0"/>
                                     <Grid Margin="16,12" ColumnDefinitions="Auto,*,Auto">

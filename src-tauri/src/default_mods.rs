@@ -52,12 +52,14 @@ const MODS: [DefaultMod; 6] = [
 
 /// (slug, mc, Modrinth version_number). The glass restyle of Sodium's settings screen on
 /// these versions targets this Sodium line's options GUI; newer Sodium replaced that GUI.
-const PINS: [(&str, &str, &str); 5] = [
+const PINS: [(&str, &str, &str); 6] = [
     ("sodium", "26.2", "mc26.2-0.9.1-fabric"),
     ("reeses-sodium-options", "26.2", "mc26.2-2.2.3+fabric"),
     ("sodium", "26.3", "mc26.3-0.9.2-fabric"),
     ("reeses-sodium-options", "26.3", "mc26.3-2.2.5+fabric"),
     ("sodium", "1.21.1", "mc1.21.1-0.6.13-fabric"),
+    // 1.21 runs the 1.21.1 glass jar; this Sodium build lists both versions on Modrinth
+    ("sodium", "1.21", "mc1.21.1-0.6.13-fabric"),
 ];
 
 const MARKER: &str = ".s1mp1e-defaults";

@@ -140,6 +140,96 @@ Findings:
   pack is now only blamed when the crash report's error and stack traces name a pack mod or ZGC; with no report it is
   still switched off.
 
+## 26.3 on Vulkan at 4K (2026-10-25)
+
+Same machine and setup as above (26.3, Sodium 0.9.2, the player's mods and own settings, ZGC pack, exclusive
+fullscreen at 3840 × 2160), explore route, interleaved runs. Driver: `benchgpu.ps1` (kept with the tester); every run
+also logs GPU time per stage (`S1MP1E_GPUPROF=1`, renderpearl timestamp queries, `dev.s1mp1e.client.perf.GpuProfiler`)
+and, per frame, wall / render-thread CPU / GPU time and the time spent in swapchain acquire, present and fence waits.
+
+| Config | explore avg FPS (runs) | p50 frame | frames > 1.2 ms |
+|---|---|---|---|
+| OpenGL (as before) | 840.9, 840.0 | 1.17 ms | 4 % |
+| Vulkan (`preferredGraphicsBackend:"vulkan"`) | 889.6, 928.5, 898.6, 896.3, 908.2, 895.0 | 0.86 ms | 35–40 % |
+| Vulkan + Meshelium 1.6.2 (mesh-shader terrain) | 594.4, 586.9 | | |
+| **Vulkan + fast sync (shipped default, 1.6 ms)** | **1219.3, 1219.9** | **0.75 ms** | **7 %** |
+| Vulkan + fast sync, 1.4 ms / 1.2 ms spacing | 1144.8, 1145.4 / 1145.4, 1144.6 | 0.77 ms | 11 % |
+
+GPU time per frame (explore, ms): OpenGL 1.18 (solid 0.61, translucent 0.09, GUI + glass 0.16, blit to window 0.11);
+Vulkan 0.86 (solid 0.41, translucent 0.01, GUI + glass 0.13, blit 0.14). OpenGL is GPU-bound; Vulkan is not.
+
+**Why Vulkan stopped at ~900.** Frame times were bimodal: ~0.85 ms, and runs of ~15 frames at a fixed ~1.54 ms. In
+the slow frames the render thread used almost no CPU and spent ~1.05 ms inside `vkAcquireNextImageKHR`; the runs
+started every 50 ms (880 of 1244 gaps), i.e. once per game tick, and lasted ~20 ms. None of these changed it: a
+zero timeout (the driver still blocks), 5, 6 or 8 swapchain images, mailbox instead of immediate, Sodium limited to 2
+builder threads, lowering every background game thread's priority, reserving a physical core for the render thread
+(slower: p50 1.01 ms), disabling Essential, rate-limiting the crosshair pick. The display path (driver / Windows
+presentation) simply takes no more than ~650 frames a second in those stretches.
+
+**Fast sync** (`dev.s1mp1e.client.perf.FastSync`, Vulkan with vsync off only): for 25 ms after an acquire that
+blocked over 0.3 ms, acquires are spaced 1.6 ms apart and the frames in between are rendered without acquiring,
+blitting or presenting (Minecraft's frame loop already skips those when the surface is not acquired). Outside those
+stretches every frame is presented. In the stretches the display still receives ~600 frames a second — above any
+monitor's refresh — and the frame it takes is the newest. Counted frames are rendered frames, as before.
+`S1MP1E_FAST_SYNC=0` turns it off; `S1MP1E_FAST_SYNC_SPACING_US` sets the spacing.
+
+Kept as off-by-default experiments (measured no gain): `PickRateMixin` (`S1MP1E_PICK_LIMIT=1`), `CoreIsolation`
+(`S1MP1E_CORE_ISOLATION=1`), `ThreadPriorities` (`S1MP1E_BG_PRIORITY=1`), `VulkanMarkersOffMixin`
+(`S1MP1E_VK_MARKERS=0`), `VulkanSwapchainMixin` (`S1MP1E_VK_SWAP_IMAGES`, `S1MP1E_VK_PRESENT`).
+
+**Also changed for Vulkan.**
+- Launcher setting 圖形 API (26.x): writes `preferredGraphicsBackend` before every launch (it used to force OpenGL).
+- Liquid glass on Vulkan: the backdrop shaders work unchanged — 26.3's Vulkan backend keeps OpenGL's bottom-left
+  `gl_FragCoord` and row order (checked with the brand intro: assuming top-left mirrored it). `LG_Y` is a test switch.
+- Partial backdrop copy, on again for 26.3 and now on both backends: through renderpearl (raw `glCopyImageSubData`
+  was implicated in native crashes). OpenGL's `copyTextureToTexture` still takes width/height as the END corner, which
+  the front end's region check rejects off (0, 0), so the OpenGL path calls the encoder's backend directly; Vulkan's is
+  a true extent. GUI + glass GPU time 0.195 → 0.13 ms.
+- CS2 knife / glove skin compositing is raw OpenGL; on Vulkan (no GL context, LWJGL aborts the JVM) it now runs in a
+  hidden 16 × 16 SDL window with its own OpenGL 3.3 context (`CompositorContext`); results are identical NativeImages.
+
+**Launcher bug found:** the 26.3 pack had been switched off since an unrelated GUI scissor crash, because the crash
+report's resource-pack list (`Packs: …, cullleaves, …`, before System Details) named a pack mod. Only error and stack
+lines count now; the scissor crash itself (window shrinking between GUI extraction and drawing) is clamped
+(`GuiScissorClampMixin`).
+
+## 26.2 on Vulkan at 4K (2026-10-25)
+
+The 26.3 Vulkan work ported to 26.2, which ships the same Vulkan backend under the older package names
+(`com.mojang.blaze3d.vulkan` / `com.mojang.blaze3d.systems`, GLFW windows). Measured with 26.2's pack (Sodium 0.9.2,
+Lithium, FerriteCore, ImmediatelyFast, Cull Leaves, ZGC) and the player's **26.3** graphics settings copied into 26.2's
+options (rd 14, sim 6, FOV 110, particles minimal, GUI 2, clouds off), fullscreen 3840 × 2160, interleaved G V G V,
+driver `benchgpu262.ps1` (kept with the tester). 26.2's own options were put back afterwards.
+
+| Config | explore avg FPS | chunkload | entities | explore 1 % low |
+|---|---|---|---|---|
+| OpenGL | 766.9, 631.5 | 718.6, 710.3 | 365.2, 356.4 | 330, 318 |
+| **Vulkan + fast sync** | **1059.4, 1048.7** | **997.0, 986.4** | **504.8, 472.1** | **381, 378** |
+
+Fast sync is far busier on 26.2 than on 26.3: half the rendered frames (79 329 of 156 793 and 76 951 of 153 805 per
+run) were rendered without presenting, against the ~20 ms-per-tick stretches seen on 26.3, so the display received
+about 520 frames a second on the explore route. Vulkan without fast sync was not measured on 26.2, so its own share of
+the gain is not known yet (`S1MP1E_FAST_SYNC=0` for that A/B).
+
+**Ported to 26.2.**
+- `FastSync` with `VulkanFastSyncMixin`, `FrontendSurfaceFastSyncMixin` and `VulkanSwapchainMixin` (class names only).
+- Liquid glass on Vulkan: 26.2's GlassPipeline fell back to the primitive painter on any non-OpenGL backend, assuming
+  a top-left `gl_FragCoord`. It is not: 26.2 renders with an unflipped viewport and flips only when it blits to the
+  swapchain (`VulkanGpuSurface.blitFromTexture`, destination y from h to 0), so targets hold the bottom row first as
+  on OpenGL. Checked in a flat world: the hotbar glass refracts grass, the top panels sky. `S1MP1E_GLASS_VULKAN=0`
+  brings the fallback back. The partial backdrop copy gained a Vulkan path (the encoder's `copyTextureToTexture`, a
+  true extent); OpenGL keeps `glCopyImageSubData`.
+- Knife / glove skin compositing on Vulkan: a hidden 16 × 16 GLFW window with its own OpenGL 3.3 context
+  (`CompositorContext`). GLFW reports events per window, so it cannot resize the game window — on 26.3 the SDL
+  window's resize events did (`Window.handleEvent` takes every window event as its own; fixed there by
+  `CompositorWindowEventMixin`).
+- Bench: `S1MP1E_BENCH_SETTINGS=player`, `S1MP1E_BENCH_FULLSCREEN=1`, the AFK frame limit off, the per-route profile
+  cached (as on 26.3).
+
+**Bug found:** the minimap's full-screen key is stored in the shared `modules.json`; 26.3 writes its SDL scancode
+there (16 = M), which 26.2 read as a GLFW key — GLFW error "Invalid key 16" every tick and no working key. 26.2 now
+keeps its own `Fullscreen key (GLFW)`. 1.21.1 reads the same entry and still has the bug.
+
 ## Bugs found by the benchmark
 
 - **26.2 crash on window resize** (`Texture view Sampler0 (liquidglass_backdrop) has been closed!`): GUI elements name

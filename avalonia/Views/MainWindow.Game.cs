@@ -188,10 +188,11 @@ public partial class MainWindow
             var baseSub = string.Join(" · ", new[] { dupNames.Contains(w.Name) ? $"資料夾「{w.Folder}」" : null, w.Mode, w.Version, RelDays(w.LastPlayed) }
                 .Where(s => !string.IsNullOrEmpty(s)));
             var wl = w;
-            Button? backupBtn = null;
+            Button? backupBtn = null, convertBtn = null;
             backupBtn = MiniButton("備份", () => _ = BackupWorldAsync(wl, backupBtn!));
+            convertBtn = MiniButton("轉換", () => PickConvertTarget(wl, convertBtn!));
             var row = CardRow(IconTile(TryBitmap(w.IconPath), "globe", "#30B0C7", pixelated: true), w.Name, baseSub, out var sub,
-                backupBtn, MiniButton("開啟", () => OpenWithShell(wl.Path)));
+                backupBtn, convertBtn, MiniButton("開啟", () => OpenWithShell(wl.Path)));
             WorldList.Children.Add(row);
             sizeJobs.Add((w, sub, baseSub));
         }

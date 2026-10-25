@@ -35,6 +35,7 @@ pub struct Settings {
     #[serde(default = "d_true")]    pub perf_pack: bool,      // load the measured performance pack (perf.rs)
     #[serde(default = "d_true")]    pub discrete_gpu: bool,   // prefer the high-performance GPU for the game (launch.rs)
     #[serde(default = "d_priority")] pub process_priority: String, // game process priority: normal | above_normal | high
+    #[serde(default = "d_backend")] pub graphics_backend: String, // 26.x graphics API written into options.txt: opengl | vulkan
     // UI-only fields (the launcher reads/writes them; the CLI just round-trips them so a
     // token-refresh save doesn't drop the value).
     #[serde(default)]               pub menu_key: i32,        // in-game config-GUI open key (UI-owned)
@@ -55,6 +56,7 @@ fn d_ver() -> String { "26.2".into() }
 fn d_loader() -> String { "fabric".into() }
 fn d_theme() -> String { "auto".into() }
 fn d_priority() -> String { "above_normal".into() }
+fn d_backend() -> String { "opengl".into() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -65,6 +67,7 @@ impl Default for Settings {
             theme: d_theme(),
             jvm_args: String::new(), res_width: 0, res_height: 0, java_path: String::new(),
             default_mods: d_true(), perf_pack: d_true(), discrete_gpu: d_true(), process_priority: d_priority(),
+            graphics_backend: d_backend(),
             menu_key: 0, update_prerelease: false, cs2_knives: false, discord_presence: d_true(),
             extra: serde_json::Map::new(),
         }

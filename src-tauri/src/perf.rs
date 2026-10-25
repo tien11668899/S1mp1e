@@ -456,10 +456,23 @@ pub fn judge_exit(root: &Path, mc: &str, gamedir: &Path, exit_code: i32) -> Opti
 }
 
 /// Whether a crash report points at the pack: one of this version's pack mods, or ZGC, appears in the error and its
-/// stack traces. Only the part before "-- System Details --" counts — that section lists every loaded mod (pack mods
-/// included) and the JVM flags in every report, whatever the cause.
+/// stack traces. Only those lines count: the "-- System Details --" section lists every loaded mod and the JVM flags in
+/// every report, and the sections before it can list the loaded resource packs ("Packs: …, cullleaves, …") and DLLs,
+/// whatever the cause — a 26.3 GUI crash was blamed on Cull Leaves that way.
 fn report_blames_pack(report: &str, mc: &str) -> bool {
-    let head = report.split("-- System Details --").next().unwrap_or(report).to_ascii_lowercase();
+    let head: String = report
+        .split("-- System Details --")
+        .next()
+        .unwrap_or(report)
+        .lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            t.starts_with("at ") || t.starts_with("Caused by") || t.starts_with("Description:")
+                || t.contains("Exception") || t.contains("Error") || t.contains("ZCollectedHeap")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_ascii_lowercase();
     head.contains("zgc")
         || head.contains("zcollectedheap")
         || pack_for(mc).iter().any(|m| m.ids.iter().any(|id| head.contains(id)))
@@ -554,9 +567,12 @@ mod tests {
         const DETAILS: &str = "\n-- System Details --\nFabric Mods: lithium, ferritecore, immediatelyfast\nJVM Flags: -XX:+UseZGC\n";
         let saves = format!("Description: Initializing game\njava.io.UncheckedIOException: FileAlreadyExistsException: saves\n{DETAILS}");
         let lithium = format!("Description: Ticking entity\njava.lang.NullPointerException\n\tat net.caffeinemc.mods.lithium.Foo.bar\n{DETAILS}");
+        // the resource-pack list before System Details names pack mods in every report: not a cause
+        let gui = format!("Description: Render Frame\njava.lang.IllegalArgumentException: Scissor at 20, 136 is out of bounds\n\tat net.minecraft.client.gui.render.GuiRenderer.enableScissor\n-- Render Frame Details --\nDetails:\n\tPacks: vanilla, cullleaves, lithium\n{DETAILS}");
         assert!(!report_blames_pack(&saves, "26.2"));
         assert!(report_blames_pack(&lithium, "26.2"));
         assert!(report_blames_pack("Out of memory in ZCollectedHeap", "26.2"));
+        assert!(!report_blames_pack(&gui, "26.2"));
 
         // an early crash whose report names another cause keeps the pack on; no report at all still switches it off
         let root = std::env::temp_dir().join(format!("s1mp1e-perf-blame-{}", std::process::id()));

@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\s1mp1e.ico</ApplicationIcon>
     <!-- Single source of truth for the app version. The GitHub release tag is
          "v{Version}", and UpdateChecker compares this against the latest release. -->
-    <Version>0.2.5</Version>
+    <Version>0.2.9</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -53,6 +53,13 @@
   <ItemGroup>
     <None Include="..\src-tauri\target\release\itest.exe">
       <Link>itest.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </None>
+    <!-- The world converter (tools/worldconv, built by its build.ps1): itest world-convert runs it on 26.3's classpath. -->
+    <None Include="..\tools\worldconv\build\worldconv.jar" Condition="Exists('..\tools\worldconv\build\worldconv.jar')">
+      <Link>worldconv.jar</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <Visible>false</Visible>

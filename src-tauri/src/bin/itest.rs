@@ -7,7 +7,8 @@
 //!   itest perf <mc> [mcPath]                    Prepare the performance pack and print what a Fabric launch would use.
 //!   itest plan <mc> <loader> [mcPath]           Print the launch command (offline identity) as JSON, don't start.
 //!   itest forge-deps <mc> [mcPath]              Fetch the libraries the Forge mods for <mc> need.
-//!   itest options-import <mcPath> <from> <to>   Copy one version's game settings over another's (prints OK <n> / ERR <msg>).
+//!   itest options-import <mcPath> <from> <to>   Copy one version's game settings over another's (prints OK <n> <mods> / ERR <msg>).
+//!   itest world-convert <mcPath> <worldFolder> <version>   A converted copy of a world (tools/worldconv on 26.3's classpath).
 //!
 //! `login` prints `CODE <user_code>\t<verification_uri>` the instant it has a device
 //! code (the UI shows/opens it), then `DONE <name>\t<uuid>` and SAVES the account to
@@ -37,6 +38,7 @@ async fn main() {
         "refresh" => cmd_refresh().await,
         "media-serve" => cmd_media_serve(),
         "options-import" => cmd_options_import(rest),
+        "world-convert" => cmd_world_convert(rest),
         "whoami" => {
             // Diagnostic: what identity would `play` launch with?
             let ai = resolve_auth("Player").await;
@@ -51,14 +53,15 @@ async fn main() {
     std::process::exit(code);
 }
 
-/// `options-import <mcPath> <from> <to>`: the launcher's 「從其他版本匯入設定」. Prints `OK <count>` or `ERR <message>`.
+/// `options-import <mcPath> <from> <to>`: the launcher's 「從其他版本匯入設定」. Prints `OK <game settings changed> <mod settings changed>`
+/// or `ERR <message>`.
 fn cmd_options_import(rest: &[String]) -> i32 {
     let (Some(root), Some(from), Some(to)) = (rest.first(), rest.get(1), rest.get(2)) else {
         println!("ERR usage: itest options-import <mcPath> <from> <to>");
         return 2;
     };
     match options_sync::import(std::path::Path::new(root), from, to) {
-        Ok(n) => { println!("OK {n}"); 0 }
+        Ok((n, mods)) => { println!("OK {n} {mods}"); 0 }
         Err(e) => { println!("ERR {e}"); 1 }
     }
 }
@@ -693,5 +696,127 @@ async fn cmd_install(a: &[String]) -> i32 {
             eprintln!("{e:#}");
             1
         }
+    }
+}
+
+/// The world converter's jar: next to this exe when installed, tools/worldconv/build/ in a source checkout.
+fn worldconv_jar() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let installed = dir.join("worldconv.jar");
+    if installed.exists() {
+        return Some(installed);
+    }
+    let mut d = dir.to_path_buf();
+    for _ in 0..5 {
+        let dev = d.join("tools").join("worldconv").join("build").join("worldconv.jar");
+        if dev.exists() {
+            return Some(dev);
+        }
+        d = d.parent()?.to_path_buf();
+    }
+    None
+}
+
+/// `world-convert <mcPath> <worldFolder> <version>`: the launcher's 「轉換版本」. Copies `saves/<worldFolder>` to
+/// `saves/<worldFolder> (<version>)` (a free name) and converts the copy with tools/worldconv, which runs on the
+/// installed 26.3's classpath (its DataFixerUpper knows every older format). The original world is never touched.
+/// Streams the converter's `PROGRESS done total` lines, then prints `OUT <folder>` and `REPORT <dir>`, or `ERR <msg>`.
+fn cmd_world_convert(rest: &[String]) -> i32 {
+    let (Some(root), Some(folder), Some(version)) = (rest.first(), rest.get(1), rest.get(2)) else {
+        println!("ERR usage: itest world-convert <mcPath> <worldFolder> <version>");
+        return 2;
+    };
+    let root = std::path::PathBuf::from(root);
+    let Some(id) = resolve_version_id(&root, "26.3", "vanilla") else {
+        println!("ERR 轉換世界需要先安裝 26.3（在「開始遊戲」選 26.3 下載一次）");
+        return 1;
+    };
+    let settings = config::load().settings;
+    let plan = match launch::plan_launch(&root, &id, &launch::AuthInfo::offline("Player"), &settings) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("ERR 無法準備 26.3：{e}");
+            return 1;
+        }
+    };
+    let Some(cp) = plan.args.iter().position(|a| a == "-cp").and_then(|i| plan.args.get(i + 1)).cloned() else {
+        println!("ERR 26.3 的啟動設定沒有 classpath");
+        return 1;
+    };
+    let Some(jar) = worldconv_jar() else {
+        println!("ERR 找不到世界轉換元件 worldconv.jar，請重新安裝啟動器");
+        return 1;
+    };
+    let saves = root.join("saves");
+    let src = saves.join(folder);
+    if !src.join("level.dat").exists() {
+        println!("ERR 找不到世界「{folder}」");
+        return 1;
+    }
+    let mut name = format!("{folder} ({version})");
+    let mut n = 2;
+    while saves.join(&name).exists() {
+        name = format!("{folder} ({version}) {n}");
+        n += 1;
+    }
+    let java = {
+        let j = plan.java_exe.to_string_lossy().to_string();
+        std::path::PathBuf::from(if j.ends_with("javaw.exe") { j.trim_end_matches("javaw.exe").to_string() + "java.exe" } else { j })
+    };
+    // not with_extension: a folder name like "World (1.21.1)" would lose ".1)" as its "extension"
+    let log = saves.join(format!("{name}.worldconv.log"));
+    let mut cmd = std::process::Command::new(&java);
+    cmd.arg("-Xmx4G")
+        .arg("-cp")
+        .arg(format!("{cp};{}", jar.display()))
+        .arg("dev.s1mp1e.worldconv.Main")
+        .arg("convert")
+        .arg(&src)
+        .arg(saves.join(&name))
+        .arg(version)
+        .stdout(std::process::Stdio::piped());
+    if let Ok(f) = std::fs::File::create(&log) {
+        cmd.stderr(f);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("ERR 無法啟動 Java：{e}");
+            return 1;
+        }
+    };
+    let mut ok = false;
+    if let Some(out) = child.stdout.take() {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+            if line.starts_with("PROGRESS ") || line.starts_with("CONVERT ") {
+                println!("{line}");
+                let _ = std::io::stdout().flush();
+            } else if let Some(dir) = line.strip_prefix("DONE ") {
+                ok = true;
+                println!("OUT {name}");
+                println!("REPORT {dir}");
+            } else if line.starts_with("ERR ") {
+                println!("{line}");
+            }
+        }
+    }
+    let status = child.wait().map(|s| s.success()).unwrap_or(false);
+    if ok && status {
+        let _ = std::fs::remove_file(&log);
+        0
+    } else {
+        // a failed conversion leaves no half-written world behind (the original was never touched)
+        let _ = std::fs::remove_dir_all(saves.join(&name));
+        if !ok {
+            println!("ERR 轉換失敗（詳細記錄：{}）", log.display());
+        }
+        1
     }
 }

@@ -33,6 +33,7 @@ public class LauncherSettings
     [JsonPropertyName("perf_pack")]           public bool   PerfPack           { get; set; } = true;    // measured performance pack (perf.rs)
     [JsonPropertyName("discrete_gpu")]        public bool   DiscreteGpu        { get; set; } = true;    // game's Java marked "high performance" in Windows graphics settings (launch.rs)
     [JsonPropertyName("process_priority")]    public string ProcessPriority    { get; set; } = "above_normal"; // normal | above_normal | high (launch.rs)
+    [JsonPropertyName("graphics_backend")]    public string GraphicsBackend    { get; set; } = "opengl"; // 26.x graphics API: opengl | vulkan (launch.rs)
     [JsonPropertyName("perf_check")]          public bool   PerfCheck          { get; set; } = true;    // performance checks around Play (PerfCheck.cs)
     [JsonPropertyName("perf_hint_borderless")] public bool  PerfHintBorderless { get; set; } = true;    // ask about borderless → exclusive fullscreen (false = "不再提醒")
     [JsonPropertyName("menu_key")]            public int    MenuKey            { get; set; } = 54;      // LWJGL RShift; the in-game config-GUI open key

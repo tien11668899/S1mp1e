@@ -28,6 +28,14 @@ $iscc = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { throw "ISCC.exe (Inno Setup 6) not found — install Inno Setup." }
 
+# --- 0) the world converter (tools/worldconv; compiled against the installed 26.3) ---
+$worldconv = Join-Path $root 'tools\worldconv\build.ps1'
+if (Test-Path $worldconv) {
+    Write-Host "Building the world converter..."
+    & $worldconv
+    if (-not (Test-Path (Join-Path $root 'tools\worldconv\build\worldconv.jar'))) { throw "world converter build failed" }
+}
+
 # --- 1) publish self-contained ---
 if (Test-Path $publishDir) { Remove-Item -Recurse -Force $publishDir }
 Write-Host "Publishing (self-contained win-x64)..."

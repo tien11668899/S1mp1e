@@ -1,17 +1,20 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Path = System.IO.Path;
 
 namespace S1mp1e.Views;
 
 /// <summary>
 /// Settings → 「遊戲設定沿用」. A version's first launch already starts from the most recently played version's
-/// options.txt (src-tauri/src/options_sync.rs, run by itest at launch); this button copies one version's settings over
-/// the version selected on the Start page, through <c>itest options-import</c>, so the rules live in one place.
+/// options.txt (src-tauri/src/options_sync.rs, run by itest at launch); this button copies one version's whole settings
+/// (game options, converted between 1.8.9-era and 1.13+ formats, plus the mod settings both have) over one or every
+/// other version, through <c>itest options-import</c>, so the rules live in one place. Two menus: source, then target.
 /// </summary>
 public partial class MainWindow
 {
@@ -19,57 +22,94 @@ public partial class MainWindow
     {
         if (sender is not Control anchor) return;
         var mcDir = EffectiveMcDir();
-        var to = CurrentMc();
         var instances = Path.Combine(mcDir, "instances");
-        var sources = Directory.Exists(instances)
+        var all = Directory.Exists(instances)
             ? new DirectoryInfo(instances).GetDirectories()
-                .Where(d => d.Name != to && File.Exists(Path.Combine(d.FullName, "options.txt")))
-                .Select(d => (name: d.Name, when: File.GetLastWriteTime(Path.Combine(d.FullName, "options.txt"))))
-                .OrderByDescending(s => s.when)
+                .Select(d => (name: d.Name, opts: Path.Combine(d.FullName, "options.txt")))
                 .ToList()
             : new();
-        if (sources.Count == 0) { ShowToast("其他版本都還沒有遊戲設定（先開過一次遊戲）", 3200); return; }
-        var items = sources.Select(s => $"從 {s.name} 匯入到 {to} · {RelDays(s.when)}").ToArray();
-        ShowMenuFor(anchor, items, -1, pick =>
+        var sources = all.Where(v => File.Exists(v.opts))
+            .Select(v => (v.name, when: File.GetLastWriteTime(v.opts)))
+            .OrderByDescending(s => s.when)
+            .ToList();
+        if (sources.Count == 0 || all.Count < 2) { ShowToast("至少要有兩個開過的版本才能搬設定", 3200); return; }
+        var current = CurrentMc();
+        int sel = sources.FindIndex(s => s.name == current);
+        var items = sources.Select(s => $"來源：{s.name} 的設定 · {RelDays(s.when)}").ToArray();
+        ShowMenuFor(anchor, items, sel, pick =>
         {
-            if (pick >= 0 && pick < sources.Count) _ = ImportOptionsAsync(mcDir, sources[pick].name, to);
+            if (pick < 0 || pick >= sources.Count) return;
+            var from = sources[pick].name;
+            var targets = all.Select(v => v.name).Where(n => n != from)
+                .OrderByDescending(n => n == current).ThenBy(n => n).ToList();
+            // the pick runs before this menu closes: open the target menu after it, so it takes over the overlay
+            Dispatcher.UIThread.Post(() => PickImportTargets(anchor, mcDir, from, targets));
         });
     }
 
-    private async Task ImportOptionsAsync(string mcDir, string from, string to)
+    private void PickImportTargets(Control anchor, string mcDir, string from, List<string> targets)
+    {
+        var items = new List<string>();
+        if (targets.Count > 1) items.Add($"套用到全部其他版本（{targets.Count} 個）");
+        items.AddRange(targets.Select(t => $"套用到 {t}"));
+        ShowMenuFor(anchor, items.ToArray(), -1, pick =>
+        {
+            if (pick < 0 || pick >= items.Count) return;
+            var to = targets.Count > 1 ? (pick == 0 ? targets : new List<string> { targets[pick - 1] }) : targets;
+            _ = ImportOptionsAsync(mcDir, from, to);
+        });
+    }
+
+    private async Task ImportOptionsAsync(string mcDir, string from, List<string> targets)
     {
         // A running game writes its options.txt back when settings change and on exit, which would undo the import.
         if (GameRunning) { ShowToast("遊戲正在執行。請先關閉遊戲再匯入設定", 3600); return; }
-        if (!await ConfirmAsync("匯入遊戲設定",
-                $"把 {from} 的按鍵、靈敏度、音量、語言等遊戲設定套用到 {to}？\n{to} 原本的設定會備份成 options.txt.bak。",
-                "匯入", danger: false))
+        var names = string.Join("、", targets);
+        if (!await ConfirmAsync("搬移遊戲設定",
+                $"把 {from} 的遊戲設定（按鍵、靈敏度、畫面、音量、語言）和模組設定，整份套用到 {names}？\n"
+                + "1.8.9 這類舊版本的按鍵格式會自動轉換；原本的設定會備份成 .bak 檔。",
+                "套用", danger: false))
             return;
         var exe = ResolveItestExe();
         if (!File.Exists(exe)) { ShowToast("找不到啟動器元件 itest.exe，請重新安裝", 4200); return; }
-        try
+        int opts = 0, mods = 0, ok = 0;
+        var errors = new List<string>();
+        foreach (var to in targets)
         {
-            var psi = new System.Diagnostics.ProcessStartInfo(exe)
+            try
             {
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-            };
-            psi.ArgumentList.Add("options-import");
-            psi.ArgumentList.Add(mcDir);
-            psi.ArgumentList.Add(from);
-            psi.ArgumentList.Add(to);
-            using var p = System.Diagnostics.Process.Start(psi)!;
-            var outTask = p.StandardOutput.ReadToEndAsync();
-            _ = p.StandardError.ReadToEndAsync();
-            await p.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
-            var line = (await outTask).Trim().Split('\n').LastOrDefault()?.Trim() ?? "";
-            if (line.StartsWith("OK ", StringComparison.Ordinal))
-                ShowToast(line[3..] == "0" ? $"{to} 的遊戲設定本來就和 {from} 一樣"
-                                           : $"已套用 {from} 的遊戲設定：{to} 有 {line[3..]} 項設定改變", 3600);
-            else
-                ShowToast(line.StartsWith("ERR ", StringComparison.Ordinal) ? line[4..] : "匯入失敗，請稍後再試", 4200);
+                var psi = new System.Diagnostics.ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                };
+                psi.ArgumentList.Add("options-import");
+                psi.ArgumentList.Add(mcDir);
+                psi.ArgumentList.Add(from);
+                psi.ArgumentList.Add(to);
+                using var p = System.Diagnostics.Process.Start(psi)!;
+                var outTask = p.StandardOutput.ReadToEndAsync();
+                _ = p.StandardError.ReadToEndAsync();
+                await p.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
+                var line = (await outTask).Trim().Split('\n').LastOrDefault()?.Trim() ?? "";
+                if (line.StartsWith("OK ", StringComparison.Ordinal))
+                {
+                    var n = line[3..].Split(' ');
+                    opts += int.TryParse(n[0], out var a) ? a : 0;
+                    mods += n.Length > 1 && int.TryParse(n[1], out var b) ? b : 0;
+                    ok++;
+                }
+                else errors.Add(line.StartsWith("ERR ", StringComparison.Ordinal) ? line[4..] : $"{to}：匯入失敗");
+            }
+            catch (TimeoutException) { errors.Add($"{to}：逾時"); }
+            catch (Exception ex) { LogCrash(ex); errors.Add($"{to}：匯入失敗"); }
         }
-        catch (TimeoutException) { ShowToast("匯入逾時，請稍後再試", 3600); }
-        catch (Exception ex) { LogCrash(ex); ShowToast("匯入失敗，請稍後再試", 3600); }
+        var where = targets.Count == 1 ? targets[0] : $"{ok} 個版本";
+        string msg = ok == 0 ? ""
+            : opts + mods == 0 ? $"{where} 的設定本來就和 {from} 一樣"
+            : $"已套用 {from} 的設定到 {where}：遊戲設定 {opts} 項、模組設定 {mods} 項改變";
+        if (errors.Count > 0) msg = (msg.Length > 0 ? msg + "\n" : "") + string.Join("\n", errors);
+        ShowToast(msg, errors.Count > 0 ? 5200 : 3600);
     }
 }

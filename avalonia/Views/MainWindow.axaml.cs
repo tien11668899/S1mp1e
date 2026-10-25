@@ -3113,6 +3113,7 @@ public partial class MainWindow : Window
             if (PerfToggle is not null) PerfToggle.IsChecked = s.PerfPack;
             if (DiscreteGpuToggle is not null) DiscreteGpuToggle.IsChecked = s.DiscreteGpu;
             if (PriorityBox is not null) PriorityBox.SelectedIndex = s.ProcessPriority switch { "normal" => 0, "high" => 2, _ => 1 };
+            if (BackendBox is not null) BackendBox.SelectedIndex = s.GraphicsBackend == "vulkan" ? 1 : 0;
             if (PerfCheckToggle is not null) PerfCheckToggle.IsChecked = s.PerfCheck;
             if (PrereleaseToggle is not null) PrereleaseToggle.IsChecked = s.UpdatePrerelease;
             if (KnivesSettingToggle is not null) KnivesSettingToggle.IsChecked = s.Cs2Knives;
@@ -3157,10 +3158,12 @@ public partial class MainWindow : Window
     // `.minecraft/s1mp1e-mods/glass-<mc>.jar` was built against — `pick_glass_jar`
     // in launch.rs does EXACT-match only (a 1.21.1 build's mixin injections would
     // crash on 1.21.8). Use "1.18.2"/"1.19.2" not "1.18"/"1.19" for that reason.
+    // The exception: a version listed in install.rs GLASS_SHARED runs another version's
+    // jar that was checked on it in game (1.21 → glass-1.21.1.jar).
     // 1.21.8 dropped until mc1218/build/libs/ has a jar.
     private static readonly string[] SupportedVersions =
     {
-        "26.3",   "26.2",    "1.21.1",
+        "26.3",   "26.2",    "1.21.1",  "1.21",
         "1.20.1", "1.19.2",  "1.18.2",
         "1.17.1", "1.16.5",  "1.15.2",
         "1.14.4", "1.13.2",  "1.12.2",
@@ -3811,6 +3814,12 @@ public partial class MainWindow : Window
     {
         if (_hydrating || PriorityBox is null) return;
         _cfg.Settings.ProcessPriority = PriorityBox.SelectedIndex switch { 0 => "normal", 2 => "high", _ => "above_normal" };
+        SaveCfg();
+    }
+    private void OnBackendChanged(object? sender, EventArgs e)
+    {
+        if (_hydrating || BackendBox is null) return;
+        _cfg.Settings.GraphicsBackend = BackendBox.SelectedIndex == 1 ? "vulkan" : "opengl";
         SaveCfg();
     }
     private void OnPerfCheckToggleChanged(object? sender, RoutedEventArgs e)

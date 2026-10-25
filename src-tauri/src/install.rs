@@ -236,6 +236,16 @@ async fn install_java(
 const GLASS_BASE_URL: &str =
     "https://raw.githubusercontent.com/tien11668899/S1mp1e/main/glass-mods";
 
+/// Game versions that run another version's glass jar: (game version, jar version). Only versions whose jar was
+/// checked on them in game belong here — glass mixins are version-specific, so a same-family jar is never assumed
+/// to work (see `launch::pick_glass_jar`). 1.21 is the release 1.21.1 hotfixed; the 1.21.1 jar declares both.
+const GLASS_SHARED: [(&str, &str); 1] = [("1.21", "1.21.1")];
+
+/// The `glass-<key>.jar` that game version `mc` runs: its own, or the one it shares (`GLASS_SHARED`).
+pub fn glass_key(mc: &str) -> &str {
+    GLASS_SHARED.iter().find(|(v, _)| *v == mc).map(|(_, k)| *k).unwrap_or(mc)
+}
+
 /// Ensure the liquid-glass client jar for `mc` in `.minecraft/s1mp1e-mods/` is the one
 /// published in the repo's `glass-mods/`: fetched on a fresh machine, and UPDATED when the
 /// repo's copy changes. The server's ETag is kept next to the jar (`glass-<mc>.jar.etag`)
@@ -245,7 +255,9 @@ const GLASS_BASE_URL: &str =
 /// Never fatal: offline, a missing build (404) or a jar locked by a running game all keep
 /// whatever is installed. A `glass-<mc>.jar.pin` file next to the jar opts out entirely
 /// (a locally built development jar must not be replaced by the published one).
+/// A version that shares another's jar (`glass_key`) fetches and keeps that one.
 pub async fn ensure_glass(root: &PathBuf, mc: &str, emit: &Emit) -> Result<()> {
+    let mc = glass_key(mc);
     let dst = root.join("s1mp1e-mods").join(format!("glass-{mc}.jar"));
     if dst.with_extension("jar.pin").exists() {
         return Ok(());
@@ -546,6 +558,14 @@ mod glass_update_tests {
 
     fn mtime(p: &PathBuf) -> SystemTime {
         std::fs::metadata(p).unwrap().modified().unwrap()
+    }
+
+    #[test]
+    fn shared_glass_versions_map_to_their_jar() {
+        assert_eq!(glass_key("1.21"), "1.21.1");
+        assert_eq!(glass_key("1.21.1"), "1.21.1");
+        assert_eq!(glass_key("1.21.8"), "1.21.8");
+        assert_eq!(glass_key("1.8.9-ornithe"), "1.8.9-ornithe");
     }
 
     /// Network test against the real repo (glass-1.8.9.jar is ~96 KB).
