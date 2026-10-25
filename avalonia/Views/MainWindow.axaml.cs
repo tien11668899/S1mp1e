@@ -2241,6 +2241,27 @@ public partial class MainWindow : Window
                 await NextFrameAsync();
                 SaveWindowPng(System.IO.Path.Combine(outDir, "mods-browse.png"));
 
+                // 從其他版本補齊 check (S1MP1E_MODSHOT_COPY=<source version>): shoot the version menu, run the copy with its
+                // dialog answered by S1MP1E_CONFIRM, then shoot the list and write the folder's files.
+                var copySrc = Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_COPY");
+                if (!string.IsNullOrWhiteSpace(copySrc) && _copyBtn != null)
+                {
+                    ShowCopyFromVersionMenu(_copyBtn);
+                    // The glass menu is its own layer: an external real-screen capture grabs it during this hold.
+                    await System.Threading.Tasks.Task.Delay(2500); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "mods-copy-menu.png"));
+                    CloseGlassMenu(); await System.Threading.Tasks.Task.Delay(700);
+                    await CopyModsFromVersionAsync(copySrc!);
+                    await System.Threading.Tasks.Task.Delay(500);
+                    for (int i = 0; i < 80 && _localScanRunning; i++) await System.Threading.Tasks.Task.Delay(250);
+                    await System.Threading.Tasks.Task.Delay(1200); await NextFrameAsync();
+                    SaveWindowPng(System.IO.Path.Combine(outDir, "mods-after-copy.png"));
+                    var copyDir = ConflictScanner.LaunchModDir(EffectiveMcDir(), CurrentMc());
+                    File.WriteAllLines(System.IO.Path.Combine(outDir, "mods-after-copy.txt"),
+                        Directory.Exists(copyDir) ? Directory.GetFiles(copyDir).Select(Path.GetFileName).OfType<string>() : Array.Empty<string>());
+                    Environment.Exit(0);
+                }
+
                 // Badges + changelog check (S1MP1E_MODSHOT_CHANGELOG=1): wait for the update check, shoot the badges,
                 // then open the update dialog for the first outdated mod (answered with S1MP1E_CHOICE).
                 if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("S1MP1E_MODSHOT_CHANGELOG")))
@@ -6763,6 +6784,13 @@ public partial class MainWindow : Window
     private Border? _toast;
     private int _toastGen;
 
+    /// <summary>Fade the toast out now (and cancel the pending fade of the one showing).</summary>
+    private void HideToast()
+    {
+        _toastGen++;
+        if (_toast != null) _toast.Opacity = 0;
+    }
+
     private async void ShowToast(string text, int holdMs = 2200)
     {
         try
@@ -6836,10 +6864,14 @@ public partial class MainWindow : Window
         _sortBtnLabel = sortBtn.Child as TextBlock;
         manageBtn = MakeToolButton("管理 ▾", () => ShowManageMenu(manageBtn!), "批次操作會套用到目前列出的模組（篩選和搜尋之後）");
         _sortBtn = sortBtn; _manageBtn = manageBtn;
-        Border? shareBtn = null;
+        Border? shareBtn = null, copyBtn = null;
         shareBtn = MakeToolButton("匯出 / 匯入 ▾", () => ShowShareMenu(shareBtn!), "把整套模組匯出成 .mrpack 備份或分享，或從 .mrpack 匯入（也可直接把 .mrpack 拖進視窗）");
+        copyBtn = MakeToolButton("從其他版本補齊 ▾", () => ShowCopyFromVersionMenu(copyBtn!),
+            "選一個版本，把它有、這個版本沒有的模組一鍵下載成這個版本的檔案（會先列出來讓你確認）");
+        _copyBtn = copyBtn;
         LocalToolbar.Children.Add(sortBtn);
         LocalToolbar.Children.Add(manageBtn);
+        LocalToolbar.Children.Add(copyBtn);
         LocalToolbar.Children.Add(shareBtn);
         LocalToolbar.Children.Add(MakeToolButton("開啟資料夾", OpenModsFolder, "用檔案總管打開這個版本的模組資料夾（也可以直接把 .jar 拖進視窗安裝）"));
     }
