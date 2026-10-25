@@ -28,7 +28,9 @@ import dev.s1mp1e.o.event.SubscribeEvent;
  */
 public final class GlassScreenHandler {
 
-    /** Visible book graphic inside the 192-wide sprite (parchment page). */
+    /** Visible book graphic inside the 192-wide sprite (parchment page): book.png's page art is the rect (20,1)-(166,181). */
+    private static final int BOOK_X = 20;
+    private static final int BOOK_Y = 1;
     private static final int BOOK_W = 146;
     private static final int BOOK_H = 180;
     /** Light warm parchment scrim (A): 0xD8EFE7D6, inset 4, radius 4. */
@@ -50,11 +52,11 @@ public final class GlassScreenHandler {
         SceneCapture.forceGrab();
 
         // Frosted glass page (panel family -> panel radius, unchanged per R2/A note).
-        GlassRenderer.panel(i, j, i + BOOK_W, j + BOOK_H, 1.0f);
+        GlassRenderer.panel(i + BOOK_X, j + BOOK_Y, i + BOOK_X + BOOK_W, j + BOOK_Y + BOOK_H, 1.0f);
 
         // Light warm parchment scrim so the dark ink stays readable (A).
-        GlassRenderer.roundRect(i + PARCH_INSET, j + PARCH_INSET,
-                                i + BOOK_W - PARCH_INSET, j + BOOK_H - PARCH_INSET,
+        GlassRenderer.roundRect(i + BOOK_X + PARCH_INSET, j + BOOK_Y + PARCH_INSET,
+                                i + BOOK_X + BOOK_W - PARCH_INSET, j + BOOK_Y + BOOK_H - PARCH_INSET,
                                 PARCH_RADIUS, PARCHMENT);
 
         // Drop the vanilla book texture blit (192x192 at i,j); text + arrows survive.
