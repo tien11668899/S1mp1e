@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.seagull.liquidglass.client.compat.modmenu",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ModMenuSelectionGlassMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

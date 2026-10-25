@@ -1,0 +1,47 @@
+// S1mp1e client — 1.21.6 / 1.21.7 / 1.21.8 (Fabric), ported from versions/mc262. 1.21.6 brought the deferred GUI
+// render state 26.x builds on, so the 26.2 glass and module code carries over with Mojang's names
+// (GuiGraphicsExtractor -> GuiGraphics, Hud -> Gui, extract* -> render*); see versions/PORT_1_21_X.md.
+plugins {
+    id 'fabric-loom' version '1.17.19'
+}
+
+version = project.mod_version
+group   = project.maven_group
+base { archivesName = project.archives_base_name }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings   loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+}
+
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            vmArg "-Dfabric.debug.disableModShuffle=true"
+            programArgs "--username", "S1mp1e", "--uuid", "c70e98b9e0923798a7a64f0fd4e52ed1"
+        }
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+    it.options.encoding = 'UTF-8'
+}

@@ -22,7 +22,12 @@ tooltips and buttons). No tint, no gameplay hooks.
 | `glass-1.19.2.jar` | 1.19.2 | Fabric |
 | `glass-1.20.1.jar` | 1.20.1 | Fabric |
 | `glass-1.21.1.jar` | 1.21.1, 1.21 | Fabric (1.21 has no jar of its own: the launcher runs this one there, see `GLASS_SHARED` in `src-tauri/src/install.rs`) |
-| `glass-1.21.8.jar` | 1.21.8 | Fabric |
+| `glass-1.21.3.jar` | 1.21.3, 1.21.2 | Fabric (Yarn, source `versions/mc1213`, from `mc1214`; 1.21.2 runs it through `GLASS_SHARED`) |
+| `glass-1.21.4.jar` | 1.21.4 | Fabric (Yarn, source `versions/mc1214`, ported from `mc1211`) |
+| `glass-1.21.5.jar` | 1.21.5 | Fabric (Yarn, source `versions/mc1215`, from `mc1214`; its glass draws with raw GL through `GlCompat` on the new GPU device) |
+| `glass-1.21.8.jar` | 1.21.8, 1.21.7, 1.21.6 | Fabric (Mojang mappings, source `versions/mc1218`; one jar runs all three, 1.21.6 and 1.21.7 through `GLASS_SHARED`) |
+| `glass-1.21.10.jar` | 1.21.10, 1.21.9 | Fabric (Mojang mappings, source `versions/mc12110`; 1.21.9 runs it through `GLASS_SHARED`) |
+| `glass-1.21.11.jar` | 1.21.11 | Fabric (Mojang mappings, source `versions/mc12111`; 1.21.11 only — its GUI, sampler and shader-uniform APIs already follow 26.x) |
 | `glass-26.2.jar`   | 26.2   | Fabric |
 | `glass-26.3.jar`   | 26.3   | Fabric |
 

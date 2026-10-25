@@ -1,0 +1,62 @@
+// S1mp1e client — 1.21.5 (Fabric, Yarn names), from versions/mc1214. 1.21.5 moved rendering onto GpuDevice /
+// RenderPipeline but kept the DrawContext GUI, so the glass layer (own GLSL programs + GlassRenderer) still draws with
+// raw GL: GlCompat gives it the GL state (through GlStateManager) and binds the main render target, which vanilla
+// passes leave unbound. See versions/PORT_1_21_X.md. Toolchain: Gradle 9.7 + Loom 1.17 on JDK 25, Java 21 bytecode.
+plugins {
+    id 'fabric-loom' version '1.17.19'
+}
+
+version = project.mod_version
+group = project.maven_group
+base { archivesName = project.archives_base_name }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    // Sodium's own options screen is restyled by the (optional, Sodium-gated) compat mixins; compile against it only.
+    // For a dev run drop the same jar into run/mods (needs loader >= 0.16).
+    modCompileOnly files('libs/compat/sodium-0.6.13-compile.jar')
+    // Compile-only: Essential's Elementa + UniversalCraft (+ Kotlin stdlib), for the liquid-glass restyle and zh_TW
+    // translation of Essential's UI (s1mp1e.essential.mixins.json, @Pseudo targets). Our mixins touch no member with a
+    // Minecraft type, so the intermediary-named UniversalCraft jar compiles as plain files. Never bundled.
+    compileOnly files('libs/compat/essential/elementa-745.jar', 'libs/compat/essential/universalcraft-1.21-fabric-505.jar', 'libs/compat/essential/kotlin-stdlib-2.3.0.jar')
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") { expand "version": project.version }
+}
+
+// 1.21.x runs on Java 21.
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+    it.options.encoding = 'UTF-8'
+}
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+
+// Dev runs only: force-load the GUI mixin targets at startup so a broken injection fails immediately.
+loom {
+    runs {
+        client {
+            vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // production loads mods in mod-id order; dev shuffles it — keep dev identical (Essential compat relies on it)
+            vmArg "-Dfabric.debug.disableModShuffle=true"
+            // Benchmark only (C:/Temp/s1bench/bench.ps1): extra JVM flags for the game JVM, e.g. -PbenchJvm="-Xmx4096M -XX:+UseZGC"
+            if (project.hasProperty('benchJvm')) {
+                project.property('benchJvm').toString().trim().split(/\s+/).each { if (it) vmArg it }
+            }
+        }
+    }
+}

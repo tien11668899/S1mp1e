@@ -239,7 +239,15 @@ const GLASS_BASE_URL: &str =
 /// Game versions that run another version's glass jar: (game version, jar version). Only versions whose jar was
 /// checked on them in game belong here — glass mixins are version-specific, so a same-family jar is never assumed
 /// to work (see `launch::pick_glass_jar`). 1.21 is the release 1.21.1 hotfixed; the 1.21.1 jar declares both.
-const GLASS_SHARED: [(&str, &str); 1] = [("1.21", "1.21.1")];
+/// 1.21.6 and 1.21.7 run the 1.21.8 jar (one Mojang-mapped build declares ">=1.21.6 <1.21.9"), 1.21.9 runs the 1.21.10
+/// jar (">=1.21.9 <1.21.11"), and 1.21.2 runs the 1.21.3 jar (">=1.21.2 <1.21.4"); each was checked in game.
+const GLASS_SHARED: [(&str, &str); 5] = [
+    ("1.21", "1.21.1"),
+    ("1.21.2", "1.21.3"),
+    ("1.21.6", "1.21.8"),
+    ("1.21.7", "1.21.8"),
+    ("1.21.9", "1.21.10"),
+];
 
 /// The `glass-<key>.jar` that game version `mc` runs: its own, or the one it shares (`GLASS_SHARED`).
 pub fn glass_key(mc: &str) -> &str {
@@ -564,7 +572,16 @@ mod glass_update_tests {
     fn shared_glass_versions_map_to_their_jar() {
         assert_eq!(glass_key("1.21"), "1.21.1");
         assert_eq!(glass_key("1.21.1"), "1.21.1");
+        assert_eq!(glass_key("1.21.2"), "1.21.3");
+        assert_eq!(glass_key("1.21.3"), "1.21.3");
+        assert_eq!(glass_key("1.21.4"), "1.21.4");
+        assert_eq!(glass_key("1.21.5"), "1.21.5");
+        assert_eq!(glass_key("1.21.6"), "1.21.8");
+        assert_eq!(glass_key("1.21.7"), "1.21.8");
         assert_eq!(glass_key("1.21.8"), "1.21.8");
+        assert_eq!(glass_key("1.21.9"), "1.21.10");
+        assert_eq!(glass_key("1.21.10"), "1.21.10");
+        assert_eq!(glass_key("1.21.11"), "1.21.11");
         assert_eq!(glass_key("1.8.9-ornithe"), "1.8.9-ornithe");
     }
 

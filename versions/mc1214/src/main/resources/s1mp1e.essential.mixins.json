@@ -1,0 +1,33 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.s1mp1e.glass.compat.essential.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "EssWindowFrameMixin",
+    "EssUIBlockMixin",
+    "EssUIRoundedRectMixin",
+    "EssUITextMixin",
+    "EssUIWrappedTextMixin",
+    "EssTruncatingTextMixin",
+    "EssTextInputMixin",
+    "EssInputPlaceholderMixin",
+    "EssMenuButtonMixin",
+    "EssToggleMixin",
+    "EssFrameClockMixin",
+    "EssGradientMixin",
+    "EssTextShadowMixin",
+    "EssFontShadowMixin",
+    "EssShadowEffectMixin",
+    "EssScissorMixin",
+    "EssExtractorImplMixin",
+    "EssElementaRendererMixin",
+    "EssUScreenCompositeMixin",
+    "EssLayerRendererMixin",
+    "EssTitleBackdropMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  },
+  "refmap": "s1mp1e-1.21.1-refmap.json"
+}

@@ -3159,11 +3159,14 @@ public partial class MainWindow : Window
     // in launch.rs does EXACT-match only (a 1.21.1 build's mixin injections would
     // crash on 1.21.8). Use "1.18.2"/"1.19.2" not "1.18"/"1.19" for that reason.
     // The exception: a version listed in install.rs GLASS_SHARED runs another version's
-    // jar that was checked on it in game (1.21 → glass-1.21.1.jar).
-    // 1.21.8 dropped until mc1218/build/libs/ has a jar.
+    // jar that was checked on it in game (1.21 → glass-1.21.1.jar; 1.21.2 → glass-1.21.3.jar; 1.21.7 and 1.21.6 →
+    // glass-1.21.8.jar; 1.21.9 → glass-1.21.10.jar).
     private static readonly string[] SupportedVersions =
     {
-        "26.3",   "26.2",    "1.21.1",  "1.21",
+        "26.3",   "26.2",    "1.21.11", "1.21.10",
+        "1.21.9", "1.21.8",  "1.21.7",  "1.21.6",
+        "1.21.5", "1.21.4",  "1.21.3",  "1.21.2",
+        "1.21.1", "1.21",
         "1.20.1", "1.19.2",  "1.18.2",
         "1.17.1", "1.16.5",  "1.15.2",
         "1.14.4", "1.13.2",  "1.12.2",

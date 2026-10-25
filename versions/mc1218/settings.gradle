@@ -1,8 +1,9 @@
 pluginManagement {
     repositories {
         maven { url = 'https://maven.fabricmc.net/' }
-        gradlePluginPortal()
         mavenCentral()
+        gradlePluginPortal()
     }
 }
-rootProject.name = 's1mp1e-1.21.1'
+
+rootProject.name = 's1mp1e-1.21.8'

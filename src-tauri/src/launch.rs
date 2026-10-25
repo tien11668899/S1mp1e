@@ -94,14 +94,29 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
     // 不能兩版並存在 classpath 上。
     let exclude: Vec<String> = chain.iter().flat_map(|v| v.s1mp1e_exclude.iter().cloned()).collect();
     let ga = |name: &str| -> String { name.split(':').take(2).collect::<Vec<_>>().join(":") };
+    // Fabric：1.21.6 起原版自己也列了 ASM（org.ow2.asm:asm:9.6），Fabric 的 profile 列的是新版；兩版同時在 classpath 上
+    // Fabric Loader 會拒絕啟動（"duplicate ASM classes"）。比照 Mojang 啟動器，子層（Fabric）同一個
+    // group:artifact[:classifier] 取代父層（原版）的；有 classifier 的原生庫只和同 classifier 的比，不會誤刪。
+    let fabric_child = chain.first().map(|v| v.id.starts_with("fabric-loader-")).unwrap_or(false);
+    let gac = |name: &str| -> String {
+        let p: Vec<&str> = name.split(':').collect();
+        match p.as_slice() {
+            [g, a, _, c, ..] => format!("{g}:{a}:{c}"),
+            [g, a, ..] => format!("{g}:{a}"),
+            _ => name.to_string(),
+        }
+    };
     let mut child_ga: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut child_gac: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (depth, vj) in chain.iter().enumerate() {
         let provided_by_child = child_ga.clone();
+        let provided_by_child_c = child_gac.clone();
         for lib in &vj.libraries {
             if exclude.iter().any(|e| lib.name.starts_with(e.as_str())) { continue; }
             // 只對 S1mp1e 自己產生的 profile（帶 s1mp1eExclude，目前是 Ornithe）做取代；
             // Forge 等其他 profile 維持原本的 classpath（子層本來就排前面，行為不變也不冒險）
             if depth > 0 && !exclude.is_empty() && lib.natives.is_none() && provided_by_child.contains(&ga(&lib.name)) { continue; }
+            if depth > 0 && fabric_child && lib.natives.is_none() && provided_by_child_c.contains(&gac(&lib.name)) { continue; }
             let parts: Vec<&str> = lib.name.split(':').collect();
             // Dedupe key: group:artifact[:classifier] + (natives-marker if legacy natives)
             // + version. Version MUST be in the key because 1.13-1.18 list the SAME
@@ -121,7 +136,10 @@ fn resolve(root: &PathBuf, id: &str) -> Result<Merged> {
             }
         }
         for lib in &vj.libraries {
-            if lib.natives.is_none() { child_ga.insert(ga(&lib.name)); }
+            if lib.natives.is_none() {
+                child_ga.insert(ga(&lib.name));
+                child_gac.insert(gac(&lib.name));
+            }
         }
     }
 

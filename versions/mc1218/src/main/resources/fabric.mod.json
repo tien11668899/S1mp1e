@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "s1mp1e",
   "version": "${version}",
-  "name": "S1mp1e Client",
-  "description": "Apple Liquid Glass UI for Minecraft 1.17.1 (Fabric). Snell refraction, dispersion, Fresnel edge light, measured springs. Renders only — no tint, no unfair gameplay hooks.",
+  "name": "S1mp1e",
+  "description": "S1mp1e liquid-glass client for Minecraft 1.21.6 - 1.21.8 (Fabric).",
   "authors": [
     "S1mp1e"
   ],
@@ -11,15 +11,17 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "dev.s1mp1e.glass.S1mp1eClient"
+      "com.seagull.liquidglass.client.LiquidGlassClient"
     ]
   },
   "mixins": [
-    "s1mp1e.mixins.json"
+    "liquidglass.mixins.json",
+    "s1mp1e.mixins.json",
+    "liquidglass.compat.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.15.0",
-    "minecraft": "~1.21.8",
+    "fabricloader": ">=0.16.0",
+    "minecraft": ">=1.21.6 <1.21.9",
     "java": ">=21"
   }
 }
