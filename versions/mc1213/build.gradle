@@ -24,6 +24,9 @@ dependencies {
     // Sodium's own options screen is restyled by the (optional, Sodium-gated) compat mixins; compile against it only.
     // For a dev run drop the same jar into run/mods (needs loader >= 0.16).
     modCompileOnly files('libs/compat/sodium-0.6.13-compile.jar')
+    // Reese's Sodium Options 1.8 (1.21.2-1.21.4) replaces that screen; s1mp1e.rso.mixins.json (RSO-gated) hands its
+    // screen to the same glass. Compile-only copy of reeses-sodium-options-fabric-1.8.3+mc1.21.4.jar.
+    modCompileOnly files('libs/compat/reeses-sodium-options-1.8.3-compile.jar')
     // Compile-only: Essential's Elementa + UniversalCraft (+ Kotlin stdlib), for the liquid-glass restyle and zh_TW
     // translation of Essential's UI (s1mp1e.essential.mixins.json, @Pseudo targets). Our mixins touch no member with a
     // Minecraft type, so the intermediary-named UniversalCraft jar compiles as plain files. Never bundled.

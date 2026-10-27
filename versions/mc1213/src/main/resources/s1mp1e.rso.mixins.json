@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.s1mp1e.glass.compat.rso",
+  "plugin": "dev.s1mp1e.glass.compat.RsoMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "RsoScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

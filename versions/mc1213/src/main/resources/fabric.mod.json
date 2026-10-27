@@ -19,7 +19,8 @@
   },
   "mixins": [
     "s1mp1e.mixins.json",
-    "s1mp1e.sodium.mixins.json"
+    "s1mp1e.sodium.mixins.json",
+    "s1mp1e.rso.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",

@@ -120,6 +120,7 @@
     "DevShotMixin",
     "FreelookCameraMixin",
     "FreelookMouseMixin",
+    "DevMouseInvoker",
     "StickyKeyBindingAccessor",
     "ToggleKeyOptionsMixin",
     "LivingEntityRendererFeatureInvoker",

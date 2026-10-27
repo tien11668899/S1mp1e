@@ -56,6 +56,10 @@ import net.minecraft.util.Identifier;
  *
  * <p>One instance per screen. Animation state that must survive a rebuild is keyed by the {@link Option} (they live as
  * long as the page list). Render thread only. Loaded only when Sodium is (see {@link SodiumMixinPlugin}).
+ *
+ * <p>Reese's Sodium Options 1.8 (on 1.21.2 / 1.21.3) replaces this screen with its own over the same pages and
+ * buttons; {@code RsoScreenMixin} hands that screen to this class as well, with RSO's search as a box in the top row
+ * ({@link Host#s1mp1e$search}) and its hits as a page outside the list, so both screens look the same.
  */
 public final class SodiumGlass {
 
@@ -80,6 +84,16 @@ public final class SodiumGlass {
         FlatButtonWidget s1mp1e$donate();
 
         FlatButtonWidget s1mp1e$hideDonate();
+
+        /** A search box in place of the title at the left of the top row (Reese's Sodium Options), or null. */
+        default net.minecraft.client.gui.widget.TextFieldWidget s1mp1e$search() {
+            return null;
+        }
+
+        /** Shown in the content area when the page has no options (a search without hits), or null. */
+        default Text s1mp1e$emptyText() {
+            return null;
+        }
     }
 
     /** {@code FlatButtonWidget}'s private state. */
@@ -223,6 +237,12 @@ public final class SodiumGlass {
         return new Dim2i(width - M - BTN_H - GAP - w, TOP, w, BTN_H);
     }
 
+    /** A search box filling the top row up to the donate button (or the right margin while that one is hidden). */
+    public Dim2i searchDim(int donateLabelWidth, boolean donateShown) {
+        int x1 = donateShown ? donateDim(donateLabelWidth).x() - GAP : width - M;
+        return new Dim2i(M, TOP, Math.max(40, x1 - M), BTN_H);
+    }
+
     // ============================================================================================================
     //  scrolling
     // ============================================================================================================
@@ -293,13 +313,16 @@ public final class SodiumGlass {
         text(ctx, tr, SodiumIcon.version(), nameX, bodyY0 + 11.0F, TEXT_DIM, a);
 
         List<FlatButtonWidget> tabs = host.s1mp1e$tabs();
-        int sel = Math.max(0, host.s1mp1e$pages().indexOf(host.s1mp1e$page()));
+        // a page that is not in the list (search results) selects no tab: the capsule waits where it was
+        int at = host.s1mp1e$pages().indexOf(host.s1mp1e$page());
+        int sel = Math.max(0, at);
         if (!tabPlaced) {
             tabSlide.snap(sel);
             tabPlaced = true;
         }
-        tabSlide.retarget(sel).update(dt);
-        if (!tabs.isEmpty()) {
+        if (at >= 0) tabSlide.retarget(sel);
+        tabSlide.update(dt);
+        if (!tabs.isEmpty() && at >= 0) {
             Dim2i d0 = ((FlatBtn) tabs.get(0)).s1mp1e$dim();
             float y = d0.y() + tabSlide.x * ROW_H;
             GlassWidgets.capsule(ctx, d0.x() + 0.5F, y + 1.5F, d0.getLimitX() - 0.5F, y + ROW_H - 1.5F,
@@ -309,8 +332,8 @@ public final class SodiumGlass {
             FlatButtonWidget b = tabs.get(i);
             Dim2i d = ((FlatBtn) b).s1mp1e$dim();
             boolean over = d.containsCursor(mx, my);
-            float near = Math.max(0.0F, 1.0F - Math.abs(tabSlide.x - i));
-            float h = hover(hovers, b, over && i != sel);
+            float near = at < 0 ? 0.0F : Math.max(0.0F, 1.0F - Math.abs(tabSlide.x - i));
+            float h = hover(hovers, b, over && (at < 0 || i != sel));
             if (h > 0.01F) {
                 GlassWidgets.fillRound(ctx, d.x() + 0.5F, d.y() + 1.5F, d.getLimitX() - 0.5F, d.getLimitY() - 1.5F,
                         (Math.round(h * a * 0x1C) << 24) | 0xFFFFFF, (ROW_H - 3) / 2.0F);
@@ -340,6 +363,10 @@ public final class SodiumGlass {
             for (float y = y0 + ROW_H; y < y1 - 1.0F; y += ROW_H) {
                 GlassWidgets.fill(ctx, contX0 + 7.0F, y - 0.5F, contX1 - 7.0F, y + 0.5F, div);
             }
+        }
+        Text empty = cards.isEmpty() ? host.s1mp1e$emptyText() : null;
+        if (empty != null) {
+            text(ctx, tr, empty, (contX0 + contX1) / 2.0F - tr.getWidth(empty) / 2.0F, bodyY0 + 24.0F, TEXT_DIM, a * pageIn);
         }
 
         // one value column for every slider on the page: as wide as the widest value any of them can show
@@ -433,7 +460,9 @@ public final class SodiumGlass {
     // ---- top row: title left, donate + dismiss right ----
 
     private void drawTopRow(DrawContext ctx, TextRenderer tr, Host host, int mx, int my, float a) {
-        text(ctx, tr, Text.translatable("options.videoTitle"), M + 6.0F, TOP + BTN_H / 2.0F - 4.0F, TEXT, a);
+        if (host.s1mp1e$search() == null) {                     // a search box (drawn by its screen) takes the title's place
+            text(ctx, tr, Text.translatable("options.videoTitle"), M + 6.0F, TOP + BTN_H / 2.0F - 4.0F, TEXT, a);
+        }
         drawButton(ctx, tr, host.s1mp1e$donate(), mx, my, a);
         drawButton(ctx, tr, host.s1mp1e$hideDonate(), mx, my, a);
     }

@@ -115,6 +115,13 @@ public final class DevShot {
     // the glass minimap + full-screen map (+ the ToggleSprint pill). The minimap mode uses a normal-terrain world.
     private static final int P_WINGS = 110, P_MINIMAP = 120;
     private static boolean wingsMode, minimapMode;
+    // FREELOOK mode (S1MP1E_SHOT_MODE=freelook): a mouse movement fed through vanilla's updateMouse, first with Freelook
+    // released (the player turns), then held (the camera turns, the player does not), then the video settings screen
+    // as the options menu's button opens it (Sodium's, or a mod that replaces it).
+    private static final int P_FREELOOK = 150;
+    private static boolean freelookMode;
+    private static int flStage;
+    private static long flT0;
     private static int wgStage, mmStage;
     private static long wgT0, mmT0;
     private static net.minecraft.client.network.OtherClientPlayerEntity[] mmFakes;
@@ -201,6 +208,7 @@ public final class DevShot {
                 nameTagsMode = "nametags".equals(mode);
                 wingsMode = "wings".equals(mode);
                 minimapMode = "minimap".equals(mode);
+                freelookMode = "freelook".equals(mode);
                 visitMode = "visit".equals(mode);
                 dumpMode = "dump".equals(mode);
                 shotWorld = System.getenv("S1MP1E_SHOT_WORLD");
@@ -278,6 +286,7 @@ public final class DevShot {
                 case P_NAMETAGS:           stepNameTags(client);                 break;
                 case P_WINGS:              stepWings(client);                    break;
                 case P_MINIMAP:            stepMinimap(client);                  break;
+                case P_FREELOOK:           stepFreelook(client);                 break;
                 case P_VISIT:              stepVisit(client);                    break;
                 case P_DUMP:               stepDump(client);                     break;
                 case P_STOP:               stepStop(client);                     break;
@@ -603,6 +612,7 @@ public final class DevShot {
         if (nameTagsMode) { ntStage = 0; frames = 0; phase = P_NAMETAGS; return; }
         if (wingsMode) { frames = 0; phase = P_WINGS; return; }
         if (minimapMode) { frames = 0; phase = P_MINIMAP; return; }
+        if (freelookMode) { frames = 0; phase = P_FREELOOK; return; }
         frames = 0; phase = P_WORLD;
     }
 
@@ -874,6 +884,116 @@ public final class DevShot {
      * Third-person shots of the DragonWings module: standing (back, front), sneaking (folded), falling and creative
      * flight, wearing an elytra (wings must hide) and with the module off. Same stages as the 26.x sweep.
      */
+    private static void stepFreelook(MinecraftClient client) {
+        ClientPlayerEntity player = client.player;
+        Module m = ModuleManager.byName("Freelook");
+        if (player == null || m == null) { phase = P_STOP; return; }
+        try { if (client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) client.setScreen(null); } catch (Throwable ignored) {}
+        long now = System.nanoTime();
+        if (frames++ == 0) {
+            flStage = 0;
+            flT0 = now;
+            try { client.options.pauseOnLostFocus = false; } catch (Throwable ignored) {}
+            m.setEnabled(true);
+            devCmd(client, "gamemode creative");
+            devCmd(client, "time set noon");
+            devCmd(client, "tp @s ~ ~ ~ 0 15");
+            client.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
+            return;
+        }
+        double secs = (now - flT0) / 1e9;
+        switch (flStage) {
+            // sanity: with Freelook released the fed movement must turn the player
+            case 0 -> { if (secs > 3.0) {
+                        float y0 = player.getYaw();
+                        flFeed(client, 400, 0);
+                        System.out.println(String.format("[S1mp1e][DevShot] freelook released: fed dx 400 -> player yaw %.1f -> %.1f", y0, player.getYaw()));
+                        player.setYaw(0f); player.setPitch(15f);
+                        flNext(now, 1); } }
+            case 1 -> { if (secs > 1.0) { dev.s1mp1e.client.module.FreelookModule.devHold = true; flNext(now, 2); } }
+            case 2 -> { if (secs > 0.6) {
+                        float py = player.getYaw(), cy = dev.s1mp1e.client.module.FreelookModule.yaw();
+                        System.out.println("[S1mp1e][DevShot] freelook held: active=" + dev.s1mp1e.client.module.FreelookModule.active()
+                                + " capturing=" + dev.s1mp1e.client.module.FreelookModule.capturing() + " view " + client.options.getPerspective());
+                        for (int i = 0; i < 10; i++) flFeed(client, 60, -10);
+                        System.out.println(String.format("[S1mp1e][DevShot] freelook held: fed dx 600 dy -100 -> camera yaw %.1f -> %.1f pitch %.1f, player yaw %.1f -> %.1f pitch %.1f",
+                                cy, dev.s1mp1e.client.module.FreelookModule.yaw(), dev.s1mp1e.client.module.FreelookModule.pitch(),
+                                py, player.getYaw(), player.getPitch()));
+                        flNext(now, 3); } }
+            case 3 -> { if (secs > 0.5) { capture(client, "fl-01-held-turned.png");
+                        dev.s1mp1e.client.module.FreelookModule.devHold = false; flNext(now, 4); } }
+            case 4 -> { if (secs > 2.0) {
+                        System.out.println("[S1mp1e][DevShot] freelook let go: active=" + dev.s1mp1e.client.module.FreelookModule.active()
+                                + ", view " + client.options.getPerspective());
+                        capture(client, "fl-02-let-go.png");
+                        client.setScreen(new net.minecraft.client.gui.screen.option.OptionsScreen(null, client.options));
+                        flNext(now, 5); } }
+            // the video settings screen the way the options menu opens it with Sodium: SodiumOptionsGUI.createScreen, which
+            // a replacement such as Reese's Sodium Options intercepts (the options page itself is S1mp1e's sidebar shell,
+            // so there is no vanilla "Video Settings" button to press)
+            case 5 -> { if (secs > 1.0) {
+                        try {
+                            Class<?> gui = Class.forName("net.caffeinemc.mods.sodium.client.gui.SodiumOptionsGUI");
+                            java.lang.reflect.Method cs = gui.getMethod("createScreen", net.minecraft.client.gui.screen.Screen.class);
+                            client.setScreen((net.minecraft.client.gui.screen.Screen) cs.invoke(null, client.currentScreen));
+                            System.out.println("[S1mp1e][DevShot] options: Sodium video settings opened");
+                        } catch (Throwable t) {
+                            skip("freelook: Sodium video settings", t);
+                            client.setScreen(new net.minecraft.client.gui.screen.option.VideoOptionsScreen(client.currentScreen, client, client.options));
+                        }
+                        flNext(now, 6); } }
+            case 6 -> { if (secs > 1.5) {
+                        System.out.println("[S1mp1e][DevShot] video settings screen: "
+                                + (client.currentScreen == null ? "null" : client.currentScreen.getClass().getName()));
+                        capture(client, "vs-01-video-settings.png");
+                        // Reese's Sodium Options under the glass: its search box (a hit on several pages, then none), a tab
+                        if (client.currentScreen instanceof dev.s1mp1e.glass.compat.SodiumGlass.Host h && h.s1mp1e$search() != null) {
+                            h.s1mp1e$search().setText("距離");
+                            flNext(now, 7);
+                        } else {
+                            client.setScreen(null);
+                            phase = P_STOP;
+                        } } }
+            case 7 -> { if (secs > 1.0) {
+                        dev.s1mp1e.glass.compat.SodiumGlass.Host h = (dev.s1mp1e.glass.compat.SodiumGlass.Host) client.currentScreen;
+                        System.out.println("[S1mp1e][DevShot] rso search '距離': " + h.s1mp1e$controls().size() + " rows, "
+                                + h.s1mp1e$page().getGroups().size() + " cards");
+                        capture(client, "vs-02-search.png");
+                        h.s1mp1e$search().setText("zzzz");
+                        flNext(now, 8); } }
+            case 8 -> { if (secs > 0.8) {
+                        dev.s1mp1e.glass.compat.SodiumGlass.Host h = (dev.s1mp1e.glass.compat.SodiumGlass.Host) client.currentScreen;
+                        System.out.println("[S1mp1e][DevShot] rso search 'zzzz': " + h.s1mp1e$controls().size() + " rows");
+                        capture(client, "vs-03-no-results.png");
+                        h.s1mp1e$search().setText("");
+                        if (h.s1mp1e$tabs().size() > 1) {
+                            net.caffeinemc.mods.sodium.client.util.Dim2i d = ((dev.s1mp1e.glass.compat.SodiumGlass.FlatBtn) h.s1mp1e$tabs().get(1)).s1mp1e$dim();
+                            client.currentScreen.mouseClicked(d.getCenterX(), d.getCenterY(), 0);
+                        }
+                        flNext(now, 9); } }
+            case 9 -> { if (secs > 1.0) {
+                        dev.s1mp1e.glass.compat.SodiumGlass.Host h = (dev.s1mp1e.glass.compat.SodiumGlass.Host) client.currentScreen;
+                        System.out.println("[S1mp1e][DevShot] rso second tab: page " + h.s1mp1e$page().getName().getString()
+                                + ", " + h.s1mp1e$controls().size() + " rows");
+                        capture(client, "vs-04-second-page.png");
+                        client.setScreen(null);
+                        phase = P_STOP; } }
+            default -> phase = P_STOP;
+        }
+    }
+
+    private static void flNext(long now, int stage) { flStage = stage; flT0 = now; }
+
+    /** One mouse movement through vanilla's path: the cursor delta, then {@code Mouse.updateMouse} (DevMouseInvoker). */
+    private static void flFeed(MinecraftClient client, double dx, double dy) {
+        try {
+            dev.s1mp1e.glass.mixin.DevMouseInvoker mi = (dev.s1mp1e.glass.mixin.DevMouseInvoker) client.mouse;
+            mi.s1mp1e$setCursorDeltaX(dx);
+            mi.s1mp1e$setCursorDeltaY(dy);
+            mi.s1mp1e$updateMouse(1.0 / 60.0);
+        } catch (Throwable t) { skip("freelook: feed mouse", t); }
+    }
+
     private static void stepWings(MinecraftClient client) {
         ClientPlayerEntity player = client.player;
         Module m = ModuleManager.byName("DragonWings");

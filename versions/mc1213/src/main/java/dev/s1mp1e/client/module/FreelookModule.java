@@ -36,9 +36,13 @@ public final class FreelookModule extends Module {
 
     public FreelookModule() { super("Freelook", "Visual"); instance = this; }
 
+    /** DevShot only: holds the key in an automated run, which has no keyboard. */
+    public static boolean devHold;
+
     private static boolean held() {
         FreelookModule m = instance;
         if (m == null || !m.enabled) return false;
+        if (devHold) return true;
         int k = m.key.intValue;
         if (k <= 0) return false;
         MinecraftClient mc = MinecraftClient.getInstance();
