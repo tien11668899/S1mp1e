@@ -178,8 +178,8 @@ final class SkinCompositor {
         } finally {
             if (vao != 0) GL30C.glDeleteVertexArrays(vao);
             if (fbo != 0) GL30C.glDeleteFramebuffers(fbo);
-            if (target != 0 && !keepTarget) GL11C.glDeleteTextures(target);
-            for (int t : textures.values()) GL11C.glDeleteTextures(t);
+            if (target != 0 && !keepTarget) net.minecraft.client.render.platform.GlStateManager.deleteTextures(target);
+            for (int t : textures.values()) net.minecraft.client.render.platform.GlStateManager.deleteTextures(t);
             saved.restore();
         }
     }

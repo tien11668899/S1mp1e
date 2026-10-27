@@ -25,9 +25,14 @@ import dev.s1mp1e.o.event.SubscribeEvent;
  */
 public final class HudRenderDispatcher {
 
+    /** The frame's partial tick, published for HUD modules that interpolate entities ({@link HudRenderer#renderHud()}
+     *  takes no arguments). */
+    public static float partialTicks;
+
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
         if (event.type != RenderGameOverlayEvent.ElementType.TEXT) return;
+        partialTicks = event.partialTicks;
 
         Minecraft mc = Minecraft.getInstance();
         // Title screen / no render view: nothing to draw. hideGUI (F1) hides everything

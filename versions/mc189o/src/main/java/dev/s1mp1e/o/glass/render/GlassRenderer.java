@@ -1,5 +1,6 @@
 package dev.s1mp1e.o.glass.render;
 
+import net.minecraft.client.render.platform.GLX;
 import net.minecraft.client.render.platform.GlStateManager;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
@@ -84,6 +85,7 @@ public final class GlassRenderer {
         if (kind == GlassProgram.ROUND && !GlassProgram.roundUsable())return false;
         if (kind == GlassProgram.EDGE  && !GlassProgram.edgeUsable()) return false;
         if (kind == GlassProgram.LENS  && !GlassProgram.lensUsable()) return false;
+        if (kind == GlassProgram.RING  && !GlassProgram.ringUsable()) return false;
         batchTex = GlassProgram.needsBackdrop(kind);
         if (batchTex && !SceneCapture.hasBackdrop()) return false;
 
@@ -183,6 +185,46 @@ public final class GlassRenderer {
     public static void lens(float x0, float y0, float x1, float y1,
                             float corner, float lift, float opacity, float frost) {
         draw(GlassProgram.LENS, x0, y0, x1, y1, 10f, corner, 1f - lift, opacity, frost);
+    }
+
+    /**
+     * Liquid-glass RING (glass_ring.fsh): the glass material on a circular band of outer radius {@code outerR} and
+     * {@code thickness} GUI px centred at (cx, cy), refracting the backdrop - the round minimap's bezel.
+     */
+    public static void ring(float cx, float cy, float outerR, float thickness, float opacity) {
+        if (outerR <= 0f || opacity <= 0f) return;
+        float t = Math.max(0.02f, Math.min(1f, thickness / outerR));
+        draw(GlassProgram.RING, cx - outerR, cy - outerR, cx + outerR, cy + outerR, 10f, t, 1f, opacity, FROST_PANEL);
+    }
+
+    /**
+     * Quads that sample their OWN texture on unit 0 instead of the backdrop (the minimap: {@link GlassProgram#MINIMAP}
+     * with the map texture), streamed from packed lists: x, y, u, v per vertex in {@code xyuv} and ARGB in {@code argb},
+     * four vertices per quad wound top-left, bottom-left, bottom-right, top-right like {@link #batchQuad}.
+     * {@code texSize} is the texture side in texels (the MINIMAP program's MapSize).
+     */
+    public static void texturedQuads(int kind, int textureId, float texSize, float[] xyuv, int[] argb, int vertices) {
+        if (vertices < 4 || !GlassProgram.ensureReady()) return;
+        if (kind == GlassProgram.MINIMAP && !GlassProgram.minimapUsable()) return;
+        batchKind = kind;
+        batchTex = true;
+        GlStateManager.enableBlend();
+        GlStateManager.blendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.disableAlphaTest();
+        GlStateManager.depthMask(false);
+        GlStateManager.enableTexture();
+        GlStateManager.activeTexture(GLX.GL_TEXTURE0);
+        GlStateManager.bindTexture(textureId);
+        GlassProgram.bind(kind);
+        if (kind == GlassProgram.MINIMAP) GlassProgram.setMapSize(texSize);   // BEFORE glBegin
+        openQuads();
+        for (int i = 0, end = vertices & ~3; i < end; i++) {
+            int o = i * 4, c = argb[i];
+            GL11.glColor4f(((c >> 16) & 255) / 255f, ((c >> 8) & 255) / 255f, (c & 255) / 255f, ((c >>> 24) & 255) / 255f);
+            GL11.glTexCoord2f(xyuv[o + 2], xyuv[o + 3]);
+            GL11.glVertex2f(xyuv[o], xyuv[o + 1]);
+        }
+        endBatch();
     }
 
     /**

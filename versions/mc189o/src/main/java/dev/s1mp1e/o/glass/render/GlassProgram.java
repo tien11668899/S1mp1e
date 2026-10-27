@@ -33,9 +33,13 @@ public final class GlassProgram {
     public static final int EDGE  = 5;
     /** Refracting LENS (glass_lens.fsh): glass + full-capsule corner, for the switch knob / slider thumb. */
     public static final int LENS  = 6;
+    /** Liquid-glass RING (glass_ring.fsh): the glass material on a circular band - the round minimap's bezel. */
+    public static final int RING  = 7;
+    /** Glass minimap (minimap.fsh): the map texture, player-marker glass, heading beam and dots - dev.s1mp1e.o.minimap. */
+    public static final int MINIMAP = 8;
 
-    private static final int COUNT = 7;
-    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens" };
+    private static final int COUNT = 9;
+    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens", "glass_ring", "minimap" };
 
     private static final int[] program   = new int[COUNT];
     private static final int[] uSampler0 = new int[COUNT];
@@ -46,6 +50,7 @@ public final class GlassProgram {
     private static final int[] uEdgeMode = new int[COUNT];
     private static final int[] uCorner   = new int[COUNT];
     private static final int[] uShadow   = new int[COUNT];
+    private static final int[] uMapSize  = new int[COUNT];
 
     /** Drop-shadow multiplier for the GLASS program (1 = normal, 0 = suppressed).
      *  Persistent: applied on every GLASS bind; the hotbar drops it to 0 while a
@@ -65,6 +70,8 @@ public final class GlassProgram {
     public static boolean roundUsable(){ return state == 1 && program[ROUND] != 0; }
     public static boolean edgeUsable() { return state == 1 && program[EDGE]  != 0; }
     public static boolean lensUsable() { return state == 1 && program[LENS]  != 0; }
+    public static boolean ringUsable() { return state == 1 && program[RING]  != 0; }
+    public static boolean minimapUsable() { return state == 1 && program[MINIMAP] != 0; }
 
     /** Build all three once. Returns false if this GPU can't run the glass path. */
     public static boolean ensureReady() {
@@ -103,7 +110,9 @@ public final class GlassProgram {
                 + " blur="   + (program[BLUR]  != 0)
                 + " round="  + (program[ROUND] != 0)
                 + " edge="   + (program[EDGE]  != 0)
-                + " lens="   + (program[LENS]  != 0) + ")");
+                + " lens="   + (program[LENS]  != 0)
+                + " ring="   + (program[RING]  != 0)
+                + " minimap=" + (program[MINIMAP] != 0) + ")");
             return true;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] glass shaders unavailable: " + t);
@@ -135,6 +144,7 @@ public final class GlassProgram {
             uEdgeMode[kind] = GL20.glGetUniformLocation(p, "EdgeMode");
             uCorner[kind]   = GL20.glGetUniformLocation(p, "Corner");
             uShadow[kind]   = GL20.glGetUniformLocation(p, "ShadowScale");
+            uMapSize[kind]  = GL20.glGetUniformLocation(p, "MapSize");
             return p;
         } catch (Throwable t) {
             System.out.println("[S1mp1e] " + fshName + " unavailable: " + t);
@@ -151,13 +161,13 @@ public final class GlassProgram {
         if (uModulate[kind] >= 0) GL20.glUniform4f(uModulate[kind], 1f, 1f, 1f, 1f);
         // GLASS drop-shadow multiplier — persistent, set every bind so a value the
         // hotbar leaves at 0 can never leak into the panel or inventory glass.
-        if (kind == GLASS && uShadow[GLASS] >= 0) GL20.glUniform1f(uShadow[GLASS], shadowScale);
+        if ((kind == GLASS || kind == RING) && uShadow[kind] >= 0) GL20.glUniform1f(uShadow[kind], shadowScale);
     }
 
     public static void unbind() { GL20.glUseProgram(0); }
 
     /** True when this program samples the captured backdrop. */
-    public static boolean needsBackdrop(int kind) { return kind == GLASS || kind == EDGE || kind == LENS; }
+    public static boolean needsBackdrop(int kind) { return kind == GLASS || kind == EDGE || kind == LENS || kind == RING; }
 
     /** Blur-specific uniforms; call right after {@link #bind}. Opaque full-screen backdrop. */
     public static void setBlur(float radiusPx, float dim) {
@@ -183,6 +193,11 @@ public final class GlassProgram {
     public static void setEdge(float radiusPx, float dim) {
         if (uRadius[EDGE] >= 0) GL20.glUniform1f(uRadius[EDGE], radiusPx);
         if (uDim[EDGE]    >= 0) GL20.glUniform1f(uDim[EDGE],    dim);
+    }
+
+    /** Map texture side in texels for the MINIMAP program (GLSL 120 has no textureSize); call right after {@link #bind}. */
+    public static void setMapSize(float texels) {
+        if (uMapSize[MINIMAP] >= 0) GL20.glUniform1f(uMapSize[MINIMAP], texels);
     }
 
     /** GLASS drop-shadow multiplier. Persists until changed; the hotbar sets 0

@@ -92,7 +92,7 @@ public final class ScreenDissolve {
         int prevFbo = GL11.glGetInteger(GL_FRAMEBUFFER_BINDING);
 
         if (snapTex == 0 || snapW != w || snapH != h) {
-            if (snapTex != 0) GL11.glDeleteTextures(snapTex);
+            if (snapTex != 0) GlStateManager.deleteTextures(snapTex);
             snapTex = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, snapTex);
             // 複製之前先定義 level 0 並設非 mipmap 的濾鏡（不完整的材質取樣起來等於「關掉貼圖」——

@@ -158,7 +158,7 @@ public final class GloveSkins {
             while (LRU.size() > KEEP) {
                 Map<String, Integer> old = CACHE.remove(LRU.removeFirst());
                 if (old != null) for (Integer id : new java.util.HashSet<>(old.values()))
-                    if (LAST.get(glove) != old) GL11C.glDeleteTextures(id);
+                    if (LAST.get(glove) != old) net.minecraft.client.render.platform.GlStateManager.deleteTextures(id);
             }
             LAST.put(glove, m);
             System.out.printf("[S1mp1e] composited glove %s %s wear %.3f (GPU %.0f ms)%n", glove, skin, wear, (System.nanoTime() - t0) / 1e6);

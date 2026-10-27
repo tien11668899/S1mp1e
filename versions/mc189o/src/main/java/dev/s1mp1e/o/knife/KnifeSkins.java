@@ -152,7 +152,7 @@ public final class KnifeSkins {
             while (LRU.size() > KEEP) {
                 String old = LRU.removeFirst();
                 Skin o = CACHE.remove(old);
-                if (o != null && LAST.get(knife) != o) GL11C.glDeleteTextures(o.texture());
+                if (o != null && LAST.get(knife) != o) net.minecraft.client.render.platform.GlStateManager.deleteTextures(o.texture());
             }
             LAST.put(knife, s);
             System.out.printf("[S1mp1e] composited %s %s wear %.3f seed %d (GPU %.0f ms)%n", knife, paint, wear, seed(), (System.nanoTime() - t0) / 1e6);

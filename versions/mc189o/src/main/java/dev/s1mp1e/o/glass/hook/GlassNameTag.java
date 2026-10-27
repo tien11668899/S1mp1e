@@ -24,10 +24,14 @@ public final class GlassNameTag {
 
     /**
      * Redirect target for {@code BufferBuilder.color(float,float,float,float)} inside {@code renderLivingLabel}.
-     * Swaps the plate RGB to the frosted charcoal, keeping the caller's alpha exactly.
+     * NameTags module: Glass swaps the plate RGB to the frosted charcoal keeping the caller's alpha exactly, Vanilla
+     * leaves it alone, Off zeroes the alpha so only the text shows.
      */
     public static BufferBuilder color(BufferBuilder wr, float r, float g, float b, float a) {
         if (a <= 0f) return wr.color(r, g, b, a);   // fully transparent: leave as-is (keep vanilla visibility)
+        String mode = dev.s1mp1e.o.client.module.NameTagModule.mode();
+        if ("Vanilla".equals(mode)) return wr.color(r, g, b, a);
+        if ("Off".equals(mode)) return wr.color(r, g, b, 0f);
         return wr.color(PR, PG, PB, a);
     }
 }

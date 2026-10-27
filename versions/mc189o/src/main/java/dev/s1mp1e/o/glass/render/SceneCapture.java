@@ -1,6 +1,7 @@
 package dev.s1mp1e.o.glass.render;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.render.platform.GlStateManager;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
@@ -95,7 +96,7 @@ public final class SceneCapture {
         int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
 
         if (texture == 0 || texW != w || texH != h) {
-            if (texture != 0) GL11.glDeleteTextures(texture);
+            if (texture != 0) GlStateManager.deleteTextures(texture);
             texture = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);

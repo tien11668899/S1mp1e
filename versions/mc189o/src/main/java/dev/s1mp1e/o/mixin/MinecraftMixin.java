@@ -78,6 +78,25 @@ public abstract class MinecraftMixin {
     @Inject(method = "tick", at = @At("TAIL"))
     private void s1mp1e$tickEnd(CallbackInfo ci) {
         MinecraftForge.EVENT_BUS.post(new TickEvent.ClientTickEvent(TickEvent.Phase.END));
+        // ToggleSprint's press edges and Freelook's world-change reset (26.3's MovementTickMixin)
+        dev.s1mp1e.o.client.module.ToggleSprintModule.tick();
+        dev.s1mp1e.o.client.module.FreelookModule.tick();
+        // the minimap's M key, and freeing its texture after the switch-off fade / on leaving the world
+        dev.s1mp1e.o.client.module.MinimapModule.tick();
+        // smooth sneak: ease the camera's eye height once per tick (modern Camera.tick)
+        dev.s1mp1e.o.client.module.SmoothSneakModule.tick();
+    }
+
+    // ---- a resource pack's sky and fog colours (assets/s1mp1e/clean_sky.json), re-read with every resource reload ----
+    @Inject(method = "reloadResources", at = @At("TAIL"))
+    private void s1mp1e$packSky(CallbackInfo ci) {
+        dev.s1mp1e.o.client.PackSky.reload();
+    }
+
+    // ---- mouse delay fix: when the frame's own input poll (Display.update) happened ----
+    @Inject(method = "updateDisplay", at = @At("TAIL"))
+    private void s1mp1e$afterDisplayUpdate(CallbackInfo ci) {
+        dev.s1mp1e.o.client.module.MouseDelayFixModule.afterDisplayUpdate();
     }
 
     // ---- MouseEvent：每個 Mouse.next() 之後發；被取消的事件原版就不處理（跳到下一個） ----

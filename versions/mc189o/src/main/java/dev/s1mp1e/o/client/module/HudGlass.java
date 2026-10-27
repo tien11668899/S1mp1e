@@ -2,6 +2,7 @@ package dev.s1mp1e.o.client.module;
 
 import dev.s1mp1e.o.client.gui.GlassWidgets;
 import dev.s1mp1e.o.client.hud.HudFade;
+import dev.s1mp1e.o.glass.render.GlassCorners;
 import dev.s1mp1e.o.glass.render.GlassProgram;
 import dev.s1mp1e.o.glass.render.GlassRenderer;
 import dev.s1mp1e.o.glass.render.SceneCapture;
@@ -44,6 +45,39 @@ public final class HudGlass {
         } else {
             int a = Math.max(0, Math.min(255, Math.round(alpha * 0x88)));
             roundFill(x0, y0, x1 - x0, y1 - y0, 3, (a << 24) | 0x101014);
+        }
+    }
+
+    /**
+     * {@link #glassBox} with the glass hotbar's corner radius ({@link GlassCorners#HOTBAR_RADIUS}) instead of a corner
+     * fraction: glassBox's fixed 0.9 knob scales with the short side, which suits small HUD pills but rounds a large
+     * panel (the minimap's square bezel, the full-screen map) far too much. Ported from mc1211's {@code glassTile}.
+     */
+    public static void glassTile(int x0, int y0, int x1, int y1, float alpha) {
+        if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
+        if (SceneCapture.hasBackdrop() && GlassProgram.ensureReady() && GlassProgram.usable()) {
+            Minecraft mc = Minecraft.getInstance();
+            GlassProgram.setShadowScale(mc.screen != null ? 0f : 1f);
+            GlassRenderer.glass(x0, y0, x1, y1, 6f, GlassCorners.cornerKnob(x1 - x0, y1 - y0), 0f, alpha,
+                    GlassRenderer.FROST_PANEL);
+            GlassProgram.setShadowScale(1f);
+        } else {
+            int a = Math.max(0, Math.min(255, Math.round(alpha * 0x88)));
+            roundFill(x0, y0, x1 - x0, y1 - y0, Math.round(GlassCorners.HOTBAR_RADIUS), (a << 24) | 0x101014);
+        }
+    }
+
+    /**
+     * A rounded fill with sub-pixel float coordinates and a true anti-aliased corner (the ROUND program), or the
+     * integer {@link #roundFill} without it. Applies the HUD-module fade.
+     */
+    public static void roundFillF(float x0, float y0, float x1, float y1, float radius, int argb) {
+        if (x1 <= x0 || y1 <= y0) return;
+        if (GlassProgram.ensureReady() && GlassProgram.roundUsable()) {
+            GlassRenderer.roundRect(x0, y0, x1, y1, radius, HudFade.argb(argb));
+        } else {
+            roundFill(Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0), Math.round(radius), argb);
         }
     }
 

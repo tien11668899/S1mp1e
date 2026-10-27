@@ -131,12 +131,12 @@ final class GloveCompositor {
             }
             return result;
         } catch (Throwable t) {
-            for (int im : result.values()) GL11C.glDeleteTextures(im);
+            for (int im : result.values()) net.minecraft.client.render.platform.GlStateManager.deleteTextures(im);
             throw t;
         } finally {
             if (vao != 0) GL30C.glDeleteVertexArrays(vao);
             if (fbo != 0) GL30C.glDeleteFramebuffers(fbo);
-            for (int t : textures.values()) GL11C.glDeleteTextures(t);
+            for (int t : textures.values()) net.minecraft.client.render.platform.GlStateManager.deleteTextures(t);
             saved.restore();
         }
     }

@@ -139,6 +139,20 @@ public final class Lang {
         MODULE.put("LowFire", "火焰畫面降低");
         MODULE.put("AttackRing", "攻擊冷卻玻璃環");
         MODULE.put("HitMarker", "命中標記");
+        // 從 26.3 移植
+        MODULE.put("Particles", "粒子");
+        MODULE.put("NameTags", "名牌");
+        MODULE.put("ToggleSprint", "自動疾跑／潛行");
+        MODULE.put("Freelook", "自由視角");
+        MODULE.put("DragonWings", "末影龍翅膀");
+        MODULE.put("Minimap", "玻璃小地圖");
+        // 1.8.9 戰鬥與流暢度（2026-10-26）
+        MODULE.put("MouseDelayFix", "滑鼠延遲修正");
+        MODULE.put("SmoothSneak", "平滑蹲下");
+        MODULE.put("ItemCount", "物品數量");
+        MODULE.put("Hitboxes", "碰撞箱（F3+B）");
+        MODULE.put("EntityCulling", "實體遮擋剔除");
+        MODULE.put("EntityDistance", "實體顯示距離");
 
         SETTING.put("X", "X 位置");
         SETTING.put("Y", "Y 位置");
@@ -222,7 +236,62 @@ public final class Lang {
         SETTING.put("Ready shape", "蓄滿形狀");
         SETTING.put("Ready size", "蓄滿大小 (0=同環半徑)");
         SETTING.put("Ready width", "蓄滿粗細 (0=同環粗細)");
+        // Particles / ToggleSprint / Freelook (26.3 的名稱)
+        SETTING.put("Amount", "粒子量");
+        SETTING.put("Keep", "保留比例");
+        SETTING.put("Toggle sprint", "疾跑切換");
+        SETTING.put("Toggle sneak", "潛行切換");
+        SETTING.put("Show status", "顯示狀態標示");
+        SETTING.put("Third person", "按住時切到第三人稱");
+        SETTING.put("Smooth return", "放開後平滑轉回");
+        SETTING.put("Return speed", "轉回速度");
+        SETTING.put("Wing size", "翅膀大小");
+        // Minimap (26.3 / 1.21.x 的名稱；"Shape"、"Size"、"Zoom"、"X"、"Y" 和其他模組共用)
+        SETTING.put("Orientation", "朝向");
+        SETTING.put("Map style", "地圖風格");
+        SETTING.put("Soft colours", "柔和色調");
+        SETTING.put("Bezel opacity", "玻璃外框不透明度");
+        SETTING.put("Show players", "顯示其他玩家（僅自己的世界）");
+        SETTING.put("Player names", "顯示玩家名稱");
+        SETTING.put("Tab radar", "按住 Tab 顯示生物與掉落物（僅自己的世界）");
+        SETTING.put("Fullscreen key (GLFW)", "全螢幕地圖按鍵 (GLFW)");
+        // 1.8.9 戰鬥與流暢度
+        SETTING.put("Arrows", "箭");
+        SETTING.put("Golden apples", "金蘋果");
+        SETTING.put("Ender pearls", "終界珍珠");
+        SETTING.put("Blocks", "方塊");
+        SETTING.put("Hide empty", "沒有時不顯示");
+        SETTING.put("1.7 rod", "1.7 釣竿位置");
+        SETTING.put("1.7 bow", "1.7 拉弓");
+        SETTING.put("1.7 third-person block", "1.7 第三人稱格擋");
+        SETTING.put("Red armour on hit", "受傷時盔甲變紅");
+        SETTING.put("Box colour", "框線顏色");
+        SETTING.put("Eye height", "眼睛高度（紅框）");
+        SETTING.put("Look direction", "視線方向（藍線）");
+        SETTING.put("Players only", "只顯示玩家");
+        SETTING.put("Red when hit", "被打中時變紅");
+        SETTING.put("Armor stands", "盔甲座");
+        SETTING.put("Items and XP", "掉落物和經驗球");
+        SETTING.put("Item frames", "物品展示框");
+        SETTING.put("Mobs", "生物");
+        SETTING.put("Players", "玩家");
+        SETTING.put("1% low", "1% low");
+        SETTING.put("Stutters", "卡頓次數");
 
+        MODE.put("Apple", "Apple 地圖");
+        MODE.put("Classic", "原版地圖");
+        MODE.put("Round", "圓形");
+        MODE.put("Rounded square", "圓角正方形");
+        MODE.put("Follow facing", "跟著朝向轉");
+        MODE.put("North up", "北方朝上");
+        MODE.put("Close", "近");
+        MODE.put("Medium", "中");
+        MODE.put("Far", "遠");
+        MODE.put("Reduced", "減少");
+        MODE.put("None", "無");
+        MODE.put("Glass", "液態玻璃");
+        MODE.put("Vanilla", "原版");
+        MODE.put("Off", "關閉");
         MODE.put("Cross", "十字");
         MODE.put("Dot", "圓點");
         MODE.put("Circle", "圓環");

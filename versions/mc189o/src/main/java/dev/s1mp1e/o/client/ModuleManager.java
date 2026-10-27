@@ -10,19 +10,31 @@ import dev.s1mp1e.o.client.module.ChromaHudModule;
 import dev.s1mp1e.o.client.module.CoordinatesHudModule;
 import dev.s1mp1e.o.client.module.CpsModule;
 import dev.s1mp1e.o.client.module.CrosshairModule;
+import dev.s1mp1e.o.client.module.DragonWingsModule;
+import dev.s1mp1e.o.client.module.EntityCullingModule;
+import dev.s1mp1e.o.client.module.EntityDistanceModule;
+import dev.s1mp1e.o.client.module.HitboxModule;
+import dev.s1mp1e.o.client.module.ItemCountHudModule;
 import dev.s1mp1e.o.client.module.LowFireModule;
+import dev.s1mp1e.o.client.module.MinimapModule;
+import dev.s1mp1e.o.client.module.MouseDelayFixModule;
+import dev.s1mp1e.o.client.module.SmoothSneakModule;
 import dev.s1mp1e.o.client.module.HitMarkerModule;
 import dev.s1mp1e.o.client.module.FpsHudModule;
+import dev.s1mp1e.o.client.module.FreelookModule;
 import dev.s1mp1e.o.client.module.FullbrightModule;
 import dev.s1mp1e.o.client.module.HandPositionModule;
 import dev.s1mp1e.o.client.module.HungerSaturationHudModule;
 import dev.s1mp1e.o.client.module.InventoryHudModule;
 import dev.s1mp1e.o.client.module.KeystrokesHudModule;
 import dev.s1mp1e.o.client.module.KnifeModule;
+import dev.s1mp1e.o.client.module.NameTagModule;
 import dev.s1mp1e.o.client.module.NoHurtCamModule;
 import dev.s1mp1e.o.client.module.OldAnimationsModule;
+import dev.s1mp1e.o.client.module.ParticlesModule;
 import dev.s1mp1e.o.client.module.PotionHudModule;
 import dev.s1mp1e.o.client.module.SteadyFovModule;
+import dev.s1mp1e.o.client.module.ToggleSprintModule;
 import dev.s1mp1e.o.client.module.XpFlowHudModule;
 import dev.s1mp1e.o.client.module.ZoomModule;
 
@@ -110,6 +122,20 @@ public final class ModuleManager {
         add("HitMarkerModule",     safeHitMarker());   // 1.8.9 combat (no cooldown -> no AttackRing)
         add("LowFireModule",       safeLowFire());
         add("CS2KnifeModule",      safeKnife());       // CS2 knives on swords (viewmodel / skins / boxing arms)
+        // ported from 26.3: particles, the name-tag plate, toggle sprint / sneak, hold-key freelook
+        add("ParticlesModule",     safeParticles());
+        add("NameTagModule",       safeNameTag());
+        add("ToggleSprintModule",  safeToggleSprint());
+        add("FreelookModule",      safeFreelook());
+        add("DragonWingsModule",   safeDragonWings());
+        add("MinimapModule",       safeMinimap());     // glass minimap + M full-screen map
+        // combat feel and frame rate (2026-10-26)
+        add("MouseDelayFixModule", safeMouseDelayFix());
+        add("SmoothSneakModule",   safeSmoothSneak());
+        add("ItemCountHudModule",  safeItemCount());
+        add("HitboxModule",        safeHitbox());
+        add("EntityCullingModule", safeEntityCulling());
+        add("EntityDistanceModule", safeEntityDistance());
 
         S1mp1eConfig.load();
 
@@ -154,6 +180,54 @@ public final class ModuleManager {
 
     private static Module safeKnife() {
         try { return new KnifeModule(); } catch (Throwable t) { return fail("CS2KnifeModule", t); }
+    }
+
+    private static Module safeParticles() {
+        try { return new ParticlesModule(); } catch (Throwable t) { return fail("ParticlesModule", t); }
+    }
+
+    private static Module safeNameTag() {
+        try { return new NameTagModule(); } catch (Throwable t) { return fail("NameTagModule", t); }
+    }
+
+    private static Module safeToggleSprint() {
+        try { return new ToggleSprintModule(); } catch (Throwable t) { return fail("ToggleSprintModule", t); }
+    }
+
+    private static Module safeFreelook() {
+        try { return new FreelookModule(); } catch (Throwable t) { return fail("FreelookModule", t); }
+    }
+
+    private static Module safeDragonWings() {
+        try { return new DragonWingsModule(); } catch (Throwable t) { return fail("DragonWingsModule", t); }
+    }
+
+    private static Module safeMouseDelayFix() {
+        try { return new MouseDelayFixModule(); } catch (Throwable t) { return fail("MouseDelayFixModule", t); }
+    }
+
+    private static Module safeSmoothSneak() {
+        try { return new SmoothSneakModule(); } catch (Throwable t) { return fail("SmoothSneakModule", t); }
+    }
+
+    private static Module safeItemCount() {
+        try { return new ItemCountHudModule(); } catch (Throwable t) { return fail("ItemCountHudModule", t); }
+    }
+
+    private static Module safeHitbox() {
+        try { return new HitboxModule(); } catch (Throwable t) { return fail("HitboxModule", t); }
+    }
+
+    private static Module safeEntityCulling() {
+        try { return new EntityCullingModule(); } catch (Throwable t) { return fail("EntityCullingModule", t); }
+    }
+
+    private static Module safeEntityDistance() {
+        try { return new EntityDistanceModule(); } catch (Throwable t) { return fail("EntityDistanceModule", t); }
+    }
+
+    private static Module safeMinimap() {
+        try { return new MinimapModule(); } catch (Throwable t) { return fail("MinimapModule", t); }
     }
 
     private static Module safeCrosshair() {

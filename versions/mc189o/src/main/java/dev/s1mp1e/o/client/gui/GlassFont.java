@@ -186,6 +186,11 @@ public final class GlassFont {
         }
         buf.flip();
         int tex = GL11.glGenTextures();
+        // Force a real bind. GL hands out a deleted texture's id again; if that texture was deleted behind
+        // GlStateManager's back while bound, its cache still says this id is bound, a plain bindTexture(tex) is a
+        // no-op, and the upload lands in whatever texture is really bound: the glyph stays empty and draws as a
+        // white box (seen on name tags and the FPS pill's "1% low").
+        GlStateManager.bindTexture(0);
         GlStateManager.bindTexture(tex);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);

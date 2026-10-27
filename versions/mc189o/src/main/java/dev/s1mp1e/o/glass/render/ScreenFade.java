@@ -131,7 +131,7 @@ public final class ScreenFade {
 
         int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
         if (texture == 0 || texW != w || texH != h) {
-            if (texture != 0) GL11.glDeleteTextures(texture);
+            if (texture != 0) GlStateManager.deleteTextures(texture);
             texture = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
             // Level 0 MUST be defined before any glCopyTexSubImage2D, and the
