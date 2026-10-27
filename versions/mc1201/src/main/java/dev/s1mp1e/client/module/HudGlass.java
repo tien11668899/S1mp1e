@@ -2,6 +2,7 @@ package dev.s1mp1e.client.module;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.s1mp1e.client.hud.HudFade;
+import dev.s1mp1e.glass.render.GlassCorners;
 import dev.s1mp1e.glass.render.GlassProgram;
 import dev.s1mp1e.glass.render.GlassRenderer;
 import dev.s1mp1e.glass.render.SceneCapture;
@@ -48,6 +49,29 @@ public final class HudGlass {
         } else {
             int a = Math.max(0, Math.min(255, Math.round(alpha * 0x88)));
             roundFill(ctx, x0, y0, x1 - x0, y1 - y0, 3, (a << 24) | 0x101014);
+        }
+    }
+
+    /**
+     * {@link #glassBox} with the hotbar's corner radius ({@link GlassCorners#HOTBAR_RADIUS}) whatever the size, as 26.x's
+     * {@code HudGlass.glassTile}: glassBox's fixed 0.9 corner fraction scales with the short side, which suits small
+     * HUD pills but rounds a large panel (the minimap's square bezel, the full-screen map) far too much.
+     */
+    public static void glassTile(DrawContext ctx, int x0, int y0, int x1, int y1, float alpha) {
+        if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
+        if (GlassProgram.ensureReady() && GlassProgram.usable()) {
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
+            ctx.draw();                       // flush buffered HUD draws so the glass sits on top of them
+            RenderSystem.disableDepthTest();
+            GlassProgram.setShadowScale(mc.currentScreen != null ? 0f : 1f);
+            GlassRenderer.glass(x0, y0, x1, y1, 6f, GlassCorners.hotbarCornerFrac(x1 - x0, y1 - y0), 0f, alpha,
+                    GlassRenderer.FROST_PANEL);
+            RenderSystem.enableDepthTest();
+        } else {
+            int a = Math.max(0, Math.min(255, Math.round(alpha * 0x88)));
+            roundFill(ctx, x0, y0, x1 - x0, y1 - y0, Math.round(GlassCorners.HOTBAR_RADIUS), (a << 24) | 0x101014);
         }
     }
 

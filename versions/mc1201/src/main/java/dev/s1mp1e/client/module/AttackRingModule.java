@@ -167,18 +167,7 @@ public final class AttackRingModule extends Module {
      */
     private static float[] crosshairGeom(int gw, int gh) {
         dev.s1mp1e.client.Module m = dev.s1mp1e.client.ModuleManager.byName("Crosshair");
-        if (m instanceof CrosshairModule && m.enabled) {
-            CrosshairModule ch = (CrosshairModule) m;
-            int s = ch.size.intValue, t = ch.thick.intValue, gp = ch.gap.intValue;
-            float out = ch.outline.boolValue ? 1f : 0f;
-            int icx = gw / 2, icy = gh / 2;
-            float ccx = icx - (t + 1) / 2 + t / 2f, ccy = icy - (t + 1) / 2 + t / 2f;
-            String mode = ch.shape.modeValue;
-            if ("Circle".equals(mode)) return new float[] { icx, icy, gp + s + out, 0f, 0f, 1f, 0f };
-            if ("Dot".equals(mode))    return new float[] { ccx, ccy, t * 0.7072f + out, 0f, 0f, 1f, 0f };
-            // element [6] = the crosshair inner gap (arms this far from centre; 0 for a joined "+")
-            return new float[] { ccx, ccy, t / 2f + gp + s + out, t / 2f + out, ch.rotation.intValue, 0f, (float) gp };
-        }
+        if (m instanceof CrosshairModule && m.enabled) return ((CrosshairModule) m).geom(gw, gh);
         return new float[] { (gw - 15) / 2 + 7.5f, (gh - 15) / 2 + 7.5f, 7.5f, 0.5f, 0f, 0f, 0f };
     }
 

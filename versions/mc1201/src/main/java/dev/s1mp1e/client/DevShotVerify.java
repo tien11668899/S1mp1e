@@ -1223,8 +1223,8 @@ final class DevShotVerify {
                         (dev.s1mp1e.client.module.CrosshairModule) dev.s1mp1e.client.ModuleManager.byName("Crosshair");
                 if (ch != null) {
                     ch.enabled = true; ch.shape.modeValue = xs;
-                    ch.size.intValue = 7; ch.gap.intValue = 3; ch.thick.intValue = 2;
-                    ch.rotation.intValue = "Cross".equals(xs) ? 45 : 0;
+                    ch.size.doubleValue = 7; ch.gap.doubleValue = 3; ch.thick.doubleValue = 2;
+                    ch.rotation.doubleValue = "Cross".equals(xs) ? 45 : 0;
                 }
                 if (((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")) != null) ((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")).shape.modeValue = "Wrap";
                 if (c.player != null) { c.player.resetLastAttackedTicks(); c.player.swingHand(net.minecraft.util.Hand.MAIN_HAND); };
@@ -1236,7 +1236,7 @@ final class DevShotVerify {
                     (dev.s1mp1e.client.module.CrosshairModule) dev.s1mp1e.client.ModuleManager.byName("Crosshair");
             if (ch != null) {
                 ch.enabled = false; ch.shape.modeValue = "Cross";
-                ch.size.intValue = 4; ch.gap.intValue = 2; ch.thick.intValue = 1; ch.rotation.intValue = 0;
+                ch.size.doubleValue = 4; ch.gap.doubleValue = 2; ch.thick.doubleValue = 1; ch.rotation.doubleValue = 0;
             }
             if (((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")) != null) ((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")).shape.modeValue = "Circle";
         }));
