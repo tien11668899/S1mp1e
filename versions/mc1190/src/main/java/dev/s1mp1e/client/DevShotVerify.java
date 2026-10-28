@@ -1228,8 +1228,8 @@ final class DevShotVerify {
                         (dev.s1mp1e.client.module.CrosshairModule) dev.s1mp1e.client.ModuleManager.byName("Crosshair");
                 if (ch != null) {
                     ch.enabled = true; ch.shape.modeValue = xs;
-                    ch.size.intValue = 7; ch.gap.intValue = 3; ch.thick.intValue = 2;
-                    ch.rotation.intValue = "Cross".equals(xs) ? 45 : 0;
+                    ch.size.doubleValue = 7; ch.gap.doubleValue = 3; ch.thick.doubleValue = 2;
+                    ch.rotation.doubleValue = "Cross".equals(xs) ? 45 : 0;
                 }
                 if (((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")) != null) ((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")).shape.modeValue = "Wrap";
                 if (c.player != null) { c.player.resetLastAttackedTicks(); c.player.swingHand(net.minecraft.util.Hand.MAIN_HAND); };
@@ -1241,7 +1241,7 @@ final class DevShotVerify {
                     (dev.s1mp1e.client.module.CrosshairModule) dev.s1mp1e.client.ModuleManager.byName("Crosshair");
             if (ch != null) {
                 ch.enabled = false; ch.shape.modeValue = "Cross";
-                ch.size.intValue = 4; ch.gap.intValue = 2; ch.thick.intValue = 1; ch.rotation.intValue = 0;
+                ch.size.doubleValue = 4; ch.gap.doubleValue = 2; ch.thick.doubleValue = 1; ch.rotation.doubleValue = 0;
             }
             if (((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")) != null) ((dev.s1mp1e.client.module.AttackRingModule) dev.s1mp1e.client.ModuleManager.byName("AttackRing")).shape.modeValue = "Circle";
         }));
@@ -1552,9 +1552,9 @@ final class DevShotVerify {
                 addDrawableChild(new net.minecraft.client.gui.widget.CheckboxWidget(60, 150, 20, 20, Text.literal("未勾選"), false));
                 addDrawableChild(new net.minecraft.client.gui.widget.CheckboxWidget(160, 150, 20, 20, Text.literal("已勾選"), true));
             }
-            @Override public void render(net.minecraft.client.util.math.MatrixStack ctx, int mx, int my, float delta) {
-                this.renderBackground(ctx);
-                super.render(ctx, mx, my, delta);
+            @Override public void render(net.minecraft.client.util.math.MatrixStack matrices, int mx, int my, float delta) {
+                this.renderBackground(matrices);
+                super.render(matrices, mx, my, delta);
                 for (int row = 0; row < 2; row++) {
                     dev.s1mp1e.glass.render.SfIcons.devBypass = row == 0;
                     int x = 20, y = 40 + row * 50;
@@ -1566,7 +1566,7 @@ final class DevShotVerify {
                             com.mojang.blaze3d.systems.RenderSystem.setShader(net.minecraft.client.render.GameRenderer::getPositionTexShader);
                             com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
                             com.mojang.blaze3d.systems.RenderSystem.setShaderTexture(0, new net.minecraft.util.Identifier(it[0]));
-                            net.minecraft.client.gui.DrawableHelper.drawTexture(ctx, x, y, (float) u, (float) v, w, h, tw, th);
+                            net.minecraft.client.gui.DrawableHelper.drawTexture(matrices, x, y, (float) u, (float) v, w, h, tw, th);
                         } catch (Throwable t) { /* texture missing in this version */ }
                         x += w + 6;
                         if (x > this.width - 40) { x = 20; y += 22; }

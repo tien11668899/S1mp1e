@@ -112,6 +112,13 @@ public final class ModuleManager {
         add("HitMarkerModule",     safeHitMarker());
         // particles: one switch for every particle (reduced share or none)
         add("ParticlesModule",     safeParticles());
+        // name-tag background look (Glass / Vanilla / Off), ported from 26.2, ON by default (frosted plate).
+        add("NameTagModule",       safeNameTag());
+        // ported from 26.2: toggle sprint/sneak (glass status pill) and hold-key freelook
+        add("ToggleSprintModule",  safeToggleSprint());
+        add("FreelookModule",      safeFreelook());
+        add("DragonWingsModule",   safeDragonWings());
+        add("MinimapModule",       safeMinimap());
 
         S1mp1eConfig.load();
 
@@ -142,8 +149,28 @@ public final class ModuleManager {
     // Separate methods rather than one big try block: a failure in the middle
     // of a shared block would silently drop every module after it.
 
+    private static Module safeToggleSprint() {
+        try { return new dev.s1mp1e.client.module.ToggleSprintModule(); } catch (Throwable t) { return fail("ToggleSprintModule", t); }
+    }
+
+    private static Module safeMinimap() {
+        try { return new dev.s1mp1e.client.module.MinimapModule(); } catch (Throwable t) { return fail("MinimapModule", t); }
+    }
+
+    private static Module safeDragonWings() {
+        try { return new dev.s1mp1e.client.module.DragonWingsModule(); } catch (Throwable t) { return fail("DragonWingsModule", t); }
+    }
+
+    private static Module safeFreelook() {
+        try { return new dev.s1mp1e.client.module.FreelookModule(); } catch (Throwable t) { return fail("FreelookModule", t); }
+    }
+
     private static Module safeParticles() {
         try { return new dev.s1mp1e.client.module.ParticlesModule(); } catch (Throwable t) { return fail("ParticlesModule", t); }
+    }
+
+    private static Module safeNameTag() {
+        try { return new dev.s1mp1e.client.module.NameTagModule(); } catch (Throwable t) { return fail("NameTagModule", t); }
     }
 
     private static Module safeLowFire() {

@@ -29,6 +29,11 @@ dependencies {
     // dropped (it was built with Loom 0.12, older than this project's, so the Loom stamp needs no lowering). For a
     // dev run drop the ORIGINAL jar into run/mods (it needs fabricloader >= 0.12, satisfied by 0.15.11).
     modCompileOnly files('libs/compat/sodium-0.4.4-compile.jar')
+    // Compile-only: Essential's Elementa + UniversalCraft (+ Kotlin stdlib), for the liquid-glass restyle and zh_TW
+    // translation of Essential's UI (s1mp1e.essential.mixins.json, @Pseudo targets). Our mixins touch no member with a
+    // Minecraft type, so the intermediary-named UniversalCraft jar compiles as plain files (the 1.21 build, as in
+    // mc1201). Never bundled.
+    compileOnly files('libs/compat/essential/elementa-745.jar', 'libs/compat/essential/universalcraft-1.21-fabric-505.jar', 'libs/compat/essential/kotlin-stdlib-2.3.0.jar')
 }
 
 processResources {
@@ -51,6 +56,8 @@ loom {
     runs {
         client {
             vmArg "-Ds1mp1e.preloadMixinTargets=true"
+            // production loads mods in mod-id order; dev shuffles it — keep dev identical (Essential compat relies on it)
+            vmArg "-Dfabric.debug.disableModShuffle=true"
         }
     }
 }

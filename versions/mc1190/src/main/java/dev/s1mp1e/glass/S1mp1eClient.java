@@ -31,6 +31,8 @@ public final class S1mp1eClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         System.out.println("[S1mp1e] client init — liquid glass 0.1.0 (1.19.2 Fabric)");
+        // Essential compat fallback if our preLaunch ran before Essential's loader put it on the classpath
+        dev.s1mp1e.glass.compat.essential.EssentialPreLaunch.retry();
 
         // DEV ONLY (set by `runClient` via -Ds1mp1e.preloadMixinTargets=true, never in production): load the
         // classes our GUI/world mixins target right away, so a broken injection (defaultRequire 1) fails at launch
@@ -110,6 +112,19 @@ public final class S1mp1eClient implements ClientModInitializer {
             }
         }
 
+        // PORT CHECK (env S1MP1E_MIXIN_AUDIT=1, set only by hand for a test run; the launcher passes env through): apply
+        // every mixin of every config now, so a target that differs on this version
+        // fails here, at start-up, with the offending mixin in the log, instead of when its screen first opens.
+        if ("1".equals(System.getenv("S1MP1E_MIXIN_AUDIT"))) {
+            try {
+                org.spongepowered.asm.mixin.MixinEnvironment.getCurrentEnvironment().audit();
+                System.out.println("[S1mp1e] mixin audit: every target loaded");
+            } catch (Throwable t) {
+                System.out.println("[S1mp1e] mixin audit FAILED: " + t);
+                t.printStackTrace();
+            }
+        }
+
         // Build modules + load saved config (guarded internally; never throws).
         try { ModuleManager.init(); } catch (Throwable t) { System.out.println("[S1mp1e] module init failed: " + t); }
 
@@ -134,6 +149,10 @@ public final class S1mp1eClient implements ClientModInitializer {
         HudRenderCallback.EVENT.register((MatrixStack matrices, float td) -> {
             MinecraftClient c = MinecraftClient.getInstance();
             if (c.player == null) return;
+            // Glass name-tag plates (NameTags module, Glass mode): the labels were captured + cancelled in world space
+            // this frame; draw the refractive glass + text here, over the world backdrop grabbed at InGameHud HEAD. A
+            // no-op when nothing was captured (Vanilla / Off / module off), so it costs nothing in those modes.
+            try { dev.s1mp1e.client.gui.NameTagGlass.render(matrices); } catch (Throwable ignored) {}
             for (Module m : ModuleManager.all()) {
                 if (!(m instanceof HudRenderer)) continue;
                 float vis = HudFade.visibility(m, m.enabled);
@@ -165,6 +184,9 @@ public final class S1mp1eClient implements ClientModInitializer {
         // carried over from launch can't fire it.
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client == null || client.getWindow() == null) return;
+            dev.s1mp1e.client.module.ToggleSprintModule.tick();
+            dev.s1mp1e.client.module.FreelookModule.tick();
+            dev.s1mp1e.client.module.MinimapModule.tick();
             int mk = S1mp1eConfig.getMenuKey();
             boolean down = mk > 0
                     && client.isWindowFocused()
