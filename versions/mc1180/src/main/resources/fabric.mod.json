@@ -8,7 +8,8 @@
   "license": "ARR",
   "environment": "client",
   "entrypoints": {
-    "client": [ "dev.s1mp1e.glass.S1mp1eClient" ]
+    "client": [ "dev.s1mp1e.glass.S1mp1eClient" ],
+    "preLaunch": [ "dev.s1mp1e.glass.compat.essential.EssentialPreLaunch" ]
   },
   "mixins": [ "s1mp1e.mixins.json", "s1mp1e.sodium.mixins.json" ],
   "depends": {

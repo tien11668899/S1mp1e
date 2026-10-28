@@ -1,41 +1,104 @@
 package dev.s1mp1e.glass.mixin;
 
+import dev.s1mp1e.client.gui.NameTagGlass;
+import dev.s1mp1e.client.module.NameTagModule;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.entity.EntityRenderer;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.entity.Entity;
+import net.minecraft.text.Text;
+import net.minecraft.text.TextColor;
+import net.minecraft.util.math.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Entity name-tag background plates get the frosted-glass tint (G6).
+ * Entity name-tag background plate: restyled, moved or removed per the {@code NameTags} module's
+ * {@code Background} setting (Glass / Vanilla / Off).
  *
- * <p>Name tags are drawn in <b>world space</b>, so the GUI-space SDF refraction pipeline (which samples a per-frame GUI
- * backdrop) does not apply - there is no backdrop to refract. Instead this restyles the existing translucent plate
- * cosmetically: {@code EntityRenderer.renderLabelIfPresent} computes the plate colour as
- * {@code (int)(getTextBackgroundOpacity(0.25f) * 255) << 24} (black at the options' background opacity) and passes it as
- * the {@code backgroundColor} (arg 8) of {@code TextRenderer.draw(...)}. This {@code @ModifyArg} keeps that alpha exactly
- * (so the plate's presence, opacity and depth behaviour are identical to vanilla) and only shifts the RGB from pure
- * black to a cool frosted charcoal, so the plate reads like tinted glass rather than a flat black box. The second draw
- * call (the text pass) passes {@code backgroundColor == 0} and is returned untouched by the {@code a == 0} guard.
- * (javap-verified: {@code TextRenderer.draw(Text,FFIZ,Matrix4f,VertexConsumerProvider,ZII)} arg index 8 = backgroundColor,
- * identical to the 1.19.2 sibling.)
+ * <p>Name tags are drawn in <b>world space</b>. 1.18.2's {@code EntityRenderer.renderLabelIfPresent} computes the plate
+ * colour as {@code ((int)(getTextBackgroundOpacity(0.25f)*255)) << 24} (black at the options' background opacity) and
+ * passes it as the {@code backgroundColor} arg (index 8) of {@code TextRenderer.draw(...)}.
  *
- * <p><b>Fair play.</b> Pure re-skin of the plate colour. It does not change when or where a name shows, does not touch
- * depth / see-through-walls behaviour, and reads nothing about the entity - it cannot reveal anything vanilla does not
- * already draw.
+ * <ul>
+ *   <li><b>Vanilla / Off</b> — the {@code @ModifyArg} hands that colour to {@link NameTagModule#plate(int)}, which keeps
+ *       the vanilla alpha for Vanilla (identical presence / opacity / depth) and zeroes it for Off. Vanilla draws twice
+ *       (a see-through pass with the plate and a normal pass with {@code backgroundColor == 0}); the {@code a == 0}
+ *       guard in {@code plate} leaves the second pass untouched.</li>
+ *   <li><b>Glass</b> — the GUI-space SDF refraction pipeline samples a per-frame HUD backdrop grab, so the world-space
+ *       plate has nothing to refract. The {@code @Inject} at HEAD reconstructs the label's pose exactly as the method
+ *       does (lift to {@code getHeight() + 0.5}, billboard-rotate, scale), projects the plate rect to a GUI rect for
+ *       {@link NameTagGlass}, then CANCELS the whole label — so the backdrop grab is clean terrain where
+ *       {@link NameTagGlass#render} will draw the refractive glass plate + crisp text at the HUD stage. The pose is built
+ *       on a push/pop of the caller's stack, which is balanced again before the cancel.</li>
+ * </ul>
+ *
+ * <p><b>1.18.2 (as 1.19.2).</b> No {@code getNameLabelHeight()} (the label sits at {@code getHeight() + 0.5}), no JOML (the pose is
+ * a {@code net.minecraft.util.math.Matrix4f} copy), and {@code TextRenderer.draw} takes a {@code boolean seeThrough}
+ * where 1.20.1 has a {@code TextLayerType}.
+ *
+ * <p><b>Fair play.</b> This only re-skins, moves or hides the plate the game already draws. It does not change when or
+ * where a name shows, does not touch depth / see-through-walls behaviour, and reads nothing about the entity beyond the
+ * position vanilla itself uses to place the label. A zero-opacity plate (a discrete / no-plate name) is passed straight
+ * through, and Glass mode skips it too, so no mode ever adds a plate where vanilla draws none.
  */
 @Mixin(EntityRenderer.class)
 public abstract class NameTagGlassMixin {
 
-    /** Cool frosted charcoal RGB substituted for the plate's black; the vanilla alpha is preserved. */
-    private static final int FROST_RGB = 0x0B0E16;
+    /**
+     * GLASS mode only: capture the label for the HUD-stage refraction pass and CANCEL the vanilla world-space label, so
+     * the backdrop grab is clean terrain where the glass plate will refract. Runs at HEAD and reconstructs the label's
+     * pose exactly as {@code renderLabelIfPresent} does below. Vanilla / Off modes fall through to the {@code @ModifyArg}.
+     */
+    @Inject(method = "renderLabelIfPresent", at = @At("HEAD"), cancellable = true)
+    private void s1mp1e$nameGlassCapture(Entity entity, Text text, MatrixStack matrices,
+                                         net.minecraft.client.render.VertexConsumerProvider vertexConsumers,
+                                         int light, CallbackInfo ci) {
+        if (!NameTagModule.glassMode()) return;
+        try {
+            MinecraftClient mc = MinecraftClient.getInstance();
+
+            // vanilla distance cull: beyond 64 blocks the label is not drawn — don't add a glass plate there either
+            if (mc.getEntityRenderDispatcher().getSquaredDistanceToCamera(entity) > 4096.0) return;
+
+            // vanilla plate alpha = (int)(getTextBackgroundOpacity(0.25) * 255) << 24; alpha 0 means no plate is drawn
+            int plateAlpha = (int) (mc.options.getTextBackgroundOpacity(0.25f) * 255.0f);
+            if (plateAlpha == 0) return;   // no plate -> leave the plateless name to vanilla
+
+            // reconstruct the label pose as 1.19.2 does: lift to height + 0.5, billboard-rotate, scale (-0.025, -0.025,
+            // 0.025) — on a push/pop of the caller's stack, keeping a copy of the result
+            matrices.push();
+            matrices.translate(0.0, entity.getHeight() + 0.5f, 0.0);
+            matrices.multiply(mc.getEntityRenderDispatcher().getRotation());
+            matrices.scale(-0.025f, -0.025f, 0.025f);
+            Matrix4f pose = matrices.peek().getPositionMatrix().copy();
+            matrices.pop();
+
+            float x = (float) (-mc.textRenderer.getWidth(text) / 2);   // vanilla's integer halving
+            float y = "deadmau5".equals(text.getString()) ? -10f : 0f;
+
+            // the name's colour is its own style (team / custom), defaulting to white like vanilla
+            int rgb = 0xFFFFFF;
+            TextColor tc = text.getStyle().getColor();
+            if (tc != null) rgb = tc.getRgb();
+
+            if (NameTagGlass.capture(pose, x, y, text, rgb)) {
+                ci.cancel();   // drop the vanilla world-space label; the glass plate + text is drawn at the HUD stage
+            }
+        } catch (Throwable ignored) {
+            // any failure: do nothing, let the vanilla label render normally (the @ModifyArg still re-skins it)
+        }
+    }
 
     @ModifyArg(method = "renderLabelIfPresent",
                at = @At(value = "INVOKE",
                         target = "Lnet/minecraft/client/font/TextRenderer;draw(Lnet/minecraft/text/Text;FFIZLnet/minecraft/util/math/Matrix4f;Lnet/minecraft/client/render/VertexConsumerProvider;ZII)I"),
                index = 8)
-    private int s1mp1e$frostNameBackground(int backgroundColor) {
-        int a = backgroundColor >>> 24 & 0xFF;
-        if (a == 0) return backgroundColor;          // text pass / no-plate: leave untouched
-        return a << 24 | FROST_RGB;
+    private int s1mp1e$nameBackground(int backgroundColor) {
+        // Vanilla = untouched translucent black (原封不動); Off = alpha cleared; Glass = cancelled before this runs.
+        return NameTagModule.plate(backgroundColor);
     }
 }

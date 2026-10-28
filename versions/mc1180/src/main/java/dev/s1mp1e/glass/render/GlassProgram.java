@@ -51,9 +51,11 @@ public final class GlassProgram {
     public static final int RING  = 7;
     /** Flat anti-aliased round-capped ARC (ring_arc.fsh, no backdrop) - the attack-cooldown progress. */
     public static final int ARC   = 8;
+    /** Glass minimap (minimap.fsh): the map texture, player-marker glass, heading beam and dots - dev.s1mp1e.client.minimap. */
+    public static final int MINIMAP = 9;
 
-    private static final int COUNT = 9;
-    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens", "glass_ring", "ring_arc" };
+    private static final int COUNT = 10;
+    private static final String[] FSH_NAME = { "glass", "glass_line", "glass_btn", "menu_blur", "round", "edge", "glass_lens", "glass_ring", "ring_arc", "minimap" };
 
     private static final int[] program    = new int[COUNT];
     private static final int[] uProj       = new int[COUNT];
@@ -94,6 +96,7 @@ public final class GlassProgram {
     public static boolean roundUsable(){ return state == 1 && program[ROUND] != 0; }
     public static boolean edgeUsable() { return state == 1 && program[EDGE]  != 0; }
     public static boolean lensUsable() { return state == 1 && program[LENS]  != 0; }
+    public static boolean minimapUsable() { return state == 1 && program[MINIMAP] != 0; }
 
     /** Build all four once. Returns false if this GPU can't run the glass path. */
     public static boolean ensureReady() {

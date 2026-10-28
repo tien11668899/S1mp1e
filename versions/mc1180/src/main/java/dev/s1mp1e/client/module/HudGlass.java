@@ -61,6 +61,29 @@ public final class HudGlass {
     }
 
     /**
+     * {@link #glassBox} with the hotbar's corner radius ({@link GlassCorners#HOTBAR_RADIUS}) whatever the size, as 26.x's
+     * {@code HudGlass.glassTile}: glassBox's fixed 0.9 corner fraction scales with the short side, which suits small
+     * HUD pills but rounds a large panel (the minimap's square bezel, the full-screen map) far too much.
+     */
+    public static void glassTile(MatrixStack matrices, int x0, int y0, int x1, int y1, float alpha) {
+        if (x1 <= x0 || y1 <= y0) return;
+        alpha *= HudFade.alpha;   // HUD-module appear/disappear (1 outside a module's draw)
+        if (GlassProgram.ensureReady() && GlassProgram.usable()) {
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (!SceneCapture.hasBackdrop()) SceneCapture.grabNow();
+            GuiFlush.flush();                 // flush buffered HUD draws so the glass sits on top of them
+            RenderSystem.disableDepthTest();
+            GlassProgram.setShadowScale(mc.currentScreen != null ? 0f : 1f);
+            GlassRenderer.glass(x0, y0, x1, y1, 6f, GlassCorners.hotbarCornerFrac(x1 - x0, y1 - y0), 0f, alpha,
+                    GlassRenderer.FROST_PANEL);
+            RenderSystem.enableDepthTest();
+        } else {
+            int a = Math.max(0, Math.min(255, Math.round(alpha * 0x88)));
+            roundFill(matrices, x0, y0, x1 - x0, y1 - y0, Math.round(GlassCorners.HOTBAR_RADIUS), (a << 24) | 0x101014);
+        }
+    }
+
+    /**
      * REAL refractive liquid glass at ABSOLUTE scaled-GUI coords, with the HUD hotbar corner radius (user rule R2 —
      * every NEW glass piece gets the hotbar corner via {@link GlassCorners}). Same housekeeping as {@link #glassBox}
      * (flush the buffered HUD draws, world backdrop, drop-shadow suppressed while a screen dims the background), but

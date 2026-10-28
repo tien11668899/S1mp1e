@@ -36,7 +36,7 @@ public final class InventoryHudModule extends Module implements HudBounds, HudRe
     private static final int SLOT = 18;         // 16px icon + 2px gap
     private static final int COLS = 9, ROWS = 3, PAD = 4;
 
-    public final Setting key   = add(Setting.integer("Key (GLFW)", 258, 0, 400));   // GLFW_KEY_TAB
+    public final Setting key   = add(Setting.key("Key (GLFW)", 258));   // GLFW_KEY_TAB
     public final Setting scale = add(Setting.number("Scale", 1.0D, 0.5D, 2.0D));
     public final Setting posX  = add(Setting.integer("X", -1, -1, 4000));            // -1 = auto-centre
     public final Setting posY  = add(Setting.integer("Y", -1, -1, 4000));            // -1 = auto (above hotbar)

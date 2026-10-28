@@ -228,6 +228,61 @@ public final class GlassRenderer {
         batchTex = false;
     }
 
+    /**
+     * Quads given vertex by vertex through {@code kind}'s program with {@code textureId} on unit 0 (Sampler0) instead of
+     * the scene backdrop — the glass minimap ({@code dev.s1mp1e.client.minimap}). {@code xyuv} holds 4 floats per vertex
+     * (GUI x, y, u, v) and {@code argb} one packed colour per vertex, 4 vertices per quad in A-B-C-D order. Every
+     * position goes through {@code m} on the CPU (the caller's MatrixStack matrix, which the RenderSystem model-view
+     * this program reads does not carry), so the quads follow the same translate/scale as the text drawn over them.
+     * 1.19.2: Mojang's {@code Matrix4f} has no element getters, so it is read once, column-major, into {@code tq*}.
+     */
+    public static void texturedQuads(int kind, int textureId, float[] xyuv, int[] argb, int vertices,
+                                     net.minecraft.util.math.Matrix4f m) {
+        if (vertices < 4 || !GlassProgram.ensureReady()) return;
+        if (kind == GlassProgram.MINIMAP && !GlassProgram.minimapUsable()) return;
+        m.writeColumnMajor(TQ_MAT);   // absolute puts: element (row r, column c) lands at c * 4 + r
+        tq00 = TQ_MAT.get(0); tq01 = TQ_MAT.get(1); tq10 = TQ_MAT.get(4); tq11 = TQ_MAT.get(5);
+        tq30 = TQ_MAT.get(12); tq31 = TQ_MAT.get(13);
+        batchKind = kind;
+        batchTex = true;   // endBatch resyncs unit 0 through RenderSystem
+        RenderSystem.enableBlend();
+        RenderSystem.blendFuncSeparate(770, 771, 1, 0);   // same as beginBatch
+        RenderSystem.disableCull();
+        RenderSystem.depthMask(false);
+        RenderSystem.activeTexture(GL13.GL_TEXTURE0);
+        RenderSystem.bindTexture(textureId);
+        GlassProgram.bind(kind);
+        if (vao == 0) {
+            vao = GL30.glGenVertexArrays();
+            vbo = GL15.glGenBuffers();
+        }
+        cpu.clear();
+        vertCount = 0;
+        for (int q = 0; q + 3 < vertices; q += 4) {
+            texVert(xyuv, argb, q);       // A
+            texVert(xyuv, argb, q + 1);   // B
+            texVert(xyuv, argb, q + 2);   // C
+            texVert(xyuv, argb, q);       // A
+            texVert(xyuv, argb, q + 2);   // C
+            texVert(xyuv, argb, q + 3);   // D
+        }
+        endBatch();
+    }
+
+    /** {@link #texturedQuads}'s matrix, named like JOML's column-major getters (m30 / m31 = the translation). */
+    private static final java.nio.FloatBuffer TQ_MAT = org.lwjgl.BufferUtils.createFloatBuffer(16);
+    private static float tq00, tq01, tq10, tq11, tq30, tq31;
+
+    private static void texVert(float[] xyuv, int[] argb, int i) {
+        int o = i * 4;
+        float x = xyuv[o], y = xyuv[o + 1];
+        float sx = tq00 * x + tq10 * y + tq30;
+        float sy = tq01 * x + tq11 * y + tq31;
+        int c = argb[i];
+        vert(sx, sy, xyuv[o + 2], xyuv[o + 3],
+             ((c >> 16) & 255) / 255f, ((c >> 8) & 255) / 255f, (c & 255) / 255f, ((c >>> 24) & 255) / 255f);
+    }
+
     // ---- convenience wrappers matching 26.2's call sites -------------------
 
     /** Refractive glass: corner scale, neutral lift, opacity, frost. */
@@ -240,6 +295,11 @@ public final class GlassRenderer {
     /** Frosted container panel — 26.2 uses pad 12 and corner ~0.19 (0x31/255). */
     public static void panel(float x0, float y0, float x1, float y1, float opacity) {
         glass(x0, y0, x1, y1, PAD_PANEL, 0.19f, 0f, opacity, FROST_PANEL);
+    }
+
+    /** {@link #panel} with an explicit shader corner (body radius = min-side · 0.25 · corner). */
+    public static void panel(float x0, float y0, float x1, float y1, float opacity, float corner) {
+        glass(x0, y0, x1, y1, PAD_PANEL, corner, 0f, opacity, FROST_PANEL);
     }
 
     /**

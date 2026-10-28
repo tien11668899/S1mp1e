@@ -52,6 +52,7 @@
     "SystemToastGlassMixin",
     "ActionBarGlassMixin",
     "NameTagGlassMixin",
+    "NameTagProjectionMixin",
     "BlockOutlineMixin",
     "RenderPhaseLineWidthMixin",
     "FovMultiplierMixin",
@@ -120,7 +121,19 @@
     "GameModeSlotGlassMixin",
     "AdvancementSpritesGlassMixin",
     "CreditsBackdropMixin",
-    "DevShotMixin"
+    "DevShotMixin",
+    "FreelookCameraMixin",
+    "FreelookMouseMixin",
+    "StickyKeyBindingAccessor",
+    "ToggleKeyOptionsMixin",
+    "LivingEntityRendererFeatureInvoker",
+    "PlayerRendererWingsMixin",
+    "CapeWingsMixin",
+    "MinimapChunkMixin",
+    "MinimapBlockMixin",
+    "BidiFastPathMixin",
+    "TextShaderCoverageFixMixin",
+    "FontBearingFixMixin"
   ],
   "injectors": {
     "defaultRequire": 1

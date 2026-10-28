@@ -40,6 +40,11 @@ public final class Lang {
         MODULE.put("Particles", "粒子");
         MODULE.put("AttackRing", "攻擊冷卻玻璃環");
         MODULE.put("HitMarker", "命中標記");
+        MODULE.put("NameTags", "名牌");
+        MODULE.put("ToggleSprint", "自動疾跑／潛行");
+        MODULE.put("Freelook", "自由視角");
+        MODULE.put("Minimap", "玻璃小地圖");
+        MODULE.put("DragonWings", "末影龍翅膀");
 
         SETTING.put("X", "X 位置");
         SETTING.put("Y", "Y 位置");
@@ -60,6 +65,12 @@ public final class Lang {
         SETTING.put("Center Dot", "中心點");
         SETTING.put("Dot Size", "點大小");
         SETTING.put("Rotation", "旋轉");
+        SETTING.put("Vertical Size", "直向長度（0＝同大小）");
+        SETTING.put("Top Arm", "上臂");
+        SETTING.put("Bottom Arm", "下臂");
+        SETTING.put("Left Arm", "左臂");
+        SETTING.put("Right Arm", "右臂");
+        SETTING.put("Outline Thickness", "外框粗細");
         SETTING.put("Camera shake", "鏡頭晃動");
         SETTING.put("Red flash", "紅色閃爍");
         SETTING.put("Swing while using", "使用時揮手");
@@ -79,7 +90,26 @@ public final class Lang {
         SETTING.put("Off X", "副手 X");
         SETTING.put("Off Y", "副手 Y");
         SETTING.put("Off Z", "副手 Z");
-        SETTING.put("Key (GLFW)", "按鍵 (GLFW)");
+        SETTING.put("Key (GLFW)", "按鍵");   // edited by pressing the key (KeyWidget), so the code format is no longer shown
+        // ToggleSprint
+        SETTING.put("Toggle sprint", "疾跑切換");
+        SETTING.put("Toggle sneak", "潛行切換");
+        SETTING.put("Show status", "顯示狀態標示");
+        // Freelook
+        SETTING.put("Third person", "按住時切到第三人稱");
+        SETTING.put("Smooth return", "放開後平滑轉回");
+        SETTING.put("Return speed", "轉回速度");
+        // Minimap ("Shape", "Size", "Zoom", "X", "Y" are shared with other modules)
+        SETTING.put("Orientation", "朝向");
+        SETTING.put("Map style", "地圖風格");
+        SETTING.put("Soft colours", "柔和色調");
+        SETTING.put("Bezel opacity", "玻璃外框不透明度");
+        SETTING.put("Show players", "顯示其他玩家（僅自己的世界）");
+        SETTING.put("Player names", "顯示玩家名稱");
+        SETTING.put("Tab radar", "按住 Tab 顯示生物與掉落物（僅自己的世界）");
+        SETTING.put("Fullscreen key (GLFW)", "全螢幕地圖按鍵");   // GLFW code; 26.3 keeps its SDL scancode under "Fullscreen key" in the shared modules.json
+        // DragonWings
+        SETTING.put("Wing size", "翅膀大小");
         SETTING.put("Zoom", "縮放倍率");
         SETTING.put("Smoothness", "平滑度");
         SETTING.put("Block other zoom", "阻擋其他模組縮放");
@@ -137,6 +167,19 @@ public final class Lang {
         MODE.put("Same", "同上");
         MODE.put("Reduced", "減少");
         MODE.put("None", "無");
+        // NameTags Background look
+        MODE.put("Glass", "液態玻璃");
+        MODE.put("Vanilla", "原版");
+        MODE.put("Off", "關閉");
+        MODE.put("Apple", "Apple 地圖");
+        MODE.put("Classic", "原版地圖");
+        MODE.put("Round", "圓形");
+        MODE.put("Rounded square", "圓角正方形");
+        MODE.put("Follow facing", "跟著朝向轉");
+        MODE.put("North up", "北方朝上");
+        MODE.put("Close", "近");
+        MODE.put("Medium", "中");
+        MODE.put("Far", "遠");
     }
 
     public static String module(String id)  { String v = MODULE.get(id);  return v != null ? v : id; }

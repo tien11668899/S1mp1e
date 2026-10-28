@@ -171,8 +171,8 @@ final class CombatShot {
                         (dev.s1mp1e.client.module.CrosshairModule) ModuleManager.byName("Crosshair");
                 if (ch != null) {
                     ch.enabled = true; ch.shape.modeValue = xs;
-                    ch.size.intValue = 7; ch.gap.intValue = 3; ch.thick.intValue = 2;
-                    ch.rotation.intValue = "Cross".equals(xs) ? 45 : 0;
+                    ch.size.doubleValue = 7; ch.gap.doubleValue = 3; ch.thick.doubleValue = 2;
+                    ch.rotation.doubleValue = "Cross".equals(xs) ? 45 : 0;
                 }
                 if (ring() != null) ring().shape.modeValue = "Wrap";
                 swing(c);
@@ -184,7 +184,7 @@ final class CombatShot {
                     (dev.s1mp1e.client.module.CrosshairModule) ModuleManager.byName("Crosshair");
             if (ch != null) {
                 ch.enabled = false; ch.shape.modeValue = "Cross";
-                ch.size.intValue = 4; ch.gap.intValue = 2; ch.thick.intValue = 1; ch.rotation.intValue = 0;
+                ch.size.doubleValue = 4; ch.gap.doubleValue = 2; ch.thick.doubleValue = 1; ch.rotation.doubleValue = 0;
             }
             if (ring() != null) ring().shape.modeValue = "Circle";
         }));
