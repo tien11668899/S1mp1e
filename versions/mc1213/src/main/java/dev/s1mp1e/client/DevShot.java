@@ -920,7 +920,13 @@ public final class DevShot {
                                 cy, dev.s1mp1e.client.module.FreelookModule.yaw(), dev.s1mp1e.client.module.FreelookModule.pitch(),
                                 py, player.getYaw(), player.getPitch()));
                         flNext(now, 3); } }
-            case 3 -> { if (secs > 0.5) { capture(client, "fl-01-held-turned.png");
+            // what the frames rendered since used: the Camera's own angles must be the freelook ones, not the player's
+            case 3 -> { if (secs > 0.5) {
+                        net.minecraft.client.render.Camera cam = client.gameRenderer.getCamera();
+                        System.out.println(String.format("[S1mp1e][DevShot] freelook held: rendered camera yaw %.1f pitch %.1f (freelook %.1f / %.1f, player %.1f / %.1f)",
+                                cam.getYaw(), cam.getPitch(), dev.s1mp1e.client.module.FreelookModule.yaw(), dev.s1mp1e.client.module.FreelookModule.pitch(),
+                                player.getYaw(), player.getPitch()));
+                        capture(client, "fl-01-held-turned.png");
                         dev.s1mp1e.client.module.FreelookModule.devHold = false; flNext(now, 4); } }
             case 4 -> { if (secs > 2.0) {
                         System.out.println("[S1mp1e][DevShot] freelook let go: active=" + dev.s1mp1e.client.module.FreelookModule.active()
